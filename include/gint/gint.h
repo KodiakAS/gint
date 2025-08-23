@@ -13,6 +13,7 @@
 namespace gint
 {
 
+//=== Forward declarations & type aliases ====================================
 template <size_t Bits, typename Signed>
 class integer;
 
@@ -21,12 +22,7 @@ using UInt128 = integer<128, unsigned>;
 using Int256 = integer<256, signed>;
 using UInt256 = integer<256, unsigned>;
 
-template <size_t Bits, typename Signed>
-std::string to_string(const integer<Bits, Signed> & value);
-
-template <size_t Bits, typename Signed>
-std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed> & value);
-
+//=== Internal helper utilities ==============================================
 namespace detail
 {
 template <size_t Bits>
@@ -238,6 +234,14 @@ inline void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
 }
 } // namespace detail
 
+//=== String and stream declarations =========================================
+template <size_t Bits, typename Signed>
+std::string to_string(const integer<Bits, Signed> & value);
+
+template <size_t Bits, typename Signed>
+std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed> & value);
+
+//=== Core integer type ======================================================
 template <size_t Bits, typename Signed>
 class integer
 {
@@ -248,6 +252,7 @@ public:
     friend struct detail::limbs_equal;
     friend class std::numeric_limits<integer<Bits, Signed>>;
 
+    // Constructors
     constexpr integer() noexcept = default;
 
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
@@ -266,6 +271,13 @@ public:
     {
     }
 
+    // Floating-point constructor
+    template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+    integer(T v) noexcept
+    {
+        assign_float(v);
+    }
+
 private:
     template <typename T, size_t... I>
     constexpr integer(T v, detail::index_sequence<I...>) noexcept
@@ -282,12 +294,7 @@ private:
     }
 
 public:
-    template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    integer(T v) noexcept
-    {
-        assign_float(v);
-    }
-
+    // Assignment operators
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     integer & operator=(T v) noexcept
     {
@@ -314,6 +321,7 @@ public:
         return *this;
     }
 
+    // Conversion operators
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     operator T() const noexcept
     {
@@ -362,6 +370,9 @@ public:
 
     explicit operator float() const noexcept { return static_cast<float>(static_cast<long double>(*this)); }
 
+    explicit operator bool() const noexcept { return !is_zero(); }
+
+    // Arithmetic assignment operators
     integer & operator+=(const integer & rhs) noexcept
     {
         detail::add_limbs<limbs>(data_, rhs.data_);
@@ -371,27 +382,6 @@ public:
     integer & operator-=(const integer & rhs) noexcept
     {
         detail::sub_limbs<limbs>(data_, rhs.data_);
-        return *this;
-    }
-
-    integer & operator&=(const integer & rhs) noexcept
-    {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] &= rhs.data_[i];
-        return *this;
-    }
-
-    integer & operator|=(const integer & rhs) noexcept
-    {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] |= rhs.data_[i];
-        return *this;
-    }
-
-    integer & operator^=(const integer & rhs) noexcept
-    {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] ^= rhs.data_[i];
         return *this;
     }
 
@@ -413,6 +403,29 @@ public:
         return *this;
     }
 
+    // Bitwise assignment operators
+    integer & operator&=(const integer & rhs) noexcept
+    {
+        for (size_t i = 0; i < limbs; ++i)
+            data_[i] &= rhs.data_[i];
+        return *this;
+    }
+
+    integer & operator|=(const integer & rhs) noexcept
+    {
+        for (size_t i = 0; i < limbs; ++i)
+            data_[i] |= rhs.data_[i];
+        return *this;
+    }
+
+    integer & operator^=(const integer & rhs) noexcept
+    {
+        for (size_t i = 0; i < limbs; ++i)
+            data_[i] ^= rhs.data_[i];
+        return *this;
+    }
+
+    // Shift operators
     integer & operator<<=(int n) noexcept
     {
         if (n <= 0)
@@ -465,6 +478,7 @@ public:
         return *this;
     }
 
+    // Increment and decrement
     integer & operator++() noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
@@ -501,8 +515,7 @@ public:
         return tmp;
     }
 
-    explicit operator bool() const noexcept { return !is_zero(); }
-
+    // Friend operators
     friend integer operator+(integer lhs, const integer & rhs) noexcept
     {
         lhs += rhs;
@@ -1348,6 +1361,7 @@ public:
 namespace gint
 {
 
+//=== String and stream definitions =========================================
 template <size_t Bits, typename Signed>
 inline std::string to_string(const integer<Bits, Signed> & v)
 {
