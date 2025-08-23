@@ -18,11 +18,13 @@ if(ENABLE_COVERAGE)
     endif()
 endif()
 
-find_package(fmt CONFIG QUIET)
-if(NOT fmt_FOUND)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(fmt REQUIRED IMPORTED_TARGET fmt)
-    add_library(fmt::fmt ALIAS PkgConfig::fmt)
+if(WI_BUILD_TESTS OR WI_BUILD_BENCHMARKS)
+    find_package(fmt CONFIG QUIET)
+    if(NOT fmt_FOUND)
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(fmt REQUIRED IMPORTED_TARGET fmt)
+        add_library(fmt::fmt ALIAS PkgConfig::fmt)
+    endif()
 endif()
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -54,7 +56,15 @@ if(WI_BUILD_TESTS)
     endfunction()
 
     add_gint_test(gint_test tests/gint_test.cpp 11)
+    target_compile_definitions(gint_test PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(gint_test PRIVATE fmt::fmt)
+
+    add_gint_test(gint_fmt_test tests/fmt_support_test.cpp 11)
+    target_compile_definitions(gint_fmt_test PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_fmt_test PRIVATE fmt::fmt)
+
+    add_gint_test(gint_compile_cpp17 tests/compile_test.cpp 17)
+    add_gint_test(gint_compile_cpp20 tests/compile_test.cpp 20)
 endif()
 
 if(WI_BUILD_BENCHMARKS)
@@ -67,6 +77,7 @@ if(WI_BUILD_BENCHMARKS)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_compile_features(perf PRIVATE cxx_std_11)
+    target_compile_definitions(perf PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf PRIVATE -O3 -DNDEBUG)
 
@@ -77,6 +88,7 @@ if(WI_BUILD_BENCHMARKS)
     target_include_directories(perf_compare_int128 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_compile_definitions(perf_compare_int128 PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf_compare_int128 PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_compare_int128 PRIVATE -O3 -DNDEBUG)
 
@@ -87,6 +99,7 @@ if(WI_BUILD_BENCHMARKS)
     target_include_directories(perf_compare_int256 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_compare_int256 PRIVATE -O3 -DNDEBUG)
 
@@ -97,6 +110,7 @@ if(WI_BUILD_BENCHMARKS)
     target_include_directories(perf_compare_int256_random PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_compile_definitions(perf_compare_int256_random PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf_compare_int256_random PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_compare_int256_random PRIVATE -O3 -DNDEBUG)
 endif()
