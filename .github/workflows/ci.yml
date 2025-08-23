@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y cmake build-essential clang-format \
+              libfmt-dev libgtest-dev libboost-dev
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew update
+            brew install cmake clang-format fmt googletest boost
+          fi
+      - name: Configure
+        run: cmake -S . -B build -DWI_BUILD_TESTS=ON -DWI_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build build --config Debug
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
+      - name: Check code format
+        run: |
+          FILES=$(git ls-files '*.cpp' '*.hpp' '*.h')
+          if [ -n "$FILES" ]; then
+            clang-format -i --style=file $FILES
+            git diff --exit-code
+          fi
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential clang-format \
+            libfmt-dev libgtest-dev lcov libboost-dev
+      - name: Configure
+        run: cmake -S . -B build -DENABLE_COVERAGE=ON -DWI_BUILD_TESTS=ON -DWI_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build build --config Debug
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure || true
+      - name: Generate coverage
+        run: |
+          lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
+          lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
+          lcov --list coverage.info
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libfmt-dev libbenchmark-dev libboost-dev
+      - name: Configure
+        run: cmake -S . -B build -DWI_BUILD_TESTS=OFF -DWI_BUILD_BENCHMARKS=ON
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Run benchmarks
+        run: |
+          build/perf --benchmark_min_time=0.01s
+          build/perf_compare_int256 --benchmark_min_time=0.01s
