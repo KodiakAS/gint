@@ -4,7 +4,7 @@ This directory contains several microbenchmarks for `gint`. Build them
 with:
 
 ```bash
-cmake -S . -B build-release-bench -DWI_BUILD_TESTS=OFF -DWI_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build-release-bench -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release-bench --config Release -j$(nproc)
 ```
 

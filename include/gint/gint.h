@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -274,7 +273,6 @@ public:
     {
     }
 
-    // Floating-point constructor
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     integer(T v) noexcept
     {
@@ -338,6 +336,23 @@ public:
             return static_cast<T>(value);
     }
 
+    // Non-template conversion to __int128.
+    // Rationale:
+    // - The generic `template<class T> operator T()` is only considered when a
+    //   concrete *expected type* is known (e.g., `static_cast<T>`, initializing a
+    //   variable of type T). In many expressions there is no such expected type
+    //   (`x + 1`, `x < 0`, `cond ? x : 0`, `std::max(x, 0)`, etc.), so the template
+    //   cannot be deduced and is not a viable candidate.
+    // - Providing this concrete (non-template) conversion gives overload resolution
+    //   a fixed candidate that “bridges” `integer` into the built-in arithmetic
+    //   domain. This makes mixed expressions with literals and built-ins work and
+    //   ensures `static_cast<__int128>(x)` is well-formed even inside non-constexpr
+    //   branches that are never taken at runtime (those branches are still type-checked).
+    // - Semantics: returns the least-significant 128 bits of the value, interpreted
+    //   as two’s-complement `__int128`.
+    //
+    // Note: keep as a concrete conversion specifically to provide a stable route
+    // for contexts where no target type is implied.
     operator __int128() const noexcept
     {
         unsigned __int128 value = 0;

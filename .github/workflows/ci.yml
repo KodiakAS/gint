@@ -24,7 +24,7 @@ jobs:
             brew install cmake clang-format fmt googletest boost
           fi
       - name: Configure
-        run: cmake -S . -B build -DWI_BUILD_TESTS=ON -DWI_BUILD_BENCHMARKS=OFF
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
       - name: Build
         run: cmake --build build --config Debug
       - name: Run tests
@@ -49,7 +49,7 @@ jobs:
           sudo apt-get install -y cmake build-essential clang-format \
             libfmt-dev libgtest-dev lcov libboost-dev
       - name: Configure
-        run: cmake -S . -B build -DENABLE_COVERAGE=ON -DWI_BUILD_TESTS=ON -DWI_BUILD_BENCHMARKS=OFF
+        run: cmake -S . -B build -DENABLE_COVERAGE=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
       - name: Build
         run: cmake --build build --config Debug
       - name: Run tests
@@ -71,7 +71,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential libfmt-dev libbenchmark-dev libboost-dev
       - name: Configure
-        run: cmake -S . -B build -DWI_BUILD_TESTS=OFF -DWI_BUILD_BENCHMARKS=ON
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON
       - name: Build
         run: cmake --build build --config Release
       - name: Run benchmarks
