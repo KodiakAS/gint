@@ -133,6 +133,9 @@ inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
     lhs[3] = static_cast<uint64_t>(lhs3 - rhs3);
 }
 
+// Perform 128-bit multiplication using a straightforward schoolbook
+// method. The operands are split into low/high 64-bit limbs and cross
+// multiplied with 128-bit intermediates to produce a 256-bit result.
 inline void mul_128(uint64_t * res, const uint64_t * a, const uint64_t * b) noexcept
 {
     unsigned __int128 a_lo = a[0];
@@ -153,6 +156,7 @@ inline void mul_128(uint64_t * res, const uint64_t * a, const uint64_t * b) noex
 template <size_t L>
 inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
+    // Generic O(n^2) schoolbook multiplication.
     for (size_t i = 0; i < L; ++i)
     {
         unsigned __int128 carry = 0;
@@ -168,18 +172,24 @@ inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs
 template <>
 inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
+    // Fast path: if the high limbs are zero, operands fit in 128 bits and we
+    // can reuse the simpler 128-bit routine.
     if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
     {
         mul_128(res, lhs, rhs);
         return;
     }
 
+    // Otherwise use a Comba-style method: pack each pair of 64-bit limbs into a
+    // 128-bit value and compute cross products to form the 256-bit result.
     using Half = unsigned __int128;
+    // Pack limb pairs from lhs and rhs.
     Half a01 = (Half(lhs[1]) << 64) | lhs[0];
     Half a23 = (Half(lhs[3]) << 64) | lhs[2];
     Half b01 = (Half(rhs[1]) << 64) | rhs[0];
     Half b23 = (Half(rhs[3]) << 64) | rhs[2];
 
+    // Compute cross products and assemble final limbs.
     Half r23 = a23 * b01 + a01 * b23 + Half(lhs[1]) * rhs[1];
     Half r01 = Half(lhs[0]) * rhs[0];
     Half r12 = (r01 >> 64) + (r23 << 64);
@@ -679,6 +689,8 @@ public:
 
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
+        // Dispatch to the limb-wise multiplication routine which selects the
+        // appropriate algorithm based on operand size.
         integer result{};
         detail::mul_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
