@@ -1137,8 +1137,23 @@ private:
         return -1;
     }
 
-    limb_type div_mod_small(limb_type div, integer & quotient) const noexcept
+    template <size_t L = limbs>
+    typename std::enable_if<(L == 1), limb_type>::type div_mod_small(limb_type div, integer & quotient) const noexcept
     {
+        // SFINAE provides a dedicated implementation for single-limb integers,
+        // avoiding multi-limb code that would trigger -Warray-bounds warnings.
+        quotient = integer();
+        if (data_[0] == 0)
+            return 0;
+        quotient.data_[0] = static_cast<limb_type>(data_[0] / div);
+        return static_cast<limb_type>(data_[0] % div);
+    }
+
+    template <size_t L = limbs>
+    typename std::enable_if<(L > 1), limb_type>::type div_mod_small(limb_type div, integer & quotient) const noexcept
+    {
+        // This overload is only instantiated for multi-limb integers, preventing
+        // compilers from inspecting out-of-bounds accesses in single-limb cases.
         quotient = integer();
         size_t n = limbs;
         while (n > 0 && data_[n - 1] == 0)
