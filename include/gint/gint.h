@@ -8,7 +8,10 @@
 #include <ostream>
 #include <string>
 #include <type_traits>
-#include <fmt/format.h>
+
+#ifdef GINT_ENABLE_FMT
+#    include <fmt/format.h>
+#endif
 
 namespace gint
 {
@@ -1395,6 +1398,7 @@ inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed>
 
 } // namespace gint
 
+#ifdef GINT_ENABLE_FMT
 namespace fmt
 {
 template <size_t Bits, typename Signed>
@@ -1413,3 +1417,4 @@ struct formatter<gint::integer<Bits, Signed>>
     }
 };
 } // namespace fmt
+#endif
