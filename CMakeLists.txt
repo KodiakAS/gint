@@ -62,6 +62,17 @@ if(WI_BUILD_TESTS)
     add_gint_test(gint_fmt_test tests/fmt_support_test.cpp 11)
     target_compile_definitions(gint_fmt_test PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(gint_fmt_test PRIVATE fmt::fmt)
+
+    add_gint_test(gint_compile_cpp17 tests/compile_test.cpp 17)
+    add_gint_test(gint_compile_cpp20 tests/compile_test.cpp 20)
+
+    add_gint_test(gint_fmt_cpp17 tests/fmt_support_test.cpp 17)
+    target_compile_definitions(gint_fmt_cpp17 PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_fmt_cpp17 PRIVATE fmt::fmt)
+
+    add_gint_test(gint_fmt_cpp20 tests/fmt_support_test.cpp 20)
+    target_compile_definitions(gint_fmt_cpp20 PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_fmt_cpp20 PRIVATE fmt::fmt)
 endif()
 
 if(WI_BUILD_BENCHMARKS)
