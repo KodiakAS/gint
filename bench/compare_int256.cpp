@@ -174,6 +174,48 @@ static void DivMixed(benchmark::State & state)
     }
 }
 
+template <typename Int>
+static void DivPow2(benchmark::State & state)
+{
+    Int a = (Int{1} << 255) - Int{1};
+    Int b = (Int{1} << 128);
+    for (auto _ : state)
+    {
+        benchmark::DoNotOptimize(a);
+        benchmark::DoNotOptimize(b);
+        auto c = a / b;
+        benchmark::DoNotOptimize(c);
+    }
+}
+
+template <typename Int>
+static void DivPow2NegDiv(benchmark::State & state)
+{
+    Int a = (Int{1} << 255) - Int{1};
+    Int b = -(Int{1} << 128);
+    for (auto _ : state)
+    {
+        benchmark::DoNotOptimize(a);
+        benchmark::DoNotOptimize(b);
+        auto c = a / b;
+        benchmark::DoNotOptimize(c);
+    }
+}
+
+template <typename Int>
+static void DivPow2NegBoth(benchmark::State & state)
+{
+    Int a = -((Int{1} << 255) - Int{1});
+    Int b = -(Int{1} << 128);
+    for (auto _ : state)
+    {
+        benchmark::DoNotOptimize(a);
+        benchmark::DoNotOptimize(b);
+        auto c = a / b;
+        benchmark::DoNotOptimize(c);
+    }
+}
+
 int main(int argc, char ** argv)
 {
     benchmark::RegisterBenchmark("Add/Small/Wide", &AddSmall<WInt>);
@@ -203,6 +245,12 @@ int main(int argc, char ** argv)
     benchmark::RegisterBenchmark("Div/Large/Boost", &DivLarge<BInt>);
     benchmark::RegisterBenchmark("Div/Mixed/Wide", &DivMixed<WInt>);
     benchmark::RegisterBenchmark("Div/Mixed/Boost", &DivMixed<BInt>);
+    benchmark::RegisterBenchmark("Div/Pow2/Wide", &DivPow2<WInt>);
+    benchmark::RegisterBenchmark("Div/Pow2/Boost", &DivPow2<BInt>);
+    benchmark::RegisterBenchmark("Div/Pow2NegDiv/Wide", &DivPow2NegDiv<WInt>);
+    benchmark::RegisterBenchmark("Div/Pow2NegDiv/Boost", &DivPow2NegDiv<BInt>);
+    benchmark::RegisterBenchmark("Div/Pow2NegBoth/Wide", &DivPow2NegBoth<WInt>);
+    benchmark::RegisterBenchmark("Div/Pow2NegBoth/Boost", &DivPow2NegBoth<BInt>);
 
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();

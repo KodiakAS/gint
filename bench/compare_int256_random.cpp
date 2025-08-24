@@ -176,6 +176,42 @@ struct DivMixedGen
     }
 };
 
+template <typename Int>
+struct DivPow2Gen
+{
+    std::pair<Int, Int> operator()(std::mt19937_64 & rng) const
+    {
+        std::uniform_int_distribution<uint64_t> dist;
+        Int a = (Int{1} << 255) - Int(dist(rng));
+        Int b = (Int{1} << 128);
+        return {a, b};
+    }
+};
+
+template <typename Int>
+struct DivPow2NegDivGen
+{
+    std::pair<Int, Int> operator()(std::mt19937_64 & rng) const
+    {
+        std::uniform_int_distribution<uint64_t> dist;
+        Int a = (Int{1} << 255) - Int(dist(rng));
+        Int b = -(Int{1} << 128);
+        return {a, b};
+    }
+};
+
+template <typename Int>
+struct DivPow2NegBothGen
+{
+    std::pair<Int, Int> operator()(std::mt19937_64 & rng) const
+    {
+        std::uniform_int_distribution<uint64_t> dist;
+        Int a = -((Int{1} << 255) - Int(dist(rng)));
+        Int b = -(Int{1} << 128);
+        return {a, b};
+    }
+};
+
 template <typename Int, template <typename> class Gen>
 static std::vector<std::pair<Int, Int>> generate_inputs(uint64_t seed)
 {
@@ -230,6 +266,9 @@ int main(int argc, char ** argv)
     run_case<DivSmallGen>("Div/Small", [](const auto & x, const auto & y) { return x / y; }, 10);
     run_case<DivLargeGen>("Div/Large", [](const auto & x, const auto & y) { return x / y; }, 11);
     run_case<DivMixedGen>("Div/Mixed", [](const auto & x, const auto & y) { return x / y; }, 12);
+    run_case<DivPow2Gen>("Div/Pow2", [](const auto & x, const auto & y) { return x / y; }, 13);
+    run_case<DivPow2NegDivGen>("Div/Pow2NegDiv", [](const auto & x, const auto & y) { return x / y; }, 14);
+    run_case<DivPow2NegBothGen>("Div/Pow2NegBoth", [](const auto & x, const auto & y) { return x / y; }, 15);
 
     return 0;
 }
