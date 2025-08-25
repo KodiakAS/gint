@@ -855,6 +855,34 @@ TEST(WideIntegerShift, NonPositive)
     EXPECT_EQ(b, a);
 }
 
+TEST(WideIntegerShift, LargeShiftAmounts)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 v = U256(1) << 128;
+
+    U256 tmp = v;
+    tmp <<= 256;
+    EXPECT_EQ(tmp, U256(0));
+    tmp = v;
+    tmp <<= 320;
+    EXPECT_EQ(tmp, U256(0));
+
+    tmp = v;
+    tmp >>= 256;
+    EXPECT_EQ(tmp, U256(0));
+    tmp = v;
+    tmp >>= 320;
+    EXPECT_EQ(tmp, U256(0));
+
+    using U128 = gint::integer<128, unsigned>;
+    U128 small = U128(1);
+    small <<= 192;
+    EXPECT_EQ(small, U128(0));
+    small = U128(1);
+    small >>= 192;
+    EXPECT_EQ(small, U128(0));
+}
+
 TEST(WideIntegerConversion, LongDoubleZero)
 {
     gint::integer<128, signed> z = 0;
