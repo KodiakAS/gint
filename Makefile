@@ -1,6 +1,7 @@
 TEST_BUILD_DIR ?= build
 BENCH_BUILD_DIR ?= build-bench
 COVERAGE_DIR ?= build-coverage
+PROJECT_ROOT := $(abspath .)
 
 .PHONY: test bench coverage clean
 
@@ -30,8 +31,12 @@ bench: $(BENCH_BUILD_DIR)/Makefile
 coverage: $(COVERAGE_DIR)/Makefile
 	cmake --build $(COVERAGE_DIR) --config Debug
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
-	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info $(LCOV_IGNORE_MISMATCH)
-	lcov --remove $(COVERAGE_DIR)/coverage.info '/usr/*' '*/tests/*' --output-file $(COVERAGE_DIR)/coverage.info
+	lcov --capture --directory $(COVERAGE_DIR) \
+		 --include "$(PROJECT_ROOT)/include/*" \
+		 --rc geninfo_unexecuted_blocks=1 \
+		 --rc derive_function_end_line=0 \
+		 --ignore-errors unsupported \
+		 --output-file $(COVERAGE_DIR)/coverage.info
 	lcov --list $(COVERAGE_DIR)/coverage.info
 
 # Remove build directories
