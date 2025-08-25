@@ -52,6 +52,44 @@ TEST(WideIntegerOps, SmallMulDiv)
     EXPECT_EQ((c * 7ULL) / 7ULL, c);
 }
 
+TEST(WideIntegerOps, SignedSmallDivMod)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 a = 123;
+    EXPECT_EQ(a / 5, Int256(24));
+    EXPECT_EQ(a % 5, Int256(3));
+    EXPECT_EQ(a / -5, Int256(-24));
+    EXPECT_EQ(a % -5, Int256(3));
+    Int256 b = -123;
+    EXPECT_EQ(b / 5, Int256(-24));
+    EXPECT_EQ(b % 5, Int256(-3));
+    EXPECT_EQ(b / -5, Int256(24));
+    EXPECT_EQ(b % -5, Int256(-3));
+}
+
+TEST(WideIntegerOps, SignedInt128DivMod)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 pos = 123;
+    __int128 neg = -5;
+    EXPECT_EQ(pos / neg, Int256(-24));
+    EXPECT_EQ(pos % neg, Int256(3));
+    Int256 neg_val = -123;
+    EXPECT_EQ(neg_val / neg, Int256(24));
+    EXPECT_EQ(neg_val % neg, Int256(-3));
+
+    __int128 lhs = -123;
+    Int256 rhs = 5;
+    EXPECT_EQ(lhs / rhs, Int256(-24));
+    EXPECT_EQ(lhs % rhs, Int256(-3));
+
+    Int256 big = (Int256(1) << 200) + 12345;
+    __int128 big_div = -((static_cast<__int128>(1) << 100) + 7);
+    Int256 q = big / big_div;
+    Int256 r = big % big_div;
+    EXPECT_EQ(q * big_div + r, big);
+}
+
 enum class ArithOp
 {
     Add,

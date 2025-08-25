@@ -260,6 +260,7 @@ class integer
 public:
     static constexpr size_t limbs = detail::storage_count<Bits>::value;
     using limb_type = uint64_t;
+    using signed_limb_type = int64_t;
     template <size_t>
     friend struct detail::limbs_equal;
     friend class std::numeric_limits<integer<Bits, Signed>>;
@@ -814,7 +815,9 @@ public:
         return result;
     }
 
-    friend integer operator/(integer lhs, limb_type rhs) noexcept
+    friend integer operator/(integer lhs, limb_type rhs) noexcept { return lhs / static_cast<signed_limb_type>(rhs); }
+
+    friend integer operator/(integer lhs, signed_limb_type rhs) noexcept
     {
         integer q;
         lhs.div_mod_small(rhs, q);
@@ -831,10 +834,12 @@ public:
         return lhs;
     }
 
-    friend integer operator%(integer lhs, limb_type rhs) noexcept
+    friend integer operator%(integer lhs, limb_type rhs) noexcept { return lhs % static_cast<signed_limb_type>(rhs); }
+
+    friend integer operator%(integer lhs, signed_limb_type rhs) noexcept
     {
         integer q;
-        limb_type r = lhs.div_mod_small(rhs, q);
+        signed_limb_type r = lhs.div_mod_small(rhs, q);
         return integer(r);
     }
 
@@ -844,7 +849,7 @@ public:
     friend integer operator/(integer lhs, T rhs) noexcept
     {
         if (sizeof(T) <= sizeof(limb_type))
-            return lhs / static_cast<limb_type>(rhs);
+            return lhs / static_cast<signed_limb_type>(rhs);
         return lhs / integer(rhs);
     }
 
@@ -876,7 +881,7 @@ public:
         if (sizeof(T) <= sizeof(limb_type))
         {
             integer q;
-            limb_type r = lhs.div_mod_small(static_cast<limb_type>(rhs), q);
+            signed_limb_type r = lhs.div_mod_small(static_cast<signed_limb_type>(rhs), q);
             return integer(r);
         }
         return lhs % integer(rhs);
@@ -1210,6 +1215,25 @@ private:
         return static_cast<limb_type>(rem);
     }
 
+    signed_limb_type div_mod_small(signed_limb_type div, integer & quotient) const noexcept
+    {
+        integer tmp = *this;
+        bool lhs_neg = false;
+        if (std::is_same<Signed, signed>::value && (tmp.data_[limbs - 1] >> 63))
+        {
+            tmp = -tmp;
+            lhs_neg = true;
+        }
+        bool div_neg = div < 0;
+        limb_type abs_div = div_neg ? static_cast<limb_type>(-div) : static_cast<limb_type>(div);
+        signed_limb_type rem = static_cast<signed_limb_type>(tmp.div_mod_small(abs_div, quotient));
+        if (lhs_neg)
+            rem = -rem;
+        if (lhs_neg != div_neg)
+            quotient = -quotient;
+        return rem;
+    }
+
     static bool is_power_of_two(const integer & v, int & bit_index) noexcept
     {
         bit_index = -1;
@@ -1423,7 +1447,7 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     while (!tmp.is_zero())
     {
         integer<Bits, Signed> q;
-        typename integer<Bits, Signed>::limb_type rem = tmp.div_mod_small(10, q);
+        typename integer<Bits, Signed>::limb_type rem = tmp.div_mod_small(static_cast<typename integer<Bits, Signed>::limb_type>(10), q);
         res.insert(res.begin(), static_cast<char>('0' + rem));
         tmp = q;
     }
