@@ -59,13 +59,8 @@ if(GINT_BUILD_TESTS)
     target_link_libraries(gint_fmt_test PRIVATE fmt::fmt)
 
     # Compile tests for various C++ standards
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        check_cxx_compiler_flag("/std:c++17" HAS_CXX17)
-        check_cxx_compiler_flag("/std:c++20" HAS_CXX20)
-    else()
-        check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
-        check_cxx_compiler_flag("-std=c++20" HAS_CXX20)
-    endif()
+    check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
+    check_cxx_compiler_flag("-std=c++20" HAS_CXX20)
 
     if(HAS_CXX17)
         add_gint_test(gint_compile_cpp17 tests/compile_test.cpp 17)
