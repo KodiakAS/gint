@@ -944,6 +944,13 @@ TEST(WideIntegerDivModSmall, SingleLimbZero)
     EXPECT_EQ(z / 5, U64(0));
 }
 
+TEST(WideIntegerDivModSmall, SingleLimbBasic)
+{
+    using U64 = gint::integer<64, unsigned>;
+    U64 v = 123456789ULL;
+    EXPECT_EQ(v / 3, U64(41152263ULL));
+}
+
 TEST(WideIntegerDivModSmall, MultiLimbZero)
 {
     using U256 = gint::integer<256, unsigned>;

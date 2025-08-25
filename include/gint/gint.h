@@ -768,11 +768,7 @@ public:
             else if (limbs == 2)
             {
                 // both operands are 128-bit wide
-                unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
-                unsigned __int128 b = (static_cast<unsigned __int128>(divisor.data_[1]) << 64) | divisor.data_[0];
-                unsigned __int128 q = a / b;
-                result.data_[0] = static_cast<limb_type>(q);
-                result.data_[1] = static_cast<limb_type>(q >> 64);
+                result = div_128(lhs, divisor);
             }
             else if (divisor_limbs <= 2)
             {
@@ -782,11 +778,7 @@ public:
                 if (lhs_limbs <= 2)
                 {
                     // operands fit into two limbs; reuse the 128-bit path
-                    unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
-                    unsigned __int128 b = (static_cast<unsigned __int128>(divisor.data_[1]) << 64) | divisor.data_[0];
-                    unsigned __int128 q = a / b;
-                    result.data_[0] = static_cast<limb_type>(q);
-                    result.data_[1] = static_cast<limb_type>(q >> 64);
+                    result = div_128(lhs, divisor);
                 }
                 else if (limbs <= 4)
                 {
@@ -1264,6 +1256,26 @@ private:
             }
         }
         return found;
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
+    {
+        unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
+        unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
+        unsigned __int128 q = a / b;
+        integer result;
+        result.data_[0] = static_cast<limb_type>(q);
+        result.data_[1] = static_cast<limb_type>(q >> 64);
+        return result;
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
+    {
+        integer result;
+        result.data_[0] = lhs.data_[0] / rhs.data_[0];
+        return result;
     }
 
     static integer div_shift_subtract(integer lhs, integer divisor) noexcept
