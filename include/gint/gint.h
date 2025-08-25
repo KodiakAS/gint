@@ -459,8 +459,16 @@ public:
     {
         if (n <= 0)
             return *this;
-        size_t limb_shift = static_cast<size_t>(n) / 64;
-        int bit_shift = n % 64;
+        size_t total_bits = limbs * 64;
+        size_t shift = static_cast<size_t>(n);
+        if (shift >= total_bits)
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                data_[i] = 0;
+            return *this;
+        }
+        size_t limb_shift = shift / 64;
+        int bit_shift = shift % 64;
         if (limb_shift)
         {
             for (size_t i = limbs; i-- > limb_shift;)
@@ -485,8 +493,16 @@ public:
     {
         if (n <= 0)
             return *this;
-        size_t limb_shift = static_cast<size_t>(n) / 64;
-        int bit_shift = n % 64;
+        size_t total_bits = limbs * 64;
+        size_t shift = static_cast<size_t>(n);
+        if (shift >= total_bits)
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                data_[i] = 0;
+            return *this;
+        }
+        size_t limb_shift = shift / 64;
+        int bit_shift = shift % 64;
         if (limb_shift)
         {
             for (size_t i = 0; i < limbs - limb_shift; ++i)
