@@ -59,7 +59,7 @@ jobs:
       - name: Generate coverage
         run: |
           lcov --capture --directory build \
-            --include "include/*" \
+            --include "include/gint/*" \
             --rc geninfo_unexecuted_blocks=1 \
             --rc derive_function_end_line=0 \
             --ignore-errors unsupported \
