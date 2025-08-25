@@ -58,7 +58,7 @@ jobs:
           ctest --output-on-failure || true
       - name: Generate coverage
         run: |
-          lcov --capture --directory build --include "./include/*" --output-file coverage.info
+          lcov --capture --directory build --include "${{ github.workspace }}/include/*" --output-file coverage.info
           lcov --list coverage.info
 
   benchmark:
