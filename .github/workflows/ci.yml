@@ -58,7 +58,8 @@ jobs:
           ctest --output-on-failure || true
       - name: Generate coverage
         run: |
-          lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
+          IGNORE_ERRORS=$(geninfo --help 2>&1 | grep -q 'inconsistent' && echo '--ignore-errors inconsistent' || echo '--ignore-errors mismatch')
+          lcov --capture --directory build --output-file coverage.info $IGNORE_ERRORS
           lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
           lcov --list coverage.info
 
