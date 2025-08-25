@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
@@ -1039,4 +1040,36 @@ TEST(WideIntegerDivision, QhatBorrowCorrection)
     EXPECT_EQ(q, expected_q);
     EXPECT_EQ(r, expected_r);
     EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivMod, ZeroDivisor)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 value = (U256(1) << 100) + 123;
+    U256 zero = 0;
+    EXPECT_THROW(value / zero, std::domain_error);
+    EXPECT_THROW(value % zero, std::domain_error);
+
+    EXPECT_THROW(value / 0, std::domain_error);
+    EXPECT_THROW(value % 0, std::domain_error);
+    EXPECT_THROW(value / 0.0, std::domain_error);
+    EXPECT_THROW(value % 0.0, std::domain_error);
+
+    using S256 = gint::integer<256, signed>;
+    S256 sval = S256(-456);
+    S256 szero = 0;
+    EXPECT_THROW(sval / szero, std::domain_error);
+    EXPECT_THROW(sval % szero, std::domain_error);
+}
+
+TEST(WideIntegerShift, Boundary)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 v = 1;
+    EXPECT_EQ(v << 0, v);
+    EXPECT_EQ(v >> 0, v);
+    EXPECT_EQ(v << 256, U256(0));
+    EXPECT_EQ(v >> 256, U256(0));
+    EXPECT_EQ(v << -1, v);
+    EXPECT_EQ(v >> -1, v);
 }
