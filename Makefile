@@ -33,9 +33,6 @@ coverage: $(COVERAGE_DIR)/Makefile
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	lcov --capture --directory $(COVERAGE_DIR) \
 		 --include "$(PROJECT_ROOT)/include/*" \
-		 --rc geninfo_unexecuted_blocks=1 \
-		 --rc derive_function_end_line=0 \
-		 --ignore-errors unsupported \
 		 --output-file $(COVERAGE_DIR)/coverage.info
 	lcov --list $(COVERAGE_DIR)/coverage.info
 

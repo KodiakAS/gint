@@ -58,12 +58,7 @@ jobs:
           ctest --output-on-failure || true
       - name: Generate coverage
         run: |
-          lcov --capture --directory build \
-            --include "include/gint/*" \
-            --rc geninfo_unexecuted_blocks=1 \
-            --rc derive_function_end_line=0 \
-            --ignore-errors unsupported \
-            --output-file coverage.info
+          lcov --capture --directory build --include "./include/*" --output-file coverage.info
           lcov --list coverage.info
 
   benchmark:
