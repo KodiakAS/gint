@@ -13,6 +13,8 @@ $(BENCH_BUILD_DIR)/Makefile:
 $(COVERAGE_DIR)/Makefile:
 	cmake -S . -B $(COVERAGE_DIR) -DENABLE_COVERAGE=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
 
+LCOV_IGNORE_MISMATCH := $(shell geninfo --help 2>&1 | grep -q 'mismatch' && echo '--ignore-errors mismatch')
+
 # Build and run unit tests
 test: $(TEST_BUILD_DIR)/Makefile
 	cmake --build $(TEST_BUILD_DIR)
@@ -28,7 +30,7 @@ bench: $(BENCH_BUILD_DIR)/Makefile
 coverage: $(COVERAGE_DIR)/Makefile
 	cmake --build $(COVERAGE_DIR) --config Debug
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
-	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info --ignore-errors mismatch
+	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info $(LCOV_IGNORE_MISMATCH)
 	lcov --remove $(COVERAGE_DIR)/coverage.info '/usr/*' '*/tests/*' --output-file $(COVERAGE_DIR)/coverage.info
 	lcov --list $(COVERAGE_DIR)/coverage.info
 
