@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <limits>
+#include <sstream>
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
@@ -838,4 +839,169 @@ TEST(WideInteger256, Division)
     EXPECT_EQ(q * div + r, a);
     EXPECT_EQ(gint::to_string(q), "1627024769791889844363837995440879160110719541703693");
     EXPECT_EQ(static_cast<uint64_t>(r), 865650712ULL);
+}
+
+TEST(WideIntegerShift, NonPositive)
+{
+    gint::integer<128, unsigned> a = 42;
+    auto b = a;
+    b <<= 0;
+    EXPECT_EQ(b, a);
+    b <<= -5;
+    EXPECT_EQ(b, a);
+    b >>= 0;
+    EXPECT_EQ(b, a);
+    b >>= -7;
+    EXPECT_EQ(b, a);
+}
+
+TEST(WideIntegerConversion, LongDoubleZero)
+{
+    gint::integer<128, signed> z = 0;
+    EXPECT_EQ(static_cast<long double>(z), 0.0L);
+    gint::integer<128, unsigned> from_zero = 0.0f;
+    EXPECT_EQ(from_zero, (gint::integer<128, unsigned>(0)));
+}
+
+TEST(WideIntegerStream, Output)
+{
+    gint::integer<128, unsigned> v = 42;
+    std::ostringstream oss;
+    oss << v;
+    EXPECT_EQ(oss.str(), "42");
+}
+
+TEST(WideIntegerMulLimbOverflow, AllOnes)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = 0;
+    a += U256(0x46266a917dbcd870ULL);
+    a += U256(0x90b7613918e3e357ULL) << 64;
+    a += U256(0xbbc572685860e1c7ULL) << 128;
+    a += U256(0xb2670508acb68230ULL) << 192;
+    uint64_t rhs = 0xf2502093fcb85e1fULL;
+    U256 res = a * rhs;
+    EXPECT_EQ(gint::to_string(res), "38165250106338254442706927385283291263099041807018295318034436735252813010320");
+}
+
+TEST(WideIntegerDivision, PowerOfTwoMultiLimb)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(1) << 200);
+    U256 divisor = U256(1) << 130;
+    U256 q = lhs / divisor;
+    EXPECT_EQ(q, U256(1) << 70);
+}
+
+TEST(WideIntegerDivision, UInt128Operands)
+{
+    using U128 = gint::integer<128, unsigned>;
+    unsigned __int128 a = (static_cast<unsigned __int128>(1) << 100) + 123;
+    unsigned __int128 b = (static_cast<unsigned __int128>(1) << 80) + 7;
+    U128 lhs = a;
+    U128 rhs = b;
+    U128 q = lhs / rhs;
+    unsigned __int128 expected = a / b;
+    EXPECT_EQ(q, U128(expected));
+}
+
+TEST(WideIntegerDivision, SmallOperandsIn256Type)
+{
+    using U256 = gint::integer<256, unsigned>;
+    unsigned __int128 a = (static_cast<unsigned __int128>(1) << 120) + 5;
+    unsigned __int128 b = (static_cast<unsigned __int128>(1) << 90) + 3;
+    U256 lhs = U256(a);
+    U256 rhs = U256(b);
+    U256 q = lhs / rhs;
+    U256 r = lhs % rhs;
+    EXPECT_EQ(q * rhs + r, lhs);
+}
+
+TEST(WideIntegerDivision, LargeDivisor256)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(1) << 200) + (U256(1) << 120) + 12345;
+    U256 divisor = (U256(1) << 190) + (U256(1) << 10);
+    U256 q = lhs / divisor;
+    U256 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivision, LargeShiftSubtract512)
+{
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs = (U512(1) << 400) + (U512(1) << 200) + 123456789;
+    U512 divisor = (U512(1) << 350) + (U512(1) << 100) + 98765;
+    U512 q = lhs / divisor;
+    U512 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivModSmall, SingleLimbZero)
+{
+    using U64 = gint::integer<64, unsigned>;
+    U64 z = 0;
+    EXPECT_EQ(z / 5, U64(0));
+}
+
+TEST(WideIntegerDivModSmall, MultiLimbZero)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 z = 0;
+    EXPECT_EQ(z / 7, U256(0));
+}
+
+TEST(WideIntegerDivision, SmallDivisorShiftSub512)
+{
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs = (U512(1) << 300) + (U512(1) << 250);
+    U512 divisor = (U512(1) << 120) + 5;
+    U512 q = lhs / divisor;
+    U512 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivision, ZeroNumeratorLargeDivisor)
+{
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs = 0;
+    U512 divisor = (U512(1) << 350) + (U512(1) << 100) + 7;
+    EXPECT_EQ(lhs / divisor, U512(0));
+}
+
+TEST(WideIntegerDivision, SmallOverLarge)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = U256(1) << 100;
+    U256 divisor = (U256(1) << 190) + (U256(1) << 120) + (U256(1) << 60);
+    EXPECT_EQ(lhs / divisor, U256(0));
+}
+
+TEST(WideIntegerDivision, QhatRhatOverflow)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(0xea03b273ac950e5eULL) << 128) + (U256(0x1a2b8f1ff1fd42a2ULL) << 64) + U256(0x51431193e6c3f339ULL);
+    U256 divisor = (U256(0xc42e3d437204e52dULL) << 64) + U256(0xcd447e35b8b6d8feULL);
+    U256 q = lhs / divisor;
+    U256 r = lhs % divisor;
+    U256 expected_q = (U256(1) << 64) + U256(0x315ebf2644616d28ULL);
+    U256 expected_r = (U256(0x55ed99d81fa37e25ULL) << 64) + U256(0xdb1932e97f8fe589ULL);
+    EXPECT_EQ(q, expected_q);
+    EXPECT_EQ(r, expected_r);
+    EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivision, QhatBorrowCorrection)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(0xeaea5898d5276ee7ULL) << 192) + (U256(0xb5816b74a985ab61ULL) << 128) + (U256(0x2a69acc70bf9c0efULL) << 64)
+        + U256(0x105ada6b720299e3ULL);
+    U256 divisor = (U256(0x88135d586a1689adULL) << 128) + (U256(0xdf26f51766faf989ULL) << 64) + U256(0x9145de05b3ab1b2cULL);
+    U256 q = lhs / divisor;
+    U256 r = lhs % divisor;
+    U256 expected_q = (U256(1) << 64) + U256(0xb9f2aa3d006a0b15ULL);
+    U256 expected_r = (U256(0x25b8b5a8f033df51ULL) << 128) + (U256(0xa12f6cbfc6b8ee40ULL) << 64) + U256(0x4b504ee61a967b47ULL);
+    EXPECT_EQ(q, expected_q);
+    EXPECT_EQ(r, expected_r);
+    EXPECT_EQ(q * divisor + r, lhs);
 }
