@@ -1331,8 +1331,8 @@ private:
                 {
                     --qhat;
                     rhat += v[div_limbs - 1];
-                    if (rhat >= (static_cast<unsigned __int128>(1) << 64)) // LCOV_EXCL_LINE
-                        break; // LCOV_EXCL_LINE
+                    if (rhat >= (static_cast<unsigned __int128>(1) << 64))
+                        break;
                 }
             }
 
@@ -1351,18 +1351,18 @@ private:
                     borrow = p >> 64;
                 }
             }
-            if (u[j + div_limbs] < static_cast<limb_type>(borrow)) // LCOV_EXCL_START
+            if (u[j + div_limbs] < static_cast<limb_type>(borrow))
             {
-                unsigned __int128 carry2 = 0; // LCOV_EXCL_LINE
+                unsigned __int128 carry2 = 0;
                 for (size_t i = 0; i < div_limbs; ++i)
                 {
-                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2; // LCOV_EXCL_LINE
-                    u[j + i] = static_cast<limb_type>(t2); // LCOV_EXCL_LINE
-                    carry2 = t2 >> 64; // LCOV_EXCL_LINE
+                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
+                    u[j + i] = static_cast<limb_type>(t2);
+                    carry2 = t2 >> 64;
                 }
-                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) + carry2); // LCOV_EXCL_LINE
-                --qhat; // LCOV_EXCL_LINE
-            } // LCOV_EXCL_STOP
+                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) + carry2);
+                --qhat;
+            }
             else
             {
                 u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) - borrow);

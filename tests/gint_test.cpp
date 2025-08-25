@@ -976,3 +976,32 @@ TEST(WideIntegerDivision, SmallOverLarge)
     U256 divisor = (U256(1) << 190) + (U256(1) << 120) + (U256(1) << 60);
     EXPECT_EQ(lhs / divisor, U256(0));
 }
+
+TEST(WideIntegerDivision, QhatRhatOverflow)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(0xea03b273ac950e5eULL) << 128) + (U256(0x1a2b8f1ff1fd42a2ULL) << 64) + U256(0x51431193e6c3f339ULL);
+    U256 divisor = (U256(0xc42e3d437204e52dULL) << 64) + U256(0xcd447e35b8b6d8feULL);
+    U256 q = lhs / divisor;
+    U256 r = lhs % divisor;
+    U256 expected_q = (U256(1) << 64) + U256(0x315ebf2644616d28ULL);
+    U256 expected_r = (U256(0x55ed99d81fa37e25ULL) << 64) + U256(0xdb1932e97f8fe589ULL);
+    EXPECT_EQ(q, expected_q);
+    EXPECT_EQ(r, expected_r);
+    EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivision, QhatBorrowCorrection)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(0xeaea5898d5276ee7ULL) << 192) + (U256(0xb5816b74a985ab61ULL) << 128) + (U256(0x2a69acc70bf9c0efULL) << 64)
+        + U256(0x105ada6b720299e3ULL);
+    U256 divisor = (U256(0x88135d586a1689adULL) << 128) + (U256(0xdf26f51766faf989ULL) << 64) + U256(0x9145de05b3ab1b2cULL);
+    U256 q = lhs / divisor;
+    U256 r = lhs % divisor;
+    U256 expected_q = (U256(1) << 64) + U256(0xb9f2aa3d006a0b15ULL);
+    U256 expected_r = (U256(0x25b8b5a8f033df51ULL) << 128) + (U256(0xa12f6cbfc6b8ee40ULL) << 64) + U256(0x4b504ee61a967b47ULL);
+    EXPECT_EQ(q, expected_q);
+    EXPECT_EQ(r, expected_r);
+    EXPECT_EQ(q * divisor + r, lhs);
+}
