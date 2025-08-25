@@ -52,6 +52,26 @@ TEST(WideIntegerOps, SmallMulDiv)
     EXPECT_EQ((c * 7ULL) / 7ULL, c);
 }
 
+TEST(WideIntegerOps, LargeLimbDivMod)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 u = UInt256(1);
+    u <<= 64;
+    uint64_t div = 1ULL << 63;
+    EXPECT_EQ(u / div, UInt256(2));
+    EXPECT_EQ(u % div, UInt256(0));
+
+    using Int256 = gint::integer<256, signed>;
+    Int256 s = Int256(1);
+    s <<= 64;
+    EXPECT_EQ(s / div, Int256(2));
+    EXPECT_EQ(s % div, Int256(0));
+
+    s = -s;
+    EXPECT_EQ(s / div, Int256(-2));
+    EXPECT_EQ(s % div, Int256(0));
+}
+
 TEST(WideIntegerOps, SignedSmallDivMod)
 {
     using Int256 = gint::integer<256, signed>;

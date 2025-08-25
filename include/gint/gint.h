@@ -815,7 +815,12 @@ public:
         return result;
     }
 
-    friend integer operator/(integer lhs, limb_type rhs) noexcept { return lhs / static_cast<signed_limb_type>(rhs); }
+    friend integer operator/(integer lhs, limb_type rhs) noexcept
+    {
+        if (rhs <= static_cast<limb_type>(std::numeric_limits<signed_limb_type>::max()))
+            return lhs / static_cast<signed_limb_type>(rhs);
+        return lhs / integer(rhs);
+    }
 
     friend integer operator/(integer lhs, signed_limb_type rhs) noexcept
     {
@@ -834,7 +839,12 @@ public:
         return lhs;
     }
 
-    friend integer operator%(integer lhs, limb_type rhs) noexcept { return lhs % static_cast<signed_limb_type>(rhs); }
+    friend integer operator%(integer lhs, limb_type rhs) noexcept
+    {
+        if (rhs <= static_cast<limb_type>(std::numeric_limits<signed_limb_type>::max()))
+            return lhs % static_cast<signed_limb_type>(rhs);
+        return lhs % integer(rhs);
+    }
 
     friend integer operator%(integer lhs, signed_limb_type rhs) noexcept
     {
@@ -848,7 +858,8 @@ public:
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     friend integer operator/(integer lhs, T rhs) noexcept
     {
-        if (sizeof(T) <= sizeof(limb_type))
+        if (sizeof(T) <= sizeof(limb_type)
+            && (!std::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
             return lhs / static_cast<signed_limb_type>(rhs);
         return lhs / integer(rhs);
     }
@@ -878,7 +889,8 @@ public:
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs) noexcept
     {
-        if (sizeof(T) <= sizeof(limb_type))
+        if (sizeof(T) <= sizeof(limb_type)
+            && (!std::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
         {
             integer q;
             signed_limb_type r = lhs.div_mod_small(static_cast<signed_limb_type>(rhs), q);
