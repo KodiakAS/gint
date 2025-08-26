@@ -1,6 +1,6 @@
 # gint
 
-gint (g = *Giant*) brings wide integers to C++11 with a pragmatic, performance-first design. It is **header-only** for frictionless adoption, and guarantees **bit-accurate** semantics: the width you declare (e.g., 128/256/512…) is exactly the width you get at runtime.
+gint (g = *Giant*) brings wide integers to C++11 with a lightweight, performance-first design. It is **header-only** for frictionless adoption, and guarantees **bit-accurate** semantics: the width you declare (e.g., 128/256/512…) is exactly the width you get at runtime.
 
 Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hippo 🦛.
 
