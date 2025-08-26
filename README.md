@@ -39,6 +39,16 @@ int main() {
 }
 ```
 
+## Edge Case Behavior
+
+gint defines deterministic results for several potentially surprising scenarios:
+
+* Constructing an unsigned wide integer from a negative value wraps modulo its bit width.
+* Unsigned subtraction underflow wraps around as in standard two's-complement arithmetic.
+* Bitwise operations on negative values operate on their two's-complement representation.
+* Division or modulo by zero throws `std::domain_error` only when
+  `GINT_ENABLE_DIVZERO_CHECKS` is defined; otherwise no check is performed.
+
 ## Building Tests
 
 ```bash
