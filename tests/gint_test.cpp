@@ -401,6 +401,21 @@ TEST(WideIntegerConversion, Int128)
     EXPECT_TRUE(c == u);
     EXPECT_TRUE(u == c);
 }
+
+TEST(WideIntegerConversion, NegativeInt128)
+{
+    __int128 neg = -((static_cast<__int128>(1) << 100) + 7);
+    gint::integer<128, signed> a = neg;
+    EXPECT_EQ(static_cast<__int128>(a), neg);
+}
+TEST(WideIntegerConversion, ConstexprNegativeInt128)
+{
+    constexpr __int128 neg = -((static_cast<__int128>(1) << 100) + 7);
+    constexpr gint::integer<128, signed> a = neg;
+    static_assert(a == gint::integer<128, signed>(neg), "value mismatch");
+    (void)a;
+}
+
 #endif
 
 TEST(WideIntegerBoundary, Unsigned256)

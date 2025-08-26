@@ -320,9 +320,9 @@ private:
     template <typename T, size_t I>
     static constexpr limb_type limb_from(T v) noexcept
     {
-        return I < (sizeof(T) * 8 + 63) / 64
-            ? static_cast<limb_type>((std::is_signed<T>::value ? static_cast<__int128>(v) : static_cast<unsigned __int128>(v)) >> (I * 64))
-            : (std::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
+        // Cast to unsigned before shifting to avoid implementation-defined behavior
+        return I < ((sizeof(T) * 8 + 63) / 64) ? static_cast<limb_type>(static_cast<unsigned __int128>(v) >> (I * 64))
+                                               : ((std::is_signed<T>::value && v < 0) ? ~0ULL : 0ULL);
     }
 
 public:
