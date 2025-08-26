@@ -96,19 +96,35 @@ jobs:
           dnf -y clean all
           dnf -y makecache
 
-      - name: Install dependencies
+      - name: Install toolchain & deps (no system cmake)
         run: |
           set -eux
           dnf -y install epel-release
           dnf -y install 'dnf-command(config-manager)' || dnf -y install dnf-plugins-core
           dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled PowerTools
-          dnf -y install \
-            gcc gcc-c++ make cmake \
-            clang clang-tools-extra \
-            fmt-devel boost-devel \
-            git tar wget
+          dnf -y install gcc gcc-c++ make git wget curl tar \
+                         clang clang-tools-extra \
+                         fmt-devel boost-devel
 
-          # Build & install GoogleTest (EL8 常见只带头文件，手动编译安装)
+      - name: Install CMake (Kitware prebuilt)
+        run: |
+          set -eux
+          CMAKE_VER=3.27.9
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  PKG=linux-x86_64 ;;
+            aarch64) PKG=linux-aarch64 ;;
+            *) echo "Unsupported arch: $ARCH"; exit 1;;
+          esac
+          curl -L -o cmake.tgz \
+            https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/cmake-${CMAKE_VER}-${PKG}.tar.gz
+          tar -xzf cmake.tgz
+          echo "$PWD/cmake-${CMAKE_VER}-${PKG}/bin" >> "$GITHUB_PATH"
+          cmake --version
+
+      - name: Install GoogleTest (build from source)
+        run: |
+          set -eux
           GTEST_VER=1.14.0
           wget -qO gtest.tar.gz https://github.com/google/googletest/archive/refs/tags/v${GTEST_VER}.tar.gz
           tar -xzf gtest.tar.gz
@@ -134,3 +150,4 @@ jobs:
             clang-format -i --style=file $FILES
             git diff --exit-code
           fi
+
