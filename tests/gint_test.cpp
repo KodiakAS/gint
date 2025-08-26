@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
+#define GINT_ENABLE_DIVZERO_CHECKS
 #include <gint/gint.h>
 
 struct A
@@ -1072,4 +1073,26 @@ TEST(WideIntegerShift, Boundary)
     EXPECT_EQ(v >> 256, U256(0));
     EXPECT_EQ(v << -1, v);
     EXPECT_EQ(v >> -1, v);
+}
+
+TEST(WideIntegerExceptions, ConstructFromNegative)
+{
+    gint::integer<128, unsigned> u = -1;
+    EXPECT_EQ(gint::to_string(u), "340282366920938463463374607431768211455");
+}
+
+TEST(WideIntegerExceptions, UnsignedSubtractionUnderflow)
+{
+    gint::integer<128, unsigned> a = 5;
+    gint::integer<128, unsigned> b = 10;
+    auto c = a - b;
+    EXPECT_EQ(gint::to_string(c), "340282366920938463463374607431768211451");
+}
+
+TEST(WideIntegerExceptions, BitwiseOnNegative)
+{
+    gint::integer<128, signed> a = -5;
+    gint::integer<128, signed> b = 3;
+    auto c = a & b;
+    EXPECT_EQ(gint::to_string(c), "3");
 }

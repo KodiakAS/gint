@@ -19,6 +19,19 @@
 #    define GINT_UNLIKELY(x) (x)
 #endif
 
+#if defined(GINT_ENABLE_DIVZERO_CHECKS)
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+            if (GINT_UNLIKELY(cond)) \
+                throw std::domain_error(msg); \
+        } while (false)
+#else
+#    define GINT_ZERO_CHECK(cond, msg) ((void)0)
+#endif
+#define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
+#define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
+
 namespace gint
 {
 
@@ -774,8 +787,7 @@ public:
         size_t divisor_limbs = limbs;
         while (divisor_limbs > 0 && divisor.data_[divisor_limbs - 1] == 0)
             --divisor_limbs;
-        if (GINT_UNLIKELY(divisor_limbs == 0))
-            throw std::domain_error("division by zero");
+        GINT_DIVZERO_CHECK(divisor_limbs == 0);
         bool small_divisor = divisor_limbs == 1;
         if (small_divisor)
         {
@@ -834,8 +846,7 @@ public:
 
     friend integer operator/(integer lhs, limb_type rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("division by zero");
+        GINT_DIVZERO_CHECK(rhs == 0);
         if (rhs <= static_cast<limb_type>(std::numeric_limits<signed_limb_type>::max()))
             return lhs / static_cast<signed_limb_type>(rhs);
         return lhs / integer(rhs);
@@ -843,8 +854,7 @@ public:
 
     friend integer operator/(integer lhs, signed_limb_type rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("division by zero");
+        GINT_DIVZERO_CHECK(rhs == 0);
         integer q;
         lhs.div_mod_small(rhs, q);
         return q;
@@ -854,8 +864,7 @@ public:
 
     friend integer operator%(integer lhs, const integer & rhs)
     {
-        if (GINT_UNLIKELY(rhs.is_zero()))
-            throw std::domain_error("modulo by zero");
+        GINT_MODZERO_CHECK(rhs.is_zero());
         integer q = lhs / rhs;
         q *= rhs;
         lhs -= q;
@@ -864,8 +873,7 @@ public:
 
     friend integer operator%(integer lhs, limb_type rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("modulo by zero");
+        GINT_MODZERO_CHECK(rhs == 0);
         if (rhs <= static_cast<limb_type>(std::numeric_limits<signed_limb_type>::max()))
             return lhs % static_cast<signed_limb_type>(rhs);
         return lhs % integer(rhs);
@@ -873,8 +881,7 @@ public:
 
     friend integer operator%(integer lhs, signed_limb_type rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("modulo by zero");
+        GINT_MODZERO_CHECK(rhs == 0);
         integer q;
         signed_limb_type r = lhs.div_mod_small(rhs, q);
         return integer(r);
@@ -885,8 +892,7 @@ public:
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     friend integer operator/(integer lhs, T rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("division by zero");
+        GINT_DIVZERO_CHECK(rhs == 0);
         if (sizeof(T) <= sizeof(limb_type)
             && (!std::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
             return lhs / static_cast<signed_limb_type>(rhs);
@@ -902,8 +908,7 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator/(integer lhs, T rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("division by zero");
+        GINT_DIVZERO_CHECK(rhs == 0);
         long double res = static_cast<long double>(lhs);
         res /= static_cast<long double>(rhs);
         return integer(res);
@@ -912,8 +917,7 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator/(T lhs, integer rhs)
     {
-        if (GINT_UNLIKELY(rhs.is_zero()))
-            throw std::domain_error("division by zero");
+        GINT_DIVZERO_CHECK(rhs.is_zero());
         long double res = static_cast<long double>(lhs);
         res /= static_cast<long double>(rhs);
         return integer(res);
@@ -922,8 +926,7 @@ public:
     template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("modulo by zero");
+        GINT_MODZERO_CHECK(rhs == 0);
         if (sizeof(T) <= sizeof(limb_type)
             && (!std::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
         {
@@ -943,8 +946,7 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs)
     {
-        if (GINT_UNLIKELY(rhs == 0))
-            throw std::domain_error("modulo by zero");
+        GINT_MODZERO_CHECK(rhs == 0);
         return lhs % integer(rhs);
     }
 
