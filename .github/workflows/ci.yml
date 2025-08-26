@@ -124,10 +124,10 @@ jobs:
       - name: Install GoogleTest (build from source)
         run: |
           set -eux
-          GTEST_VER=1.14.0
+          GTEST_VER=1.12.1
           wget -qO gtest.tar.gz https://github.com/google/googletest/archive/refs/tags/v${GTEST_VER}.tar.gz
           tar -xzf gtest.tar.gz
-          cmake -S googletest-${GTEST_VER} -B build-gtest -DCMAKE_BUILD_TYPE=Release
+          cmake -S googletest-${GTEST_VER} -B build-gtest -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17
           cmake --build build-gtest --target install -j"$(nproc)"
           ldconfig
 
