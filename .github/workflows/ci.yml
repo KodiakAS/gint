@@ -116,10 +116,12 @@ jobs:
             aarch64) PKG=linux-aarch64 ;;
             *) echo "Unsupported arch: $ARCH"; exit 1;;
           esac
-          curl -L -o cmake.tgz \
-            https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/cmake-${CMAKE_VER}-${PKG}.tar.gz
+          curl -L -o cmake.tgz https://github.com/Kitware/CMake/releases/download/v${CMAKE_VER}/cmake-${CMAKE_VER}-${PKG}.tar.gz
           tar -xzf cmake.tgz
-          echo "$PWD/cmake-${CMAKE_VER}-${PKG}/bin" >> "$GITHUB_PATH"
+          CMAKE_BIN="$PWD/cmake-${CMAKE_VER}-${PKG}/bin"
+          echo "$CMAKE_BIN" >> "$GITHUB_PATH"     # 供后续 step 使用
+          export PATH="$CMAKE_BIN:$PATH"          # 供当前 step 立即使用
+          which cmake
           cmake --version
 
       - name: Install GoogleTest (build from source)
