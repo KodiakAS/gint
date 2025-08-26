@@ -39,15 +39,29 @@ int main() {
 }
 ```
 
-## Edge Case Behavior
+## Edge-Case Semantics
 
-gint defines deterministic results for several potentially surprising scenarios:
+Let **W** denote the bit width of the type.
 
-* Constructing an unsigned wide integer from a negative value wraps modulo its bit width.
-* Unsigned subtraction underflow wraps around as in standard two's-complement arithmetic.
-* Bitwise operations on negative values operate on their two's-complement representation.
-* Division or modulo by zero throws `std::domain_error` only when
-  `GINT_ENABLE_DIVZERO_CHECKS` is defined; otherwise no check is performed.
+- **Constructing an unsigned wide integer from a negative value**  
+  The result is congruent to the source **mod \(2^W\)** (same as C++ integral conversion to unsigned).  
+  *Example:* `u256 x = -1;  // x == 2^256 - 1`
+
+- **Unsigned arithmetic wraparound (including subtraction underflow)**  
+  Results are computed **mod \(2^W\)**, matching built-in unsigned types.  
+  *Example:* `u256(0) - u256(1) == 2^256 - 1`.
+
+- **Bitwise operations on negative values**  
+  Signed wide integers use **two’s-complement** representation; bitwise operators (`~ & ^ |`) act on that bit pattern.  
+  Shifts are defined explicitly:  
+  - signed `>>` is **arithmetic** (sign-propagating)  
+  - unsigned `>>` is **logical** (zero-fill)
+
+- **Division / modulo by zero**  
+  Controlled by the compile-time macro **`GINT_ENABLE_DIVZERO_CHECKS`**:
+  - **Default (macro *not* defined)**: **no check**; behavior is **undefined** (UB), just like built-ins.
+  - **Checks enabled (`#define GINT_ENABLE_DIVZERO_CHECKS 1` before including `gint`)**: division or modulo by zero **throws `std::domain_error`**.
+
 
 ## Building Tests
 
