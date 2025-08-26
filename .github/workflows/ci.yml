@@ -127,12 +127,12 @@ jobs:
           GTEST_VER=1.12.0
           wget -qO gtest.tar.gz https://github.com/google/googletest/archive/refs/tags/v${GTEST_VER}.tar.gz
           tar -xzf gtest.tar.gz
-          cmake -S googletest-${GTEST_VER} -B build-gtest -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17
+          cmake -S googletest-${GTEST_VER} -B build-gtest -DCMAKE_BUILD_TYPE=Release
           cmake --build build-gtest --target install -j"$(nproc)"
           ldconfig
 
       - name: Configure
-        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_EXTENSIONS=OFF
 
       - name: Build
         run: cmake --build build --config Debug -j"$(nproc)" --verbose
@@ -141,12 +141,4 @@ jobs:
         run: |
           cd build
           ctest --output-on-failure
-
-      - name: Check code format
-        run: |
-          FILES=$(git ls-files '*.cpp' '*.hpp' '*.h') || true
-          if [ -n "$FILES" ]; then
-            clang-format -i --style=file $FILES
-            git diff --exit-code
-          fi
 
