@@ -9,29 +9,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: ubuntu-latest
-            os: ubuntu-latest
-          - label: macos-latest
-            os: macos-latest
-          - label: centos8.3
-            os: ubuntu-latest
-            container: centos:8.3.2011
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v3
       - name: Install dependencies
         run: |
-          if [ "${{ matrix.label }}" = "centos8.3" ]; then
-            dnf -y install epel-release
-            dnf -y groupinstall "Development Tools"
-            dnf -y install cmake clang-tools-extra fmt-devel gtest-devel boost-devel
-          elif [ "${{ runner.os }}" = "Linux" ]; then
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
             sudo apt-get install -y cmake build-essential clang-format \
               libfmt-dev libgtest-dev libboost-dev
-          else
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew update
             brew install cmake clang-format fmt googletest boost
           fi
@@ -50,6 +38,7 @@ jobs:
             clang-format -i --style=file $FILES
             git diff --exit-code
           fi
+
 
   coverage:
     runs-on: ubuntu-latest
@@ -90,3 +79,58 @@ jobs:
         run: |
           build/perf --benchmark_min_time=0.01s
           build/perf_compare_int256 --benchmark_min_time=0.01s
+
+  build_centos83:
+    name: Build (CentOS 8.3)
+    runs-on: ubuntu-latest
+    container:
+      image: centos:8.3.2011
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Prepare repos (EOL -> vault)
+        run: |
+          set -eux
+          sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo
+          sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+          dnf -y clean all
+          dnf -y makecache
+
+      - name: Install dependencies
+        run: |
+          set -eux
+          dnf -y install epel-release
+          dnf -y install 'dnf-command(config-manager)' || dnf -y install dnf-plugins-core
+          dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled PowerTools
+          dnf -y install \
+            gcc gcc-c++ make cmake \
+            clang clang-tools-extra \
+            fmt-devel boost-devel \
+            git tar wget
+
+          # Build & install GoogleTest (EL8 常见只带头文件，手动编译安装)
+          GTEST_VER=1.14.0
+          wget -qO gtest.tar.gz https://github.com/google/googletest/archive/refs/tags/v${GTEST_VER}.tar.gz
+          tar -xzf gtest.tar.gz
+          cmake -S googletest-${GTEST_VER} -B build-gtest -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-gtest --target install -j"$(nproc)"
+          ldconfig
+
+      - name: Configure
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
+
+      - name: Build
+        run: cmake --build build --config Debug -j"$(nproc)"
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
+
+      - name: Check code format
+        run: |
+          FILES=$(git ls-files '*.cpp' '*.hpp' '*.h') || true
+          if [ -n "$FILES" ]; then
+            clang-format -i --style=file $FILES
+            git diff --exit-code
+          fi
