@@ -1,3 +1,4 @@
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <sstream>
@@ -327,6 +328,23 @@ TEST(WideIntegerConversion, MixedArithmetic)
     unsigned int b = 50;
     auto c = a + b; // builtin implicitly converted to wide integer
     EXPECT_EQ(gint::to_string(c), "150");
+}
+
+TEST(WideIntegerConversion, Conditional)
+{
+    const bool cond = true;
+    const gint::Int256 value = 2;
+    gint::Int256 result = cond ? 1 : value;
+    EXPECT_EQ(result, gint::Int256(1));
+}
+
+TEST(WideIntegerConversion, ConditionalConstLvalue)
+{
+    const bool cond = true;
+    const std::array<const gint::Int256, 1> arr = {gint::Int256(2)};
+    const gint::Int256 & ref = arr[0];
+    gint::Int256 result = cond ? 1 : ref;
+    EXPECT_EQ(result, gint::Int256(1));
 }
 
 TEST(WideIntegerAdditional, BitwiseNot)
