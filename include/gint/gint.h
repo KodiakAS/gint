@@ -70,6 +70,54 @@ struct make_index_sequence<0, I...>
     using type = index_sequence<I...>;
 };
 
+// These custom type traits extend std::is_integral / std::is_signed / std::is_unsigned
+// to support the GCC-specific built-in types __int128 and unsigned __int128 in
+// strict -std=c++11 mode.
+template <typename T>
+struct is_integral : std::is_integral<T>
+{
+};
+
+template <>
+struct is_integral<__int128> : std::true_type
+{
+};
+
+template <>
+struct is_integral<unsigned __int128> : std::true_type
+{
+};
+
+template <typename T>
+struct is_signed : std::is_signed<T>
+{
+};
+
+template <>
+struct is_signed<__int128> : std::true_type
+{
+};
+
+template <>
+struct is_signed<unsigned __int128> : std::false_type
+{
+};
+
+template <typename T>
+struct is_unsigned : std::is_unsigned<T>
+{
+};
+
+template <>
+struct is_unsigned<__int128> : std::false_type
+{
+};
+
+template <>
+struct is_unsigned<unsigned __int128> : std::true_type
+{
+};
+
 template <size_t I>
 struct limbs_equal
 {
@@ -288,21 +336,12 @@ public:
     // Constructors
     constexpr integer() noexcept = default;
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     constexpr integer(T v) noexcept
         : integer(v, typename detail::make_index_sequence<limbs>::type())
     {
     }
 
-    constexpr integer(__int128 v) noexcept
-        : integer(v, typename detail::make_index_sequence<limbs>::type())
-    {
-    }
-
-    constexpr integer(unsigned __int128 v) noexcept
-        : integer(v, typename detail::make_index_sequence<limbs>::type())
-    {
-    }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     integer(T v) noexcept
@@ -320,27 +359,15 @@ private:
     template <typename T, size_t I>
     static constexpr limb_type limb_from(T v) noexcept
     {
-        return I < (sizeof(T) * 8 + 63) / 64
-            ? static_cast<limb_type>((std::is_signed<T>::value ? static_cast<__int128>(v) : static_cast<unsigned __int128>(v)) >> (I * 64))
-            : (std::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
+        using wide = typename std::conditional<detail::is_signed<T>::value, __int128, unsigned __int128>::type;
+        return I < (sizeof(T) * 8 + 63) / 64 ? static_cast<limb_type>(static_cast<unsigned __int128>(static_cast<wide>(v) >> (I * 64)))
+                                             : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
     }
 
 public:
     // Assignment operators
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     integer & operator=(T v) noexcept
-    {
-        assign(v);
-        return *this;
-    }
-
-    integer & operator=(__int128 v) noexcept
-    {
-        assign(v);
-        return *this;
-    }
-
-    integer & operator=(unsigned __int128 v) noexcept
     {
         assign(v);
         return *this;
@@ -354,50 +381,17 @@ public:
     }
 
     // Conversion operators
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     operator T() const noexcept
     {
         unsigned __int128 value = 0;
         for (size_t i = 0; i < limbs && i < (sizeof(T) + sizeof(limb_type) - 1) / sizeof(limb_type); ++i)
             value |= static_cast<unsigned __int128>(data_[i]) << (i * 64);
 
-        if (std::is_signed<T>::value)
+        if (detail::is_signed<T>::value)
             return static_cast<T>(static_cast<__int128>(value));
         else
             return static_cast<T>(value);
-    }
-
-    // Non-template conversion to __int128.
-    // Rationale:
-    // - The generic `template<class T> operator T()` is only considered when a
-    //   concrete *expected type* is known (e.g., `static_cast<T>`, initializing a
-    //   variable of type T). In many expressions there is no such expected type
-    //   (`x + 1`, `x < 0`, `cond ? x : 0`, `std::max(x, 0)`, etc.), so the template
-    //   cannot be deduced and is not a viable candidate.
-    // - Providing this concrete (non-template) conversion gives overload resolution
-    //   a fixed candidate that “bridges” `integer` into the built-in arithmetic
-    //   domain. This makes mixed expressions with literals and built-ins work and
-    //   ensures `static_cast<__int128>(x)` is well-formed even inside non-constexpr
-    //   branches that are never taken at runtime (those branches are still type-checked).
-    // - Semantics: returns the least-significant 128 bits of the value, interpreted
-    //   as two’s-complement `__int128`.
-    //
-    // Note: keep as a concrete conversion specifically to provide a stable route
-    // for contexts where no target type is implied.
-    operator __int128() const noexcept
-    {
-        unsigned __int128 value = 0;
-        for (size_t i = 0; i < limbs && i < (sizeof(__int128) + sizeof(limb_type) - 1) / sizeof(limb_type); ++i)
-            value |= static_cast<unsigned __int128>(data_[i]) << (i * 64);
-        return static_cast<__int128>(value);
-    }
-
-    operator unsigned __int128() const noexcept
-    {
-        unsigned __int128 value = 0;
-        for (size_t i = 0; i < limbs && i < (sizeof(unsigned __int128) + sizeof(limb_type) - 1) / sizeof(limb_type); ++i)
-            value |= static_cast<unsigned __int128>(data_[i]) << (i * 64);
-        return value;
     }
 
     explicit operator long double() const noexcept
@@ -587,14 +581,14 @@ public:
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator+(integer lhs, T rhs) noexcept
     {
         lhs += integer(rhs);
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator+(T lhs, integer rhs) noexcept
     {
         rhs += integer(lhs);
@@ -623,14 +617,14 @@ public:
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator-(integer lhs, T rhs) noexcept
     {
         lhs -= integer(rhs);
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator-(T lhs, integer rhs) noexcept
     {
         return integer(lhs) - rhs;
@@ -658,14 +652,14 @@ public:
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator&(integer lhs, T rhs) noexcept
     {
         lhs &= integer(rhs);
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator&(T lhs, integer rhs) noexcept
     {
         rhs &= integer(lhs);
@@ -678,14 +672,14 @@ public:
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator|(integer lhs, T rhs) noexcept
     {
         lhs |= integer(rhs);
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator|(T lhs, integer rhs) noexcept
     {
         rhs |= integer(lhs);
@@ -698,14 +692,14 @@ public:
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator^(integer lhs, T rhs) noexcept
     {
         lhs ^= integer(rhs);
         return lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator^(T lhs, integer rhs) noexcept
     {
         rhs ^= integer(lhs);
@@ -741,13 +735,13 @@ public:
 
     friend integer operator*(limb_type lhs, integer rhs) noexcept { return rhs * lhs; }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator*(integer lhs, T rhs) noexcept
     {
         return lhs * integer(rhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator*(T lhs, integer rhs) noexcept
     {
         return integer(lhs) * rhs;
@@ -889,17 +883,17 @@ public:
 
     friend integer operator%(limb_type lhs, integer rhs) { return integer(lhs) % rhs; }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator/(integer lhs, T rhs)
     {
         GINT_DIVZERO_CHECK(rhs == 0);
         if (sizeof(T) <= sizeof(limb_type)
-            && (!std::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
+            && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
             return lhs / static_cast<signed_limb_type>(rhs);
         return lhs / integer(rhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator/(T lhs, integer rhs)
     {
         return integer(lhs) / rhs;
@@ -923,12 +917,12 @@ public:
         return integer(res);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
         if (sizeof(T) <= sizeof(limb_type)
-            && (!std::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
+            && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
         {
             integer q;
             signed_limb_type r = lhs.div_mod_small(static_cast<signed_limb_type>(rhs), q);
@@ -937,7 +931,7 @@ public:
         return lhs % integer(rhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator%(T lhs, integer rhs)
     {
         return integer(lhs) % rhs;
@@ -963,25 +957,25 @@ public:
 
     friend constexpr bool operator!=(const integer & lhs, const integer & rhs) noexcept { return !(lhs == rhs); }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend constexpr bool operator==(const integer & lhs, T rhs) noexcept
     {
         return lhs == integer(rhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend constexpr bool operator==(T lhs, const integer & rhs) noexcept
     {
         return integer(lhs) == rhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend constexpr bool operator!=(const integer & lhs, T rhs) noexcept
     {
         return !(lhs == rhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend constexpr bool operator!=(T lhs, const integer & rhs) noexcept
     {
         return !(lhs == rhs);
@@ -1034,49 +1028,49 @@ public:
 
     friend bool operator>=(const integer & lhs, const integer & rhs) noexcept { return !(lhs < rhs); }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator<(const integer & lhs, T rhs) noexcept
     {
         return lhs < integer(rhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator<(T lhs, const integer & rhs) noexcept
     {
         return integer(lhs) < rhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator>(const integer & lhs, T rhs) noexcept
     {
         return integer(rhs) < lhs;
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator>(T lhs, const integer & rhs) noexcept
     {
         return rhs < integer(lhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator<=(const integer & lhs, T rhs) noexcept
     {
         return !(integer(rhs) < lhs);
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator<=(T lhs, const integer & rhs) noexcept
     {
         return !(rhs < integer(lhs));
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator>=(const integer & lhs, T rhs) noexcept
     {
         return !(lhs < integer(rhs));
     }
 
-    template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend bool operator>=(T lhs, const integer & rhs) noexcept
     {
         return !(integer(lhs) < rhs);
@@ -1157,23 +1151,15 @@ public:
     friend std::string to_string<>(const integer & v);
 
 private:
-    template <typename T>
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     void assign(T v) noexcept
     {
-        using ST = typename std::conditional<std::is_signed<T>::value, __int128_t, unsigned __int128>::type;
-        ST val = static_cast<ST>(v);
+        using wide = typename std::conditional<detail::is_signed<T>::value, __int128, unsigned __int128>::type;
+        wide val = static_cast<wide>(v);
         for (size_t i = 0; i < limbs; ++i)
         {
             data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(val));
-            if (std::is_signed<T>::value)
-                val >>= 64;
-            else
-                val = static_cast<unsigned __int128>(val) >> 64;
-        }
-        if (std::is_signed<T>::value && v < 0)
-        {
-            for (size_t i = (sizeof(T) * 8 + 63) / 64; i < limbs; ++i)
-                data_[i] = ~0ULL;
+            val >>= 64;
         }
     }
 

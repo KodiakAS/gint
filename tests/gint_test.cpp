@@ -113,6 +113,27 @@ TEST(WideIntegerOps, SignedInt128DivMod)
     EXPECT_EQ(q * big_div + r, big);
 }
 
+TEST(WideIntegerOps, Int128NegativeConversion)
+{
+    using gint::Int256;
+
+    __int128 small = -5;
+    Int256 a = small;
+    EXPECT_EQ(a, Int256(-5));
+
+    Int256 b;
+    b = small;
+    EXPECT_EQ(b, Int256(-5));
+
+    __int128 big = -((static_cast<__int128>(1) << 100));
+    Int256 c = big;
+    EXPECT_EQ(c, -(Int256(1) << 100));
+
+    Int256 d;
+    d = big;
+    EXPECT_EQ(d, -(Int256(1) << 100));
+}
+
 enum class ArithOp
 {
     Add,
