@@ -314,11 +314,11 @@ TEST(WideIntegerConversion, BuiltinToWide)
 TEST(WideIntegerConversion, WideToBuiltin)
 {
     gint::integer<128, unsigned> a = 100;
-    unsigned int b = a; // implicit conversion to builtin
+    auto b = static_cast<unsigned int>(a); // explicit conversion to builtin
     EXPECT_EQ(b, 100u);
 
     gint::integer<128, signed> c = -100;
-    int d = c;
+    auto d = static_cast<int>(c);
     EXPECT_EQ(d, -100);
 }
 
@@ -675,7 +675,7 @@ TEST(WideIntegerExtra, FloatConversion)
 TEST(WideIntegerConversion, UnsignedRoundtrip)
 {
     gint::integer<128, unsigned> w = 42;
-    uint64_t u = w;
+    auto u = static_cast<uint64_t>(w);
     EXPECT_EQ(u, 42u);
     gint::integer<128, unsigned> w2 = u;
     EXPECT_EQ(w2, w);
@@ -684,7 +684,7 @@ TEST(WideIntegerConversion, UnsignedRoundtrip)
 TEST(WideIntegerConversion, SignedRoundtrip)
 {
     gint::integer<128, signed> w = -123;
-    int64_t i = w;
+    auto i = static_cast<int64_t>(w);
     EXPECT_EQ(i, -123);
     gint::integer<128, signed> w2 = i;
     EXPECT_EQ(w2, w);
@@ -706,14 +706,14 @@ TEST(WideIntegerInt128, UnsignedRoundtrip)
 {
     unsigned __int128 value = (static_cast<unsigned __int128>(1) << 80) + 42;
     gint::integer<256, unsigned> w = value;
-    unsigned __int128 back = w;
+    auto back = static_cast<unsigned __int128>(w);
     EXPECT_EQ(back, value);
 }
 TEST(WideIntegerInt128, SignedRoundtrip)
 {
     __int128 value = -((static_cast<__int128>(1) << 90) + 77);
     gint::integer<256, signed> w = value;
-    __int128 back = w;
+    auto back = static_cast<__int128>(w);
     EXPECT_EQ(back, value);
 }
 TEST(WideIntegerInt128, Arithmetic)
@@ -731,31 +731,23 @@ TEST(WideIntegerInt128, Arithmetic)
 TEST(WideIntegerInt128, SignedToUnsignedConversion)
 {
     gint::integer<256, signed> w = 123;
-    unsigned __int128 via_static = static_cast<unsigned __int128>(w);
-    unsigned __int128 via_implicit = w;
-    EXPECT_TRUE(via_static == static_cast<unsigned __int128>(123));
-    EXPECT_TRUE(via_implicit == static_cast<unsigned __int128>(123));
+    auto via_explicit = static_cast<unsigned __int128>(w);
+    EXPECT_TRUE(via_explicit == static_cast<unsigned __int128>(123));
 
     gint::integer<256, signed> negative = -1;
-    unsigned __int128 static_neg = static_cast<unsigned __int128>(negative);
-    unsigned __int128 implicit_neg = negative;
-    EXPECT_TRUE(static_neg == static_cast<unsigned __int128>(-1));
-    EXPECT_TRUE(implicit_neg == static_cast<unsigned __int128>(-1));
+    auto neg_explicit = static_cast<unsigned __int128>(negative);
+    EXPECT_TRUE(neg_explicit == static_cast<unsigned __int128>(-1));
 }
 
 TEST(WideIntegerInt128, SignedConversion)
 {
     gint::integer<256, signed> w = 123;
-    __int128 via_static = static_cast<__int128>(w);
-    __int128 via_implicit = w;
-    EXPECT_TRUE(via_static == static_cast<__int128>(123));
-    EXPECT_TRUE(via_implicit == static_cast<__int128>(123));
+    auto via_explicit = static_cast<__int128>(w);
+    EXPECT_TRUE(via_explicit == static_cast<__int128>(123));
 
     gint::integer<256, signed> negative = -1;
-    __int128 static_neg = static_cast<__int128>(negative);
-    __int128 implicit_neg = negative;
-    EXPECT_TRUE(static_neg == static_cast<__int128>(-1));
-    EXPECT_TRUE(implicit_neg == static_cast<__int128>(-1));
+    auto neg_explicit = static_cast<__int128>(negative);
+    EXPECT_TRUE(neg_explicit == static_cast<__int128>(-1));
 }
 
 template <typename T>

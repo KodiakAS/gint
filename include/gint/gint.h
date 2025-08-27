@@ -388,7 +388,7 @@ public:
 
     // Conversion operators
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    operator T() noexcept
+    explicit operator T() const noexcept
     {
         unsigned __int128 value = 0;
         for (size_t i = 0; i < limbs && i < (sizeof(T) + sizeof(limb_type) - 1) / sizeof(limb_type); ++i)
