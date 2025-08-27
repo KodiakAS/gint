@@ -1,3 +1,4 @@
+#include <type_traits>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
@@ -19,4 +20,7 @@ TEST(CompileTest, Basic)
 {
     gint::integer<128, unsigned> x = 42;
     (void)x;
+
+    static_assert(std::is_convertible<int, gint::Int256>::value, "int should convert to Int256 implicitly");
+    static_assert(!std::is_convertible<gint::Int256, int>::value, "Int256 should not implicitly convert to int");
 }
