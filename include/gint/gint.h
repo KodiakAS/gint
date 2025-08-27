@@ -72,7 +72,7 @@ struct make_index_sequence<0, I...>
 
 // These custom type traits extend std::is_integral / std::is_signed / std::is_unsigned
 // to support the GCC-specific built-in types __int128 and unsigned __int128 in
-// strict -std=c++11 mode. 
+// strict -std=c++11 mode.
 template <typename T>
 struct is_integral : std::is_integral<T>
 {
