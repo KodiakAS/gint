@@ -339,8 +339,8 @@ public:
     constexpr integer(integer &&) noexcept = default;
 
     // Assignment operators
-    constexpr integer & operator=(const integer &) noexcept = default;
-    constexpr integer & operator=(integer &&) noexcept = default;
+    integer & operator=(const integer &) noexcept = default;
+    integer & operator=(integer &&) noexcept = default;
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     constexpr integer(T v) noexcept
