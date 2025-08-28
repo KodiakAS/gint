@@ -120,4 +120,16 @@ if(GINT_BUILD_BENCHMARKS)
     target_compile_definitions(perf_compare_int256_random PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf_compare_int256_random PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_compare_int256_random PRIVATE -O3 -DNDEBUG)
+
+    # Int256 bitwise and comparison benchmarks
+    add_executable(perf_compare_int256_bit
+        bench/compare_int256_bit.cpp
+    )
+    target_compile_features(perf_compare_int256_bit PRIVATE cxx_std_11)
+    target_include_directories(perf_compare_int256_bit PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_definitions(perf_compare_int256_bit PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(perf_compare_int256_bit PRIVATE fmt::fmt benchmark::benchmark)
+    target_compile_options(perf_compare_int256_bit PRIVATE -O3 -DNDEBUG)
 endif()
