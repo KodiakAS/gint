@@ -998,6 +998,91 @@ TEST(WideIntegerDivision, LargeShiftSubtract512)
     EXPECT_EQ(q * divisor + r, lhs);
 }
 
+// ---- Coverage gap fillers merged from coverage_gaps_test.cpp ----
+TEST(CoverageGaps, FloatCtorAndAssignLongDouble)
+{
+    long double ld = 1234.75L;
+    gint::integer<128, unsigned> a = ld; // uses integer(T v) for floating
+    EXPECT_EQ(gint::to_string(a), "1234");
+
+    gint::integer<128, unsigned> b = 0;
+    b = 56.9L; // assignment from floating
+    EXPECT_EQ(gint::to_string(b), "56");
+}
+
+TEST(CoverageGaps, LongDoubleConversion128And256)
+{
+    // Exercise explicit operator long double() for multiple widths
+    gint::integer<256, signed> z = 0;
+    EXPECT_EQ(static_cast<long double>(z), 0.0L); // zero fast-path
+
+    gint::integer<256, signed> n = -123;
+    EXPECT_EQ(static_cast<long double>(n), -123.0L);
+}
+
+TEST(CoverageGaps, SignedRightShiftWrapper)
+{
+    using S128 = gint::integer<128, signed>;
+    S128 v = 8;
+    auto r = v >> 2; // calls wrapper which delegates to >>=
+    EXPECT_EQ(r, S128(2));
+}
+
+TEST(CoverageGaps, ShiftEdgeCasesSigned512)
+{
+    using S512 = gint::integer<512, signed>;
+    S512 x = 42;
+    S512 t = x;
+    t <<= 0;
+    EXPECT_EQ(t, x);
+    t >>= 0;
+    EXPECT_EQ(t, x);
+    t <<= 600; // >= total_bits
+    EXPECT_EQ(t, S512(0));
+    t = x;
+    t >>= 600; // >= total_bits
+    EXPECT_EQ(t, S512(0));
+}
+
+TEST(CoverageGaps, DivisionPowerOfTwoSigned)
+{
+    using S256 = gint::integer<256, signed>;
+    S256 lhs = S256(1) << 200;
+    S256 divisor = S256(1) << 130;
+    S256 q = lhs / divisor;
+    EXPECT_EQ(q, S256(1) << 70);
+}
+
+TEST(CoverageGaps, DivisionIntegralFallbackUnsignedInt128)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(1) << 180) + 12345;
+    unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 7; // > max signed 64
+    U256 q1 = lhs / big; // should go through fallback path
+    U256 q2 = lhs / U256(big); // integer/integer division
+    EXPECT_EQ(q1, q2);
+}
+
+TEST(CoverageGaps, ModIntegralFallbackUnsignedInt128)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(1) << 180) + 98765;
+    unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 11;
+    U256 r1 = lhs % big; // fallback path
+    U256 r2 = lhs % U256(big);
+    EXPECT_EQ(r1, r2);
+}
+
+TEST(CoverageGaps, FloatingDivisionBothWays)
+{
+    using U128 = gint::integer<128, unsigned>;
+    U128 a = 10;
+    auto q1 = a / 2.5; // uses long double path -> 4
+    EXPECT_EQ(q1, U128(4));
+    auto q2 = 100.0 / a; // -> 10
+    EXPECT_EQ(q2, U128(10));
+}
+
 TEST(WideIntegerDivModSmall, SingleLimbZero)
 {
     using U64 = gint::integer<64, unsigned>;
