@@ -20,6 +20,7 @@ jobs:
             sudo apt-get install -y cmake build-essential clang-format \
               libfmt-dev libgtest-dev libboost-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew update-reset
             brew update
             brew install cmake clang-format fmt googletest boost
           fi
