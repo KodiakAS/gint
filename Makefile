@@ -2,7 +2,7 @@ TEST_BUILD_DIR ?= build
 BENCH_BUILD_DIR ?= build-bench
 COVERAGE_DIR ?= build-coverage
 
-.PHONY: test bench coverage clean
+.PHONY: test bench coverage clean image
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -37,3 +37,7 @@ coverage: $(COVERAGE_DIR)/Makefile
 # Remove build directories
 clean:
 	rm -rf $(TEST_BUILD_DIR) $(BENCH_BUILD_DIR) $(COVERAGE_DIR)
+
+# Build Docker image
+image:
+	docker build -t gint:centos8 .

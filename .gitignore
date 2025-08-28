@@ -37,3 +37,4 @@
 # Tools
 .cache/
 .vscode/
+.devcontainer/
