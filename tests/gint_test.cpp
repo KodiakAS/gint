@@ -1024,7 +1024,7 @@ TEST(CoverageGaps, SignedRightShiftWrapper)
 {
     using S128 = gint::integer<128, signed>;
     S128 v = 8;
-    auto r = v >> 2; // calls wrapper which delegates to >>= 
+    auto r = v >> 2; // calls wrapper which delegates to >>=
     EXPECT_EQ(r, S128(2));
 }
 
@@ -1058,8 +1058,8 @@ TEST(CoverageGaps, DivisionIntegralFallbackUnsignedInt128)
     using U256 = gint::integer<256, unsigned>;
     U256 lhs = (U256(1) << 180) + 12345;
     unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 7; // > max signed 64
-    U256 q1 = lhs / big;                 // should go through fallback path
-    U256 q2 = lhs / U256(big);           // integer/integer division
+    U256 q1 = lhs / big; // should go through fallback path
+    U256 q2 = lhs / U256(big); // integer/integer division
     EXPECT_EQ(q1, q2);
 }
 
@@ -1068,7 +1068,7 @@ TEST(CoverageGaps, ModIntegralFallbackUnsignedInt128)
     using U256 = gint::integer<256, unsigned>;
     U256 lhs = (U256(1) << 180) + 98765;
     unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 11;
-    U256 r1 = lhs % big;                 // fallback path
+    U256 r1 = lhs % big; // fallback path
     U256 r2 = lhs % U256(big);
     EXPECT_EQ(r1, r2);
 }
