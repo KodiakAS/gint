@@ -58,6 +58,7 @@ if(GINT_BUILD_TESTS)
     target_compile_definitions(gint_fmt_test PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(gint_fmt_test PRIVATE fmt::fmt)
 
+
     # Compile tests for various C++ standards
     check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
     check_cxx_compiler_flag("-std=c++20" HAS_CXX20)
