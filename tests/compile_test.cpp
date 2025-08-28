@@ -16,6 +16,17 @@ static void division_no_check()
     (void)res;
 }
 
+#if __cplusplus >= 201402L
+constexpr gint::UInt256 constexpr_assign()
+{
+    gint::UInt256 x = 42;
+    gint::UInt256 y;
+    y = x;
+    return y;
+}
+static_assert(constexpr_assign() == gint::UInt256(42), "assignment must be constexpr");
+#endif
+
 TEST(CompileTest, Basic)
 {
     gint::integer<128, unsigned> x = 42;

@@ -32,6 +32,12 @@
 #define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
 #define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
 
+#if __cplusplus >= 201402L
+#    define GINT_CONSTEXPR14 constexpr
+#else
+#    define GINT_CONSTEXPR14
+#endif
+
 namespace gint
 {
 
@@ -339,8 +345,8 @@ public:
     constexpr integer(integer &&) noexcept = default;
 
     // Assignment operators
-    constexpr integer & operator=(const integer &) noexcept = default;
-    constexpr integer & operator=(integer &&) noexcept = default;
+    GINT_CONSTEXPR14 integer & operator=(const integer &) noexcept = default;
+    GINT_CONSTEXPR14 integer & operator=(integer &&) noexcept = default;
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     constexpr integer(T v) noexcept
