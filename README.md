@@ -85,3 +85,16 @@ make coverage
 
 This builds the project with coverage flags, runs the tests, and
 produces a coverage report under the `build-coverage` directory.
+
+## Development Environment
+
+A dedicated Dockerfile sets up a CentOS 8 environment with all build
+dependencies preinstalled. The repository's `Makefile` provides a target
+to build this image:
+
+```bash
+make image
+```
+
+The resulting `gint:centos8` image can be used as a consistent
+development container.
