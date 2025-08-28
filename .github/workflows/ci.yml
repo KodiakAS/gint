@@ -22,6 +22,7 @@ jobs:
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew update-reset
             brew update
+            brew uninstall --ignore-dependencies cmake || true
             brew install cmake clang-format fmt googletest boost
           fi
       - name: Configure
