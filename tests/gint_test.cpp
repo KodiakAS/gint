@@ -43,6 +43,110 @@ TEST(WideIntegerConstexpr, Construction)
     (void)d;
 }
 
+TEST(WideIntegerOps, SmallMulDiv)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 a = (UInt256(1) << 128) + 5;
+    UInt256 b = a * 3ULL;
+    EXPECT_EQ(b / 3ULL, a);
+    EXPECT_EQ(b % 3ULL, UInt256(0));
+
+    UInt256 c = UInt256(123456789);
+    EXPECT_EQ(c * 7ULL, UInt256(864197523));
+    EXPECT_EQ((c * 7ULL) / 7ULL, c);
+}
+
+TEST(WideIntegerOps, LargeLimbDivMod)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 u = UInt256(1);
+    u <<= 64;
+    uint64_t div = 1ULL << 63;
+    EXPECT_EQ(u / div, UInt256(2));
+    EXPECT_EQ(u % div, UInt256(0));
+
+    using Int256 = gint::integer<256, signed>;
+    Int256 s = Int256(1);
+    s <<= 64;
+    EXPECT_EQ(s / div, Int256(2));
+    EXPECT_EQ(s % div, Int256(0));
+
+    s = -s;
+    EXPECT_EQ(s / div, Int256(-2));
+    EXPECT_EQ(s % div, Int256(0));
+}
+
+TEST(WideIntegerOps, SignedSmallDivMod)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 a = 123;
+    EXPECT_EQ(a / 5, Int256(24));
+    EXPECT_EQ(a % 5, Int256(3));
+    EXPECT_EQ(a / -5, Int256(-24));
+    EXPECT_EQ(a % -5, Int256(3));
+    Int256 b = -123;
+    EXPECT_EQ(b / 5, Int256(-24));
+    EXPECT_EQ(b % 5, Int256(-3));
+    EXPECT_EQ(b / -5, Int256(24));
+    EXPECT_EQ(b % -5, Int256(-3));
+}
+
+TEST(WideIntegerOps, SignedInt128DivMod)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 pos = 123;
+    __int128 neg = -5;
+    EXPECT_EQ(pos / neg, Int256(-24));
+    EXPECT_EQ(pos % neg, Int256(3));
+    Int256 neg_val = -123;
+    EXPECT_EQ(neg_val / neg, Int256(24));
+    EXPECT_EQ(neg_val % neg, Int256(-3));
+
+    __int128 lhs = -123;
+    Int256 rhs = 5;
+    EXPECT_EQ(lhs / rhs, Int256(-24));
+    EXPECT_EQ(lhs % rhs, Int256(-3));
+
+    Int256 big = (Int256(1) << 200) + 12345;
+    __int128 big_div = -((static_cast<__int128>(1) << 100) + 7);
+    Int256 q = big / big_div;
+    Int256 r = big % big_div;
+    EXPECT_EQ(q * big_div + r, big);
+}
+
+TEST(WideIntegerOps, Int128NegativeConversion)
+{
+    using gint::Int256;
+
+    __int128 small = -5;
+    Int256 a = small;
+    EXPECT_EQ(a, Int256(-5));
+
+    Int256 b;
+    b = small;
+    EXPECT_EQ(b, Int256(-5));
+
+    __int128 big = -((static_cast<__int128>(1) << 100));
+    Int256 c = big;
+    EXPECT_EQ(c, -(Int256(1) << 100));
+
+    Int256 d;
+    d = big;
+    EXPECT_EQ(d, -(Int256(1) << 100));
+}
+
+TEST(WideIntegerOps, LongDivisionCorrection)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 dividend = (UInt256(1ULL << 63) << 192) | (UInt256(12345) << 128) | (UInt256(98764) << 64) | UInt256(42);
+    UInt256 divisor = (UInt256(1ULL << 63) << 128) | (UInt256(12345) << 64) | UInt256(98765);
+    UInt256 expected_q = UInt256(0xFFFFFFFFFFFFFFFFULL);
+    UInt256 expected_r = (UInt256(1ULL << 63) << 128) | (UInt256(12344) << 64) | UInt256(98807);
+    EXPECT_EQ(dividend / divisor, expected_q);
+    EXPECT_EQ(dividend % divisor, expected_r);
+    EXPECT_EQ((dividend / divisor) * divisor + (dividend % divisor), dividend);
+}
+
 enum class ArithOp
 {
     Add,
