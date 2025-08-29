@@ -1095,6 +1095,28 @@ TEST(CoverageGaps, FloatingDivisionBothWays)
     EXPECT_EQ(q2, U128(10));
 }
 
+TEST(CoverageGaps, FloatingModuloBothWays)
+{
+    using U128 = gint::integer<128, unsigned>;
+    U128 a = 10;
+    auto r1 = a % 3.0;
+    EXPECT_EQ(r1, U128(1));
+    auto r2 = 13.0 % a;
+    EXPECT_EQ(r2, U128(3));
+}
+
+TEST(CoverageGaps, DivisionQhatAdjustmentBreak)
+{
+    using U256 = gint::integer<256, unsigned>;
+    unsigned long long v1 = (1ULL << 63) + 1;
+    U256 divisor = (U256(v1) << 64) + U256(1);
+    U256 dividend = (U256(v1) << 128) + (U256(v1 - 1) << 64);
+    U256 q = dividend / divisor;
+    U256 r = dividend % divisor;
+    EXPECT_EQ(q, U256(1) << 64);
+    EXPECT_EQ(q * divisor + r, dividend);
+}
+
 TEST(WideIntegerDivModSmall, SingleLimbZero)
 {
     using U64 = gint::integer<64, unsigned>;
