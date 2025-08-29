@@ -135,6 +135,18 @@ TEST(WideIntegerOps, Int128NegativeConversion)
     EXPECT_EQ(d, -(Int256(1) << 100));
 }
 
+TEST(WideIntegerOps, LongDivisionCorrection)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 dividend = (UInt256(1ULL << 63) << 192) | (UInt256(12345) << 128) | (UInt256(98764) << 64) | UInt256(42);
+    UInt256 divisor = (UInt256(1ULL << 63) << 128) | (UInt256(12345) << 64) | UInt256(98765);
+    UInt256 expected_q = UInt256(0xFFFFFFFFFFFFFFFFULL);
+    UInt256 expected_r = (UInt256(1ULL << 63) << 128) | (UInt256(12344) << 64) | UInt256(98807);
+    EXPECT_EQ(dividend / divisor, expected_q);
+    EXPECT_EQ(dividend % divisor, expected_r);
+    EXPECT_EQ((dividend / divisor) * divisor + (dividend % divisor), dividend);
+}
+
 enum class ArithOp
 {
     Add,
