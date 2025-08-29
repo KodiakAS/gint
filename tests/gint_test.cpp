@@ -1107,13 +1107,13 @@ TEST(CoverageGaps, FloatingModuloBothWays)
 
 TEST(CoverageGaps, DivisionQhatAdjustmentBreak)
 {
-    using U256 = gint::integer<256, unsigned>;
-    unsigned long long v1 = (1ULL << 63) + 1;
-    U256 divisor = (U256(v1) << 64) + U256(1);
-    U256 dividend = (U256(v1) << 128) + (U256(v1 - 1) << 64);
-    U256 q = dividend / divisor;
-    U256 r = dividend % divisor;
-    EXPECT_EQ(q, U256(1) << 64);
+    using U192 = gint::integer<192, unsigned>;
+    U192 dividend = (U192(10054956001386181608ULL) << 128) | (U192(8255727357537494262ULL) << 64) | U192(16674662087757128036ULL);
+    U192 divisor = (U192(15663055025303705765ULL) << 64) | U192(14665315663880371289ULL);
+    U192 q = dividend / divisor;
+    U192 r = dividend % divisor;
+    EXPECT_EQ(q, U192(11841955463371320531ULL));
+    EXPECT_EQ(r, (U192(12845011950962266010ULL) << 64) | U192(13181795826343876617ULL));
     EXPECT_EQ(q * divisor + r, dividend);
 }
 
