@@ -43,98 +43,6 @@ TEST(WideIntegerConstexpr, Construction)
     (void)d;
 }
 
-TEST(WideIntegerOps, SmallMulDiv)
-{
-    using UInt256 = gint::integer<256, unsigned>;
-    UInt256 a = (UInt256(1) << 128) + 5;
-    UInt256 b = a * 3ULL;
-    EXPECT_EQ(b / 3ULL, a);
-    EXPECT_EQ(b % 3ULL, UInt256(0));
-
-    UInt256 c = UInt256(123456789);
-    EXPECT_EQ(c * 7ULL, UInt256(864197523));
-    EXPECT_EQ((c * 7ULL) / 7ULL, c);
-}
-
-TEST(WideIntegerOps, LargeLimbDivMod)
-{
-    using UInt256 = gint::integer<256, unsigned>;
-    UInt256 u = UInt256(1);
-    u <<= 64;
-    uint64_t div = 1ULL << 63;
-    EXPECT_EQ(u / div, UInt256(2));
-    EXPECT_EQ(u % div, UInt256(0));
-
-    using Int256 = gint::integer<256, signed>;
-    Int256 s = Int256(1);
-    s <<= 64;
-    EXPECT_EQ(s / div, Int256(2));
-    EXPECT_EQ(s % div, Int256(0));
-
-    s = -s;
-    EXPECT_EQ(s / div, Int256(-2));
-    EXPECT_EQ(s % div, Int256(0));
-}
-
-TEST(WideIntegerOps, SignedSmallDivMod)
-{
-    using Int256 = gint::integer<256, signed>;
-    Int256 a = 123;
-    EXPECT_EQ(a / 5, Int256(24));
-    EXPECT_EQ(a % 5, Int256(3));
-    EXPECT_EQ(a / -5, Int256(-24));
-    EXPECT_EQ(a % -5, Int256(3));
-    Int256 b = -123;
-    EXPECT_EQ(b / 5, Int256(-24));
-    EXPECT_EQ(b % 5, Int256(-3));
-    EXPECT_EQ(b / -5, Int256(24));
-    EXPECT_EQ(b % -5, Int256(-3));
-}
-
-TEST(WideIntegerOps, SignedInt128DivMod)
-{
-    using Int256 = gint::integer<256, signed>;
-    Int256 pos = 123;
-    __int128 neg = -5;
-    EXPECT_EQ(pos / neg, Int256(-24));
-    EXPECT_EQ(pos % neg, Int256(3));
-    Int256 neg_val = -123;
-    EXPECT_EQ(neg_val / neg, Int256(24));
-    EXPECT_EQ(neg_val % neg, Int256(-3));
-
-    __int128 lhs = -123;
-    Int256 rhs = 5;
-    EXPECT_EQ(lhs / rhs, Int256(-24));
-    EXPECT_EQ(lhs % rhs, Int256(-3));
-
-    Int256 big = (Int256(1) << 200) + 12345;
-    __int128 big_div = -((static_cast<__int128>(1) << 100) + 7);
-    Int256 q = big / big_div;
-    Int256 r = big % big_div;
-    EXPECT_EQ(q * big_div + r, big);
-}
-
-TEST(WideIntegerOps, Int128NegativeConversion)
-{
-    using gint::Int256;
-
-    __int128 small = -5;
-    Int256 a = small;
-    EXPECT_EQ(a, Int256(-5));
-
-    Int256 b;
-    b = small;
-    EXPECT_EQ(b, Int256(-5));
-
-    __int128 big = -((static_cast<__int128>(1) << 100));
-    Int256 c = big;
-    EXPECT_EQ(c, -(Int256(1) << 100));
-
-    Int256 d;
-    d = big;
-    EXPECT_EQ(d, -(Int256(1) << 100));
-}
-
 enum class ArithOp
 {
     Add,
@@ -442,6 +350,181 @@ TEST(WideIntegerConversion, Int128)
 }
 #endif
 
+TEST(WideIntegerConversion, UnsignedRoundtrip)
+{
+    gint::integer<128, unsigned> w = 42;
+    auto u = static_cast<uint64_t>(w);
+    EXPECT_EQ(u, 42u);
+    gint::integer<128, unsigned> w2 = u;
+    EXPECT_EQ(w2, w);
+}
+
+TEST(WideIntegerConversion, SignedRoundtrip)
+{
+    gint::integer<128, signed> w = -123;
+    auto i = static_cast<int64_t>(w);
+    EXPECT_EQ(i, -123);
+    gint::integer<128, signed> w2 = i;
+    EXPECT_EQ(w2, w);
+}
+
+TEST(WideIntegerConversion, ArithmeticWithBuiltin)
+{
+    gint::integer<128, unsigned> a = 100;
+    uint64_t b = 20;
+    auto c = a + b;
+    auto d = b + a;
+    auto e = a * b;
+    EXPECT_EQ(gint::to_string(c), "120");
+    EXPECT_EQ(gint::to_string(d), "120");
+    EXPECT_EQ(gint::to_string(e), "2000");
+}
+
+TEST(WideIntegerConversion, LongDoubleZero)
+{
+    gint::integer<128, signed> z = 0;
+    EXPECT_EQ(static_cast<long double>(z), 0.0L);
+    gint::integer<128, unsigned> from_zero = 0.0f;
+    EXPECT_EQ(from_zero, (gint::integer<128, unsigned>(0)));
+}
+
+TEST(CoverageGaps, FloatCtorAndAssignLongDouble)
+{
+    long double ld = 1234.75L;
+    gint::integer<128, unsigned> a = ld; // uses integer(T v) for floating
+    EXPECT_EQ(gint::to_string(a), "1234");
+
+    gint::integer<128, unsigned> b = 0;
+    b = 56.9L; // assignment from floating
+    EXPECT_EQ(gint::to_string(b), "56");
+}
+
+TEST(CoverageGaps, LongDoubleConversion128And256)
+{
+    // Exercise explicit operator long double() for multiple widths
+    gint::integer<256, signed> z = 0;
+    EXPECT_EQ(static_cast<long double>(z), 0.0L); // zero fast-path
+
+    gint::integer<256, signed> n = -123;
+    EXPECT_EQ(static_cast<long double>(n), -123.0L);
+}
+
+TEST(WideIntegerInt128, UnsignedRoundtrip)
+{
+    unsigned __int128 value = (static_cast<unsigned __int128>(1) << 80) + 42;
+    gint::integer<256, unsigned> w = value;
+    auto back = static_cast<unsigned __int128>(w);
+    EXPECT_EQ(back, value);
+}
+
+TEST(WideIntegerInt128, SignedRoundtrip)
+{
+    __int128 value = -((static_cast<__int128>(1) << 90) + 77);
+    gint::integer<256, signed> w = value;
+    auto back = static_cast<__int128>(w);
+    EXPECT_EQ(back, value);
+}
+
+TEST(WideIntegerInt128, Arithmetic)
+{
+    gint::integer<256, unsigned> w = 100;
+    unsigned __int128 b = 20;
+    auto c = w + b;
+    auto d = b + w;
+    auto e = w * b;
+    EXPECT_EQ(gint::to_string(c), "120");
+    EXPECT_EQ(gint::to_string(d), "120");
+    EXPECT_EQ(gint::to_string(e), "2000");
+}
+
+TEST(WideIntegerInt128, SignedToUnsignedConversion)
+{
+    gint::integer<256, signed> w = 123;
+    auto via_explicit = static_cast<unsigned __int128>(w);
+    EXPECT_TRUE(via_explicit == static_cast<unsigned __int128>(123));
+
+    gint::integer<256, signed> negative = -1;
+    auto neg_explicit = static_cast<unsigned __int128>(negative);
+    EXPECT_TRUE(neg_explicit == static_cast<unsigned __int128>(-1));
+}
+
+TEST(WideIntegerInt128, SignedConversion)
+{
+    gint::integer<256, signed> w = 123;
+    auto via_explicit = static_cast<__int128>(w);
+    EXPECT_TRUE(via_explicit == static_cast<__int128>(123));
+
+    gint::integer<256, signed> negative = -1;
+    auto neg_explicit = static_cast<__int128>(negative);
+    EXPECT_TRUE(neg_explicit == static_cast<__int128>(-1));
+}
+
+TEST(WideIntegerConversion, Int128Negative)
+{
+    using gint::Int256;
+
+    __int128 small = -5;
+    Int256 a = small;
+    EXPECT_EQ(a, Int256(-5));
+
+    Int256 b;
+    b = small;
+    EXPECT_EQ(b, Int256(-5));
+
+    __int128 big = -((static_cast<__int128>(1) << 100));
+    Int256 c = big;
+    EXPECT_EQ(c, -(Int256(1) << 100));
+
+    Int256 d;
+    d = big;
+    EXPECT_EQ(d, -(Int256(1) << 100));
+}
+
+TEST(WideIntegerConversion, CrossWidth)
+{
+    using U256 = gint::integer<256, unsigned>;
+    using U128 = gint::integer<128, unsigned>;
+    U256 big = 123456789;
+    U128 small = U128(static_cast<uint64_t>(big));
+    EXPECT_EQ(small, U128(123456789));
+    U128 small2 = 42;
+    U256 big2 = U256(static_cast<uint64_t>(small2));
+    EXPECT_EQ(big2, U256(42));
+
+    using S256 = gint::integer<256, signed>;
+    using S128 = gint::integer<128, signed>;
+    S128 s_small = -55;
+    S256 s_big = S256(static_cast<int64_t>(s_small));
+    EXPECT_EQ(s_big, S256(-55));
+    S256 s_big2 = S256(-1000);
+    S128 s_small2 = S128(static_cast<int64_t>(s_big2));
+    EXPECT_EQ(s_small2, S128(-1000));
+}
+
+TEST(WideIntegerConversionOverflow, ToUint64)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 val = (U256(1) << 200) + 123456789ULL;
+    uint64_t truncated = static_cast<uint64_t>(val);
+    EXPECT_EQ(truncated, 123456789ULL);
+}
+
+TEST(WideIntegerConversionOverflow, ToInt64)
+{
+    using S256 = gint::integer<256, signed>;
+    S256 val = (S256(1) << 200) + (S256(1) << 63);
+    int64_t truncated = static_cast<int64_t>(val);
+    EXPECT_EQ(truncated, std::numeric_limits<int64_t>::min());
+}
+
+TEST(WideIntegerConversionOverflow, FromLargeNative)
+{
+    using U64 = gint::integer<64, unsigned>;
+    unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 7;
+    U64 v = big;
+    EXPECT_EQ(v, U64(7));
+}
+
 TEST(WideIntegerBoundary, Unsigned256)
 {
     gint::integer<256, unsigned> a = gint::integer<256, unsigned>(1) << 255;
@@ -672,84 +755,6 @@ TEST(WideIntegerExtra, FloatConversion)
     EXPECT_EQ(s, -789);
 }
 
-TEST(WideIntegerConversion, UnsignedRoundtrip)
-{
-    gint::integer<128, unsigned> w = 42;
-    auto u = static_cast<uint64_t>(w);
-    EXPECT_EQ(u, 42u);
-    gint::integer<128, unsigned> w2 = u;
-    EXPECT_EQ(w2, w);
-}
-
-TEST(WideIntegerConversion, SignedRoundtrip)
-{
-    gint::integer<128, signed> w = -123;
-    auto i = static_cast<int64_t>(w);
-    EXPECT_EQ(i, -123);
-    gint::integer<128, signed> w2 = i;
-    EXPECT_EQ(w2, w);
-}
-
-TEST(WideIntegerConversion, ArithmeticWithBuiltin)
-{
-    gint::integer<128, unsigned> a = 100;
-    uint64_t b = 20;
-    auto c = a + b;
-    auto d = b + a;
-    auto e = a * b;
-    EXPECT_EQ(gint::to_string(c), "120");
-    EXPECT_EQ(gint::to_string(d), "120");
-    EXPECT_EQ(gint::to_string(e), "2000");
-}
-
-TEST(WideIntegerInt128, UnsignedRoundtrip)
-{
-    unsigned __int128 value = (static_cast<unsigned __int128>(1) << 80) + 42;
-    gint::integer<256, unsigned> w = value;
-    auto back = static_cast<unsigned __int128>(w);
-    EXPECT_EQ(back, value);
-}
-TEST(WideIntegerInt128, SignedRoundtrip)
-{
-    __int128 value = -((static_cast<__int128>(1) << 90) + 77);
-    gint::integer<256, signed> w = value;
-    auto back = static_cast<__int128>(w);
-    EXPECT_EQ(back, value);
-}
-TEST(WideIntegerInt128, Arithmetic)
-{
-    gint::integer<256, unsigned> w = 100;
-    unsigned __int128 b = 20;
-    auto c = w + b;
-    auto d = b + w;
-    auto e = w * b;
-    EXPECT_EQ(gint::to_string(c), "120");
-    EXPECT_EQ(gint::to_string(d), "120");
-    EXPECT_EQ(gint::to_string(e), "2000");
-}
-
-TEST(WideIntegerInt128, SignedToUnsignedConversion)
-{
-    gint::integer<256, signed> w = 123;
-    auto via_explicit = static_cast<unsigned __int128>(w);
-    EXPECT_TRUE(via_explicit == static_cast<unsigned __int128>(123));
-
-    gint::integer<256, signed> negative = -1;
-    auto neg_explicit = static_cast<unsigned __int128>(negative);
-    EXPECT_TRUE(neg_explicit == static_cast<unsigned __int128>(-1));
-}
-
-TEST(WideIntegerInt128, SignedConversion)
-{
-    gint::integer<256, signed> w = 123;
-    auto via_explicit = static_cast<__int128>(w);
-    EXPECT_TRUE(via_explicit == static_cast<__int128>(123));
-
-    gint::integer<256, signed> negative = -1;
-    auto neg_explicit = static_cast<__int128>(negative);
-    EXPECT_TRUE(neg_explicit == static_cast<__int128>(-1));
-}
-
 template <typename T>
 void test_integral_ops()
 {
@@ -844,36 +849,6 @@ TEST(WideIntegerBuiltin, FloatingTypes)
     test_float_ops<double>();
 }
 
-TEST(WideIntegerDivision, NegativeOperands)
-{
-    using W = gint::integer<128, signed>;
-    auto check = [](long long lhs, long long rhs)
-    {
-        W wl = lhs;
-        W wr = rhs;
-        W q = wl / wr;
-        __int128 expected = static_cast<__int128>(lhs) / static_cast<__int128>(rhs);
-        EXPECT_EQ(q, W(expected));
-    };
-    check(-7, 3);
-    check(7, -3);
-    check(-8, 2);
-    check(-8, -2);
-    check(-1, 2);
-}
-
-TEST(WideInteger256, Division)
-{
-    using W = gint::integer<256, unsigned>;
-    W a = (W{1} << 200) + 123456789ULL;
-    uint64_t div = 987654321ULL;
-    W q = a / div;
-    W r = a % div;
-    EXPECT_EQ(q * div + r, a);
-    EXPECT_EQ(gint::to_string(q), "1627024769791889844363837995440879160110719541703693");
-    EXPECT_EQ(static_cast<uint64_t>(r), 865650712ULL);
-}
-
 TEST(WideIntegerShift, NonPositive)
 {
     gint::integer<128, unsigned> a = 42;
@@ -916,33 +891,141 @@ TEST(WideIntegerShift, LargeShiftAmounts)
     EXPECT_EQ(small, U128(0));
 }
 
-TEST(WideIntegerConversion, LongDoubleZero)
+TEST(CoverageGaps, SignedRightShiftWrapper)
 {
-    gint::integer<128, signed> z = 0;
-    EXPECT_EQ(static_cast<long double>(z), 0.0L);
-    gint::integer<128, unsigned> from_zero = 0.0f;
-    EXPECT_EQ(from_zero, (gint::integer<128, unsigned>(0)));
+    using S128 = gint::integer<128, signed>;
+    S128 v = 8;
+    auto r = v >> 2; // calls wrapper which delegates to >>=
+    EXPECT_EQ(r, S128(2));
 }
 
-TEST(WideIntegerStream, Output)
+TEST(CoverageGaps, ShiftEdgeCasesSigned512)
 {
-    gint::integer<128, unsigned> v = 42;
-    std::ostringstream oss;
-    oss << v;
-    EXPECT_EQ(oss.str(), "42");
+    using S512 = gint::integer<512, signed>;
+    S512 x = 42;
+    S512 t = x;
+    t <<= 0;
+    EXPECT_EQ(t, x);
+    t >>= 0;
+    EXPECT_EQ(t, x);
+    t <<= 600; // >= total_bits
+    EXPECT_EQ(t, S512(0));
+    t = x;
+    t >>= 600; // >= total_bits
+    EXPECT_EQ(t, S512(0));
 }
 
-TEST(WideIntegerMulLimbOverflow, AllOnes)
+TEST(WideIntegerShift, Boundary)
 {
     using U256 = gint::integer<256, unsigned>;
-    U256 a = 0;
-    a += U256(0x46266a917dbcd870ULL);
-    a += U256(0x90b7613918e3e357ULL) << 64;
-    a += U256(0xbbc572685860e1c7ULL) << 128;
-    a += U256(0xb2670508acb68230ULL) << 192;
-    uint64_t rhs = 0xf2502093fcb85e1fULL;
-    U256 res = a * rhs;
-    EXPECT_EQ(gint::to_string(res), "38165250106338254442706927385283291263099041807018295318034436735252813010320");
+    U256 v = 1;
+    EXPECT_EQ(v << 0, v);
+    EXPECT_EQ(v >> 0, v);
+    EXPECT_EQ(v << 256, U256(0));
+    EXPECT_EQ(v >> 256, U256(0));
+    EXPECT_EQ(v << -1, v);
+    EXPECT_EQ(v >> -1, v);
+}
+
+TEST(WideIntegerOps, SmallMulDiv)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 a = (UInt256(1) << 128) + 5;
+    UInt256 b = a * 3ULL;
+    EXPECT_EQ(b / 3ULL, a);
+    EXPECT_EQ(b % 3ULL, UInt256(0));
+
+    UInt256 c = UInt256(123456789);
+    EXPECT_EQ(c * 7ULL, UInt256(864197523));
+    EXPECT_EQ((c * 7ULL) / 7ULL, c);
+}
+
+TEST(WideIntegerOps, LargeLimbDivMod)
+{
+    using UInt256 = gint::integer<256, unsigned>;
+    UInt256 u = UInt256(1);
+    u <<= 64;
+    uint64_t div = 1ULL << 63;
+    EXPECT_EQ(u / div, UInt256(2));
+    EXPECT_EQ(u % div, UInt256(0));
+
+    using Int256 = gint::integer<256, signed>;
+    Int256 s = Int256(1);
+    s <<= 64;
+    EXPECT_EQ(s / div, Int256(2));
+    EXPECT_EQ(s % div, Int256(0));
+
+    s = -s;
+    EXPECT_EQ(s / div, Int256(-2));
+    EXPECT_EQ(s % div, Int256(0));
+}
+
+TEST(WideIntegerOps, SignedSmallDivMod)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 a = 123;
+    EXPECT_EQ(a / 5, Int256(24));
+    EXPECT_EQ(a % 5, Int256(3));
+    EXPECT_EQ(a / -5, Int256(-24));
+    EXPECT_EQ(a % -5, Int256(3));
+    Int256 b = -123;
+    EXPECT_EQ(b / 5, Int256(-24));
+    EXPECT_EQ(b % 5, Int256(-3));
+    EXPECT_EQ(b / -5, Int256(24));
+    EXPECT_EQ(b % -5, Int256(-3));
+}
+
+TEST(WideIntegerOps, SignedInt128DivMod)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 pos = 123;
+    __int128 neg = -5;
+    EXPECT_EQ(pos / neg, Int256(-24));
+    EXPECT_EQ(pos % neg, Int256(3));
+    Int256 neg_val = -123;
+    EXPECT_EQ(neg_val / neg, Int256(24));
+    EXPECT_EQ(neg_val % neg, Int256(-3));
+
+    __int128 lhs = -123;
+    Int256 rhs = 5;
+    EXPECT_EQ(lhs / rhs, Int256(-24));
+    EXPECT_EQ(lhs % rhs, Int256(-3));
+
+    Int256 big = (Int256(1) << 200) + 12345;
+    __int128 big_div = -((static_cast<__int128>(1) << 100) + 7);
+    Int256 q = big / big_div;
+    Int256 r = big % big_div;
+    EXPECT_EQ(q * big_div + r, big);
+}
+
+TEST(WideIntegerDivision, NegativeOperands)
+{
+    using W = gint::integer<128, signed>;
+    auto check = [](long long lhs, long long rhs)
+    {
+        W wl = lhs;
+        W wr = rhs;
+        W q = wl / wr;
+        __int128 expected = static_cast<__int128>(lhs) / static_cast<__int128>(rhs);
+        EXPECT_EQ(q, W(expected));
+    };
+    check(-7, 3);
+    check(7, -3);
+    check(-8, 2);
+    check(-8, -2);
+    check(-1, 2);
+}
+
+TEST(WideInteger256, Division)
+{
+    using W = gint::integer<256, unsigned>;
+    W a = (W{1} << 200) + 123456789ULL;
+    uint64_t div = 987654321ULL;
+    W q = a / div;
+    W r = a % div;
+    EXPECT_EQ(q * div + r, a);
+    EXPECT_EQ(gint::to_string(q), "1627024769791889844363837995440879160110719541703693");
+    EXPECT_EQ(static_cast<uint64_t>(r), 865650712ULL);
 }
 
 TEST(WideIntegerDivision, PowerOfTwoMultiLimb)
@@ -998,52 +1081,6 @@ TEST(WideIntegerDivision, LargeShiftSubtract512)
     EXPECT_EQ(q * divisor + r, lhs);
 }
 
-// ---- Coverage gap fillers merged from coverage_gaps_test.cpp ----
-TEST(CoverageGaps, FloatCtorAndAssignLongDouble)
-{
-    long double ld = 1234.75L;
-    gint::integer<128, unsigned> a = ld; // uses integer(T v) for floating
-    EXPECT_EQ(gint::to_string(a), "1234");
-
-    gint::integer<128, unsigned> b = 0;
-    b = 56.9L; // assignment from floating
-    EXPECT_EQ(gint::to_string(b), "56");
-}
-
-TEST(CoverageGaps, LongDoubleConversion128And256)
-{
-    // Exercise explicit operator long double() for multiple widths
-    gint::integer<256, signed> z = 0;
-    EXPECT_EQ(static_cast<long double>(z), 0.0L); // zero fast-path
-
-    gint::integer<256, signed> n = -123;
-    EXPECT_EQ(static_cast<long double>(n), -123.0L);
-}
-
-TEST(CoverageGaps, SignedRightShiftWrapper)
-{
-    using S128 = gint::integer<128, signed>;
-    S128 v = 8;
-    auto r = v >> 2; // calls wrapper which delegates to >>=
-    EXPECT_EQ(r, S128(2));
-}
-
-TEST(CoverageGaps, ShiftEdgeCasesSigned512)
-{
-    using S512 = gint::integer<512, signed>;
-    S512 x = 42;
-    S512 t = x;
-    t <<= 0;
-    EXPECT_EQ(t, x);
-    t >>= 0;
-    EXPECT_EQ(t, x);
-    t <<= 600; // >= total_bits
-    EXPECT_EQ(t, S512(0));
-    t = x;
-    t >>= 600; // >= total_bits
-    EXPECT_EQ(t, S512(0));
-}
-
 TEST(CoverageGaps, DivisionPowerOfTwoSigned)
 {
     using S256 = gint::integer<256, signed>;
@@ -1081,6 +1118,26 @@ TEST(CoverageGaps, FloatingDivisionBothWays)
     EXPECT_EQ(q1, U128(4));
     auto q2 = 100.0 / a; // -> 10
     EXPECT_EQ(q2, U128(10));
+}
+
+TEST(CoverageGaps, FloatingModBothWays)
+{
+    using U128 = gint::integer<128, unsigned>;
+    U128 a = 10;
+    auto r1 = a % 3.0; // 10 % 3 -> 1
+    EXPECT_EQ(r1, U128(1));
+    auto r2 = 23.0 % a; // 23 % 10 -> 3
+    EXPECT_EQ(r2, U128(3));
+}
+
+TEST(CoverageGaps, DivisionCorrectionPath)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(1) << 192) + (U256(1) << 128) + (U256(1) << 64);
+    U256 divisor = (U256(1) << 128) + (U256(1) << 64) + 1;
+    U256 q = lhs / divisor;
+    U256 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
 }
 
 TEST(WideIntegerDivModSmall, SingleLimbZero)
@@ -1179,16 +1236,25 @@ TEST(WideIntegerDivMod, ZeroDivisor)
     EXPECT_THROW(sval % szero, std::domain_error);
 }
 
-TEST(WideIntegerShift, Boundary)
+TEST(WideIntegerStream, Output)
+{
+    gint::integer<128, unsigned> v = 42;
+    std::ostringstream oss;
+    oss << v;
+    EXPECT_EQ(oss.str(), "42");
+}
+
+TEST(WideIntegerMulLimbOverflow, AllOnes)
 {
     using U256 = gint::integer<256, unsigned>;
-    U256 v = 1;
-    EXPECT_EQ(v << 0, v);
-    EXPECT_EQ(v >> 0, v);
-    EXPECT_EQ(v << 256, U256(0));
-    EXPECT_EQ(v >> 256, U256(0));
-    EXPECT_EQ(v << -1, v);
-    EXPECT_EQ(v >> -1, v);
+    U256 a = 0;
+    a += U256(0x46266a917dbcd870ULL);
+    a += U256(0x90b7613918e3e357ULL) << 64;
+    a += U256(0xbbc572685860e1c7ULL) << 128;
+    a += U256(0xb2670508acb68230ULL) << 192;
+    uint64_t rhs = 0xf2502093fcb85e1fULL;
+    U256 res = a * rhs;
+    EXPECT_EQ(gint::to_string(res), "38165250106338254442706927385283291263099041807018295318034436735252813010320");
 }
 
 TEST(WideIntegerExceptions, ConstructFromNegative)
@@ -1226,28 +1292,4 @@ TEST(WideIntegerOverflow, SignedMultiplicationWrap)
     S128 max = (S128(1) << 127) - S128(1);
     S128 result = max * 2;
     EXPECT_EQ(result, S128(-2));
-}
-
-TEST(WideIntegerConversionOverflow, ToUint64)
-{
-    using U256 = gint::integer<256, unsigned>;
-    U256 val = (U256(1) << 200) + 123456789ULL;
-    uint64_t truncated = static_cast<uint64_t>(val);
-    EXPECT_EQ(truncated, 123456789ULL);
-}
-
-TEST(WideIntegerConversionOverflow, ToInt64)
-{
-    using S256 = gint::integer<256, signed>;
-    S256 val = (S256(1) << 200) + (S256(1) << 63);
-    int64_t truncated = static_cast<int64_t>(val);
-    EXPECT_EQ(truncated, std::numeric_limits<int64_t>::min());
-}
-
-TEST(WideIntegerConversionOverflow, FromLargeNative)
-{
-    using U64 = gint::integer<64, unsigned>;
-    unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 7;
-    U64 v = big;
-    EXPECT_EQ(v, U64(7));
 }
