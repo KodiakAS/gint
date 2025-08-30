@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #ifdef GINT_ENABLE_FMT
 #    include <fmt/format.h>
@@ -363,27 +364,7 @@ inline void mul_limb(uint64_t * lhs, uint64_t rhs) noexcept
     }
 }
 
-template <>
-inline void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
-{
-    using Half = unsigned __int128;
-    Half a01 = (Half(lhs[1]) << 64) | lhs[0];
-    Half a23 = (Half(lhs[3]) << 64) | lhs[2];
-    Half r23 = a23 * rhs;
-    Half r01 = Half(lhs[0]) * rhs;
-    Half r12 = (r01 >> 64) + (r23 << 64);
-    Half cross = Half(lhs[1]) * rhs;
-
-    lhs[0] = static_cast<uint64_t>(r01);
-    lhs[3] = static_cast<uint64_t>(r23 >> 64);
-
-    r12 += cross;
-    if (r12 < cross)
-        ++lhs[3];
-
-    lhs[1] = static_cast<uint64_t>(r12);
-    lhs[2] = static_cast<uint64_t>(r12 >> 64);
-}
+// Prefer the generic mul_limb implementation also for 4 limbs.
 } // namespace detail
 
 //=== String and stream declarations =========================================
@@ -913,36 +894,10 @@ public:
                 // both operands are 128-bit wide
                 result = div_128(lhs, divisor);
             }
-            else if (divisor_limbs <= 2)
-            {
-                size_t lhs_limbs = limbs;
-                while (lhs_limbs > 0 && lhs.data_[lhs_limbs - 1] == 0)
-                    --lhs_limbs;
-                if (lhs_limbs <= 2)
-                {
-                    // operands fit into two limbs; reuse the 128-bit path
-                    result = div_128(lhs, divisor);
-                }
-                else if (limbs <= 4)
-                {
-                    // small operand size: fall back to Knuth division
-                    result = div_large(lhs, divisor, divisor_limbs);
-                }
-                else
-                {
-                    // generic shift-subtract algorithm for very large numbers
-                    result = div_shift_subtract(lhs, divisor);
-                }
-            }
-            else if (limbs <= 4)
-            {
-                // up to 256-bit operands: Knuth division
-                result = div_large(lhs, divisor, divisor_limbs);
-            }
             else
             {
-                // generic shift-subtract algorithm
-                result = div_shift_subtract(lhs, divisor);
+                // Multi-limb divisor: use Knuth's Algorithm D (div_large)
+                result = div_large(lhs, divisor, divisor_limbs);
             }
         }
         if (std::is_same<Signed, signed>::value && lhs_neg != rhs_neg)
@@ -1612,17 +1567,42 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     }
     if (tmp.is_zero())
         return "0";
-    std::string res;
+
+    using Int = integer<Bits, Signed>;
+    const typename Int::limb_type base = 1000000000ULL; // 1e9
+    const unsigned chunk_digits = 9;
+
+    std::vector<typename Int::limb_type> chunks;
+    chunks.reserve((Bits + 29) / 30);
     while (!tmp.is_zero())
     {
-        integer<Bits, Signed> q;
-        typename integer<Bits, Signed>::limb_type rem = tmp.div_mod_small(static_cast<typename integer<Bits, Signed>::limb_type>(10), q);
-        res.insert(res.begin(), static_cast<char>('0' + rem));
+        Int q;
+        typename Int::limb_type rem = tmp.div_mod_small(base, q);
+        chunks.push_back(rem);
         tmp = q;
     }
+
+    std::string out;
+    // most significant chunk
+    auto it = chunks.rbegin();
+    out += std::to_string(*it);
+    ++it;
+    // zero-padded remaining chunks
+    for (; it != chunks.rend(); ++it)
+    {
+        char buf[32];
+        unsigned idx = 32;
+        typename Int::limb_type x = *it;
+        for (unsigned i = 0; i < chunk_digits; ++i)
+        {
+            buf[--idx] = static_cast<char>('0' + (x % 10));
+            x /= 10;
+        }
+        out.append(buf + idx, chunk_digits);
+    }
     if (neg)
-        res.insert(res.begin(), '-');
-    return res;
+        out.insert(out.begin(), '-');
+    return out;
 }
 
 template <size_t Bits, typename Signed>
