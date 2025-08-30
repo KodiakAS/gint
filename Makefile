@@ -9,16 +9,8 @@ JOBS ?= $(shell \
   || (command -v getconf >/dev/null 2>&1 && getconf _NPROCESSORS_ONLN) \
   || echo 1)
 
-# Detect if current CMake supports --parallel (>= 3.12)
+# CMake >= 3.12 is required; always pass --parallel
 CMAKE ?= cmake
-CMAKE_VER_MM := $(shell $(CMAKE) --version 2>/dev/null | awk 'NR==1{print $$NF}' | cut -d. -f1,2)
-CMAKE_MAJOR := $(word 1,$(subst ., ,$(CMAKE_VER_MM)))
-CMAKE_MINOR := $(word 2,$(subst ., ,$(CMAKE_VER_MM)))
-CMAKE_GE_3 := $(shell if [ -n "$(CMAKE_MAJOR)" ] && [ $(CMAKE_MAJOR) -gt 3 ]; then echo yes; fi)
-CMAKE_EQ_3 := $(shell if [ "$(CMAKE_MAJOR)" = 3 ]; then echo yes; fi)
-CMAKE_MIN_GE_12 := $(shell if [ -n "$(CMAKE_MINOR)" ] && [ $(CMAKE_MINOR) -ge 12 ]; then echo yes; fi)
-CMAKE_PARALLEL_SUPPORTED := $(or $(CMAKE_GE_3),$(and $(CMAKE_EQ_3),$(CMAKE_MIN_GE_12)))
-CMAKE_PARALLEL_FLAG := $(if $(CMAKE_PARALLEL_SUPPORTED),--parallel $(JOBS),)
 
 # Tools
 GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
@@ -40,13 +32,13 @@ LCOV_IGNORE_MISMATCH := $(shell geninfo --help 2>&1 | grep -q 'mismatch' && echo
 
 # Build and run unit tests
 test: $(TEST_BUILD_DIR)/Makefile
-	cmake --build $(TEST_BUILD_DIR) $(CMAKE_PARALLEL_FLAG)
+	cmake --build $(TEST_BUILD_DIR) --parallel $(JOBS)
 	cd $(TEST_BUILD_DIR) && ctest --output-on-failure
 
 # Build and run benchmarks
 
 bench: $(BENCH_BUILD_DIR)/Makefile
-	cmake --build $(BENCH_BUILD_DIR) $(CMAKE_PARALLEL_FLAG)
+	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
 	$(BENCH_BUILD_DIR)/perf
 	$(BENCH_BUILD_DIR)/perf_compare_int256
 
@@ -58,7 +50,7 @@ coverage: coverage-lcov
 
 coverage-gcovr: $(COVERAGE_DIR)/Makefile
 	@echo "[coverage] Building tests with coverage flags..."
-	cmake --build $(COVERAGE_DIR) --config Debug $(CMAKE_PARALLEL_FLAG)
+	cmake --build $(COVERAGE_DIR) --config Debug --parallel $(JOBS)
 	@echo "[coverage] Running unit tests..."
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	@# Verify gcovr is available (either binary or python module)
@@ -84,7 +76,7 @@ coverage-gcovr: $(COVERAGE_DIR)/Makefile
 # lcov-based coverage
 
 coverage-lcov: $(COVERAGE_DIR)/Makefile
-	cmake --build $(COVERAGE_DIR) --config Debug $(CMAKE_PARALLEL_FLAG)
+	cmake --build $(COVERAGE_DIR) --config Debug --parallel $(JOBS)
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info $(LCOV_IGNORE_MISMATCH)
 	lcov --remove $(COVERAGE_DIR)/coverage.info '/usr/*' '*/tests/*' --output-file $(COVERAGE_DIR)/coverage.info
