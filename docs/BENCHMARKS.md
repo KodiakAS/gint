@@ -18,13 +18,13 @@ Command: `make bench && build-bench/perf`
 
 Operation results (ns, lower is better):
 
-| Operation      | 256  | 512  | 1024  |
-| -------------- | ----:| ----:| -----:|
-| Addition       | 2.04 | 2.06 |  2.17 |
-| Subtraction    | 2.07 | 2.50 |  6.12 |
+| Operation      | 256  | 512  | 1024 |
+| -------------- | ---: | ---: | ---: |
+| Addition       | 2.04 | 2.06 | 2.17 |
+| Subtraction    | 2.07 | 2.50 | 6.12 |
 | Multiplication | 3.86 | 9.74 | 62.30 |
-| Division       | 2.70 | 5.20 | 13.70 |
-| ToString       | 715  | 2457 | 15326 |
+| Division       | 2.69 | 4.06 | 10.4 |
+| ToString       | 219  | 582  | 1778 |
 
 ## perf_compare_int256 — vs Boost.Multiprecision (ns)
 
@@ -55,8 +55,14 @@ Large operands (ns):
 | Add   | 1.15 |  3.41 |
 | Sub   | 1.41 |  3.66 |
 | Mul   | 1.64 |  7.96 |
-| Div   | 23.2 |   189 |
+| Div   | 22.1 |   186 |
+
+Similar magnitude operands (ns):
+
+| Case  | gint | Boost |
+| ----- | ---: | ----: |
+| Div   | 13.7 |    93 |
 
 Notes
 - Absolute numbers vary by machine; relative trends are stable across runs.
-- 256‑bit gint is consistently faster than Boost for mixed and large operands; Boost may be closer on some small‑operand cases.
+- 256‑bit gint is consistently faster than Boost for mixed、large、and similar‑magnitude division; Boost may be closer on some small‑operand cases.

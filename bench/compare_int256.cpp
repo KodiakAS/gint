@@ -174,6 +174,21 @@ static void DivMixed(benchmark::State & state)
     }
 }
 
+// Similar-magnitude division (multi-limb, non power-of-two)
+template <typename Int>
+static void DivSimilar(benchmark::State & state)
+{
+    Int a = (Int{1} << 255) - Int{1234567};
+    Int b = (Int{1} << 192) + Int{987654321};
+    for (auto _ : state)
+    {
+        benchmark::DoNotOptimize(a);
+        benchmark::DoNotOptimize(b);
+        auto c = a / b;
+        benchmark::DoNotOptimize(c);
+    }
+}
+
 int main(int argc, char ** argv)
 {
     benchmark::RegisterBenchmark("Add/Small/Wide", &AddSmall<WInt>);
@@ -203,6 +218,8 @@ int main(int argc, char ** argv)
     benchmark::RegisterBenchmark("Div/Large/Boost", &DivLarge<BInt>);
     benchmark::RegisterBenchmark("Div/Mixed/Wide", &DivMixed<WInt>);
     benchmark::RegisterBenchmark("Div/Mixed/Boost", &DivMixed<BInt>);
+    benchmark::RegisterBenchmark("Div/Similar/Wide", &DivSimilar<WInt>);
+    benchmark::RegisterBenchmark("Div/Similar/Boost", &DivSimilar<BInt>);
 
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();

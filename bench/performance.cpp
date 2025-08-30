@@ -62,6 +62,47 @@ BENCHMARK_TEMPLATE(BM_Division, 256);
 BENCHMARK_TEMPLATE(BM_Division, 512);
 BENCHMARK_TEMPLATE(BM_Division, 1024);
 
+// Division with a large, two-limb divisor (exercises Knuth D for Bits > 256)
+template <size_t Bits>
+static void BM_DivisionLargeDivisor128(benchmark::State & state)
+{
+    using U = WInt<Bits>;
+    // Large dividend with top bit set
+    U a = (U{1} << int(Bits - 1)) + U{123456789};
+    // Two-limb divisor: highest bit at 127 ensures divisor_limbs == 2
+    U b = (U{1} << 127) + U{12345};
+    for (auto _ : state)
+    {
+        benchmark::DoNotOptimize(a);
+        benchmark::DoNotOptimize(b);
+        auto c = a / b;
+        benchmark::DoNotOptimize(c);
+    }
+}
+
+// Division with a divisor of similar magnitude (multi-limb, non power-of-two)
+template <size_t Bits>
+static void BM_DivisionLargeSimilar(benchmark::State & state)
+{
+    using U = WInt<Bits>;
+    U a = (U{1} << int(Bits - 1)) - U{1234567};
+    U b = (U{1} << int(Bits - 64)) + U{987654321};
+    for (auto _ : state)
+    {
+        benchmark::DoNotOptimize(a);
+        benchmark::DoNotOptimize(b);
+        auto c = a / b;
+        benchmark::DoNotOptimize(c);
+    }
+}
+
+BENCHMARK_TEMPLATE(BM_DivisionLargeDivisor128, 256);
+BENCHMARK_TEMPLATE(BM_DivisionLargeDivisor128, 512);
+BENCHMARK_TEMPLATE(BM_DivisionLargeDivisor128, 1024);
+BENCHMARK_TEMPLATE(BM_DivisionLargeSimilar, 256);
+BENCHMARK_TEMPLATE(BM_DivisionLargeSimilar, 512);
+BENCHMARK_TEMPLATE(BM_DivisionLargeSimilar, 1024);
+
 template <size_t Bits>
 static void BM_ToString(benchmark::State & state)
 {
