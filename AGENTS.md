@@ -13,7 +13,7 @@ This project is a **high-performance wide-integer library**. It aims to provide 
    No separate build step required—just include the headers.
 
 3. **Strict bit-width**
-   The actual width equals the template parameter. For example, `gint<256, true>` is **exactly** 256 bits (no hidden padding like some multiprecision types).
+   The actual width equals the template parameter. For example, `gint::integer<256, signed>` (aka `gint::Int256`) is exactly 256 bits with no hidden padding.
 
 4. **Interop with native integers**
    Supports arithmetic with and conversions to/from standard C++ integer types.
