@@ -25,6 +25,7 @@ This project is a **high-performance wide-integer library**. It aims to provide 
 * `include/` — library headers
 * `tests/` — unit tests (GoogleTest)
 * `bench/` — benchmarks (Google Benchmark)
+* `docs/` — documents
 
 ---
 
