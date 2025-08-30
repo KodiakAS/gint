@@ -39,36 +39,6 @@ int main() {
 }
 ```
 
-## Edge-Case Semantics
-
-Let **W** denote the bit width of the type.
-
-- **Constructing an unsigned wide integer from a negative value**  
-  The result is congruent to the source **mod \(2^W\)** (same as C++ integral conversion to unsigned).  
-  *Example:* `u256 x = -1;  // x == 2^256 - 1`
-
-- **Unsigned arithmetic wraparound (including subtraction underflow)**  
-  Results are computed **mod \(2^W\)**, matching built-in unsigned types.  
-  *Example:* `u256(0) - u256(1) == 2^256 - 1`.
-
-- **Bitwise operations on negative values**  
-  Signed wide integers use **two’s-complement** representation; bitwise operators (`~ & ^ |`) act on that bit pattern.  
-  Shifts are defined explicitly:  
-  - signed `>>` is **arithmetic** (sign-propagating)  
-  - unsigned `>>` is **logical** (zero-fill)
-  - negative shift amounts are a **no-op** (debug builds `assert`)
-
-- **Division / modulo by zero**  
-  Controlled by the compile-time macro **`GINT_ENABLE_DIVZERO_CHECKS`**:
-  - **Default (macro *not* defined)**: **no check**; behavior is **undefined** (UB), just like built-ins.
-  - **Checks enabled (`#define GINT_ENABLE_DIVZERO_CHECKS 1` before including `gint`)**: division or modulo by zero **throws `std::domain_error`**.
-
-- **Floating interop**  
-  To avoid precision loss for `Bits > 64`, mixed arithmetic with floating-point first truncates the float to an integer, then performs integer arithmetic (no conversion of the wide integer to `long double`).  
-  Comparisons against floating-point values use a Boost-style `frexp`-based algorithm comparing exponent and significand, not via converting the wide integer to `long double`.  
-  Note: dividing or taking modulo by a float with `|f| < 1` truncates to zero and is treated as divide-by-zero when checks are enabled.
-
-
 ## Building Tests
 
 ```bash

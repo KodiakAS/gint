@@ -148,7 +148,7 @@ struct limbs_equal<0>
 };
 
 template <size_t L>
-inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 carry = 0;
     for (size_t i = 0; i < L; ++i)
@@ -160,9 +160,9 @@ inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
 }
 
 template <>
-inline void add_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 inline void add_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    unsigned __int128 sum;
+    unsigned __int128 sum = 0;
     sum = static_cast<unsigned __int128>(lhs[0]) + rhs[0];
     lhs[0] = static_cast<uint64_t>(sum);
     sum = static_cast<unsigned __int128>(lhs[1]) + rhs[1] + (sum >> 64);
@@ -174,7 +174,7 @@ inline void add_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
 }
 
 template <size_t L>
-inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 borrow = 0;
     for (size_t i = 0; i < L; ++i)
@@ -187,7 +187,7 @@ inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
 }
 
 template <>
-inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 borrow = 0;
     unsigned __int128 lhs0 = lhs[0];
@@ -458,7 +458,7 @@ public:
 
     // Conversion operators
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    explicit operator T() const noexcept
+    GINT_CONSTEXPR14 explicit operator T() const noexcept
     {
         using u128 = unsigned __int128;
         using s128 = __int128;
@@ -516,33 +516,36 @@ public:
 
     explicit operator float() const noexcept { return static_cast<float>(static_cast<long double>(*this)); }
 
-    explicit operator bool() const noexcept { return !is_zero(); }
+    GINT_CONSTEXPR14 explicit operator bool() const noexcept { return !is_zero(); }
 
     // Arithmetic assignment operators
-    integer & operator+=(const integer & rhs) noexcept
+    GINT_CONSTEXPR14 integer & operator+=(const integer & rhs) noexcept
     {
         detail::add_limbs<limbs>(data_, rhs.data_);
         return *this;
     }
 
-    integer & operator-=(const integer & rhs) noexcept
+    GINT_CONSTEXPR14 integer & operator-=(const integer & rhs) noexcept
     {
         detail::sub_limbs<limbs>(data_, rhs.data_);
         return *this;
     }
 
+    // Note: *= is not marked constexpr due to reliance on non-constexpr helpers
     integer & operator*=(const integer & rhs) noexcept
     {
         *this = *this * rhs;
         return *this;
     }
 
+    // Note: /= is not constexpr because of optional zero-checks and complexity
     integer & operator/=(const integer & rhs)
     {
         *this = *this / rhs;
         return *this;
     }
 
+    // Note: %= is not constexpr because of optional zero-checks and complexity
     integer & operator%=(const integer & rhs)
     {
         *this = *this % rhs;
@@ -550,21 +553,21 @@ public:
     }
 
     // Bitwise assignment operators
-    integer & operator&=(const integer & rhs) noexcept
+    GINT_CONSTEXPR14 integer & operator&=(const integer & rhs) noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
             data_[i] &= rhs.data_[i];
         return *this;
     }
 
-    integer & operator|=(const integer & rhs) noexcept
+    GINT_CONSTEXPR14 integer & operator|=(const integer & rhs) noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
             data_[i] |= rhs.data_[i];
         return *this;
     }
 
-    integer & operator^=(const integer & rhs) noexcept
+    GINT_CONSTEXPR14 integer & operator^=(const integer & rhs) noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
             data_[i] ^= rhs.data_[i];
@@ -573,18 +576,13 @@ public:
 
     // Shift operators
     // Notes:
-    // - Negative shift amounts are a no-op by design (avoids UB). In debug
-    //   builds, an assertion will fire to highlight potential misuse.
+    // - Non-positive shift amounts are a no-op by design (avoids UB).
     // - Right shift is arithmetic for signed integers (sign-propagating),
     //   and logical (zero-fill) for unsigned.
-    integer & operator<<=(int n) noexcept
+    GINT_CONSTEXPR14 integer & operator<<=(int n) noexcept
     {
         if (n <= 0)
-        {
-            // Debug hint: negative shifts are a no-op by design.
-            assert(n >= 0 && "negative shift is a no-op");
-            return *this;
-        }
+            return *this; // negative and zero shifts are no-ops by design
         size_t total_bits = limbs * 64;
         size_t shift = static_cast<size_t>(n);
         if (shift >= total_bits)
@@ -615,14 +613,10 @@ public:
         return *this;
     }
 
-    integer & operator>>=(int n) noexcept
+    GINT_CONSTEXPR14 integer & operator>>=(int n) noexcept
     {
         if (n <= 0)
-        {
-            // Debug hint: negative shifts are a no-op by design.
-            assert(n >= 0 && "negative shift is a no-op");
-            return *this;
-        }
+            return *this; // negative and zero shifts are no-ops by design
         const bool is_signed_t = std::is_same<Signed, signed>::value;
         const bool neg = is_signed_t && (data_[limbs - 1] >> 63);
         size_t total_bits = limbs * 64;
@@ -663,7 +657,7 @@ public:
     }
 
     // Increment and decrement
-    integer & operator++() noexcept
+    GINT_CONSTEXPR14 integer & operator++() noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
         {
@@ -673,14 +667,14 @@ public:
         return *this;
     }
 
-    integer operator++(int) noexcept
+    GINT_CONSTEXPR14 integer operator++(int) noexcept
     {
         integer tmp = *this;
         ++(*this);
         return tmp;
     }
 
-    integer & operator--() noexcept
+    GINT_CONSTEXPR14 integer & operator--() noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
         {
@@ -692,7 +686,7 @@ public:
         return *this;
     }
 
-    integer operator--(int) noexcept
+    GINT_CONSTEXPR14 integer operator--(int) noexcept
     {
         integer tmp = *this;
         --(*this);
@@ -700,21 +694,21 @@ public:
     }
 
     // Friend operators
-    friend integer operator+(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator+(integer lhs, const integer & rhs) noexcept
     {
         lhs += rhs;
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator+(integer lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator+(integer lhs, T rhs) noexcept
     {
         lhs += integer(rhs);
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator+(T lhs, integer rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator+(T lhs, integer rhs) noexcept
     {
         rhs += integer(lhs);
         return rhs;
@@ -734,21 +728,21 @@ public:
         return rhs;
     }
 
-    friend integer operator-(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator-(integer lhs, const integer & rhs) noexcept
     {
         lhs -= rhs;
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator-(integer lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator-(integer lhs, T rhs) noexcept
     {
         lhs -= integer(rhs);
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator-(T lhs, integer rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator-(T lhs, integer rhs) noexcept
     {
         return integer(lhs) - rhs;
     }
@@ -766,78 +760,79 @@ public:
         return integer(lhs) - rhs;
     }
 
-    friend integer operator&(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator&(integer lhs, const integer & rhs) noexcept
     {
         lhs &= rhs;
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator&(integer lhs, T rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator&(integer lhs, T rhs) noexcept
     {
         lhs &= integer(rhs);
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator&(T lhs, integer rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator&(T lhs, integer rhs) noexcept
     {
         rhs &= integer(lhs);
         return rhs;
     }
 
-    friend integer operator|(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator|(integer lhs, const integer & rhs) noexcept
     {
         lhs |= rhs;
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator|(integer lhs, T rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator|(integer lhs, T rhs) noexcept
     {
         lhs |= integer(rhs);
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator|(T lhs, integer rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator|(T lhs, integer rhs) noexcept
     {
         rhs |= integer(lhs);
         return rhs;
     }
 
-    friend integer operator^(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator^(integer lhs, const integer & rhs) noexcept
     {
         lhs ^= rhs;
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator^(integer lhs, T rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator^(integer lhs, T rhs) noexcept
     {
         lhs ^= integer(rhs);
         return lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator^(T lhs, integer rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator^(T lhs, integer rhs) noexcept
     {
         rhs ^= integer(lhs);
         return rhs;
     }
 
-    friend integer operator<<(integer lhs, int n) noexcept
+    GINT_CONSTEXPR14 friend integer operator<<(integer lhs, int n) noexcept
     {
         lhs <<= n;
         return lhs;
     }
 
-    friend integer operator>>(integer lhs, int n) noexcept
+    GINT_CONSTEXPR14 friend integer operator>>(integer lhs, int n) noexcept
     {
         lhs >>= n;
         return lhs;
     }
 
+    // Multiplication is left non-constexpr due to helper internals
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
         // Dispatch to the limb-wise multiplication routine which selects the
@@ -1087,6 +1082,16 @@ public:
         return !(lhs == rhs);
     }
 
+    // Compare a non-negative wide integer against a non-negative floating point
+    // value by aligning exponents and comparing significands:
+    // 1) Decompose rhs_abs = m * 2^e via frexp, with 0.5 <= m < 1.
+    // 2) Let hb be the highest set bit of lhs_abs; compare hb with e-1. If they
+    //    differ, the one with larger exponent wins.
+    // 3) Align lhs_abs to the p-bit significand of T (p = digits), by shifting
+    //    so that its top bit aligns to p-1. Mask out lower bits beyond p.
+    // 4) Compare the p-bit significands; if equal, inspect fractional tail of
+    //    rhs to decide strictness. If lhs has extra non-zero low bits when
+    //    shifting back, it is considered larger.
     template <typename T>
     static int compare_with_float_abs(const integer & lhs_abs, T rhs_abs) noexcept
     {
@@ -1195,49 +1200,49 @@ public:
     friend bool operator>=(const integer & lhs, const integer & rhs) noexcept { return !(lhs < rhs); }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator<(const integer & lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator<(const integer & lhs, T rhs) noexcept
     {
         return lhs < integer(rhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator<(T lhs, const integer & rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator<(T lhs, const integer & rhs) noexcept
     {
         return integer(lhs) < rhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator>(const integer & lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator>(const integer & lhs, T rhs) noexcept
     {
         return integer(rhs) < lhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator>(T lhs, const integer & rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator>(T lhs, const integer & rhs) noexcept
     {
         return rhs < integer(lhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator<=(const integer & lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator<=(const integer & lhs, T rhs) noexcept
     {
         return !(integer(rhs) < lhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator<=(T lhs, const integer & rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator<=(T lhs, const integer & rhs) noexcept
     {
         return !(rhs < integer(lhs));
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator>=(const integer & lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator>=(const integer & lhs, T rhs) noexcept
     {
         return !(lhs < integer(rhs));
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend bool operator>=(T lhs, const integer & rhs) noexcept
+    friend GINT_CONSTEXPR14 bool operator>=(T lhs, const integer & rhs) noexcept
     {
         return !(integer(lhs) < rhs);
     }
@@ -1330,14 +1335,14 @@ public:
         return !(lhs < rhs);
     }
 
-    friend integer operator~(integer v) noexcept
+    GINT_CONSTEXPR14 friend integer operator~(integer v) noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
             v.data_[i] = ~v.data_[i];
         return v;
     }
 
-    friend integer operator-(const integer & v) noexcept
+    GINT_CONSTEXPR14 friend integer operator-(const integer & v) noexcept
     {
         integer res = ~v;
         limb_type carry = 1;
@@ -1352,7 +1357,7 @@ public:
         return res;
     }
 
-    friend integer operator+(const integer & v) noexcept { return v; }
+    GINT_CONSTEXPR14 friend integer operator+(const integer & v) noexcept { return v; }
 
     friend std::string to_string<>(const integer & v);
 
@@ -1394,7 +1399,7 @@ private:
             *this = -*this;
     }
 
-    bool is_zero() const noexcept
+    GINT_CONSTEXPR14 bool is_zero() const noexcept
     {
         for (size_t i = 0; i < limbs; ++i)
             if (data_[i] != 0)
