@@ -657,7 +657,7 @@ TEST(WideIntegerExtra, UnaryAndToString)
     EXPECT_EQ(d, (gint::integer<128, unsigned>(-1)));
 
     std::ostringstream oss;
-    oss << gint::to_string(b);
+    oss << b;
     EXPECT_EQ(oss.str(), "1");
 
     EXPECT_EQ(fmt::format("{}", b), "1");
@@ -959,6 +959,14 @@ TEST(WideIntegerStream, Output)
     std::ostringstream oss;
     oss << v;
     EXPECT_EQ(oss.str(), "42");
+}
+
+TEST(WideIntegerStream, OutputNegative)
+{
+    gint::integer<128, signed> v = -42;
+    std::ostringstream oss;
+    oss << v;
+    EXPECT_EQ(oss.str(), "-42");
 }
 
 TEST(WideIntegerMulLimbOverflow, AllOnes)
