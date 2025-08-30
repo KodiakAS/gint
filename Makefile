@@ -2,6 +2,16 @@ TEST_BUILD_DIR ?= build
 BENCH_BUILD_DIR ?= build-bench
 COVERAGE_DIR ?= build-coverage
 
+# Parallel build jobs (auto-detect CPU cores; overridable: `make JOBS=8`)
+JOBS ?= $(shell \
+  (command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu) \
+  || (command -v nproc >/dev/null 2>&1 && nproc) \
+  || (command -v getconf >/dev/null 2>&1 && getconf _NPROCESSORS_ONLN) \
+  || echo 1)
+
+# CMake >= 3.12 is required; always pass --parallel
+CMAKE ?= cmake
+
 # Tools
 GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
 GCOVR ?= $(if $(GCOVR_BIN),$(GCOVR_BIN),python3 -m gcovr)
@@ -22,12 +32,13 @@ LCOV_IGNORE_MISMATCH := $(shell geninfo --help 2>&1 | grep -q 'mismatch' && echo
 
 # Build and run unit tests
 test: $(TEST_BUILD_DIR)/Makefile
-	cmake --build $(TEST_BUILD_DIR)
+	cmake --build $(TEST_BUILD_DIR) --parallel $(JOBS)
 	cd $(TEST_BUILD_DIR) && ctest --output-on-failure
 
 # Build and run benchmarks
+
 bench: $(BENCH_BUILD_DIR)/Makefile
-	cmake --build $(BENCH_BUILD_DIR)
+	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
 	$(BENCH_BUILD_DIR)/perf
 	$(BENCH_BUILD_DIR)/perf_compare_int256
 
@@ -35,9 +46,11 @@ bench: $(BENCH_BUILD_DIR)/Makefile
 coverage: coverage-lcov
 
 # Build, test and generate coverage via gcovr
+
+
 coverage-gcovr: $(COVERAGE_DIR)/Makefile
 	@echo "[coverage] Building tests with coverage flags..."
-	cmake --build $(COVERAGE_DIR) --config Debug
+	cmake --build $(COVERAGE_DIR) --config Debug --parallel $(JOBS)
 	@echo "[coverage] Running unit tests..."
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	@# Verify gcovr is available (either binary or python module)
@@ -61,8 +74,9 @@ coverage-gcovr: $(COVERAGE_DIR)/Makefile
 	@echo "[coverage] HTML report: $(COVERAGE_DIR)/coverage.html"
 
 # lcov-based coverage
+
 coverage-lcov: $(COVERAGE_DIR)/Makefile
-	cmake --build $(COVERAGE_DIR) --config Debug
+	cmake --build $(COVERAGE_DIR) --config Debug --parallel $(JOBS)
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info $(LCOV_IGNORE_MISMATCH)
 	lcov --remove $(COVERAGE_DIR)/coverage.info '/usr/*' '*/tests/*' --output-file $(COVERAGE_DIR)/coverage.info
