@@ -1,20 +1,21 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
-TEST(WideIntegerOps, SmallMulDiv)
+TEST(WideIntegerDivision, SmallDivMod)
 {
     using UInt256 = gint::integer<256, unsigned>;
     UInt256 a = (UInt256(1) << 128) + 5;
-    UInt256 b = a * 3ULL;
+    UInt256 b = (a << 1) + a;
     EXPECT_EQ(b / 3ULL, a);
     EXPECT_EQ(b % 3ULL, UInt256(0));
 
     UInt256 c = UInt256(123456789);
-    EXPECT_EQ(c * 7ULL, UInt256(864197523));
-    EXPECT_EQ((c * 7ULL) / 7ULL, c);
+    UInt256 d = UInt256(864197523);
+    EXPECT_EQ(d / 7ULL, c);
+    EXPECT_EQ(d % 7ULL, UInt256(0));
 }
 
-TEST(WideIntegerOps, LargeLimbDivMod)
+TEST(WideIntegerDivision, LargeLimbDivMod)
 {
     using UInt256 = gint::integer<256, unsigned>;
     UInt256 u = UInt256(1);
@@ -34,7 +35,7 @@ TEST(WideIntegerOps, LargeLimbDivMod)
     EXPECT_EQ(s % div, Int256(0));
 }
 
-TEST(WideIntegerOps, SignedSmallDivMod)
+TEST(WideIntegerDivision, SignedSmallDivMod)
 {
     using Int256 = gint::integer<256, signed>;
     Int256 a = 123;
@@ -49,7 +50,7 @@ TEST(WideIntegerOps, SignedSmallDivMod)
     EXPECT_EQ(b % -5, Int256(-3));
 }
 
-TEST(WideIntegerOps, SignedInt128DivMod)
+TEST(WideIntegerDivision, SignedInt128DivMod)
 {
     using Int256 = gint::integer<256, signed>;
     Int256 pos = 123;
@@ -72,7 +73,7 @@ TEST(WideIntegerOps, SignedInt128DivMod)
     EXPECT_EQ(q * big_div + r, big);
 }
 
-TEST(WideIntegerOps, LongDivisionCorrection)
+TEST(WideIntegerDivision, LongDivisionCorrection)
 {
     using UInt256 = gint::integer<256, unsigned>;
     UInt256 dividend = (UInt256(1ULL << 63) << 192) | (UInt256(12345) << 128) | (UInt256(98764) << 64) | UInt256(42);
@@ -166,7 +167,7 @@ TEST(WideIntegerDivision, LargeShiftSubtract512)
     EXPECT_EQ(q * divisor + r, lhs);
 }
 
-TEST(WideIntegerDivModSmall, SingleLimbZero)
+TEST(WideIntegerDivision, SingleLimbZero)
 {
     using U128 = gint::integer<128, unsigned>;
     U128 one = 1;
@@ -176,7 +177,7 @@ TEST(WideIntegerDivModSmall, SingleLimbZero)
     EXPECT_EQ(zero, U128(0));
 }
 
-TEST(WideIntegerDivModSmall, SingleLimbBasic)
+TEST(WideIntegerDivision, SingleLimbBasic)
 {
     using U128 = gint::integer<128, unsigned>;
     U128 a = (U128(1) << 64) + 123;
@@ -186,7 +187,7 @@ TEST(WideIntegerDivModSmall, SingleLimbBasic)
     EXPECT_EQ(q * b + r, a);
 }
 
-TEST(WideIntegerDivModSmall, MultiLimbZero)
+TEST(WideIntegerDivision, MultiLimbZero)
 {
     using U256 = gint::integer<256, unsigned>;
     U256 a = 0;
@@ -237,7 +238,7 @@ TEST(WideIntegerDivision, LimbGreaterThanMaxSigned)
     EXPECT_EQ(q1 * rhs + r1, a);
 }
 
-TEST(WideIntegerU64DivMod, ZeroAndNonZero)
+TEST(WideIntegerDivision, U64ZeroAndNonZero)
 {
     using U64 = gint::integer<64, unsigned>;
     // Zero fast-path
@@ -254,7 +255,7 @@ TEST(WideIntegerU64DivMod, ZeroAndNonZero)
     EXPECT_EQ(a % 7u, U64(static_cast<uint64_t>(r)));
 }
 
-TEST(WideIntegerS64DivMod, SignedDivByLimb)
+TEST(WideIntegerDivision, S64DivByLimb)
 {
     using S64 = gint::integer<64, signed>;
     S64 a = -((S64(1) << 62) + S64(5));
@@ -311,7 +312,7 @@ TEST(WideIntegerDivision, QhatAdjustmentBreak)
     EXPECT_EQ(q * rhs + r, lhs);
 }
 
-TEST(WideInteger256, Division)
+TEST(WideIntegerDivision, UInt256Division)
 {
     using W = gint::integer<256, unsigned>;
     W a = (W{1} << 200) + 123456789ULL;

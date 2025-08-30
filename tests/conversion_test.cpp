@@ -4,7 +4,7 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
-TEST(WideIntegerOps, Int128NegativeConversion)
+TEST(WideIntegerConversion, Int128NegativeConversion)
 {
     using gint::Int256;
     __int128 small = -5;
@@ -178,7 +178,7 @@ TEST(WideIntegerConversion, ArithmeticWithBuiltin)
     EXPECT_EQ(gint::to_string(e), "2000");
 }
 
-TEST(WideIntegerInt128, UnsignedRoundtrip)
+TEST(WideIntegerConversion, UnsignedRoundtripInt128)
 {
     unsigned __int128 value = (static_cast<unsigned __int128>(1) << 80) + 42;
     gint::integer<256, unsigned> w = value;
@@ -186,7 +186,7 @@ TEST(WideIntegerInt128, UnsignedRoundtrip)
     EXPECT_EQ(back, value);
 }
 
-TEST(WideIntegerInt128, SignedRoundtrip)
+TEST(WideIntegerConversion, SignedRoundtripInt128)
 {
     __int128 value = -((static_cast<__int128>(1) << 90) + 77);
     gint::integer<256, signed> w = value;
@@ -194,7 +194,7 @@ TEST(WideIntegerInt128, SignedRoundtrip)
     EXPECT_EQ(back, value);
 }
 
-TEST(WideIntegerInt128, Arithmetic)
+TEST(WideIntegerConversion, Int128Arithmetic)
 {
     gint::integer<256, unsigned> w = 100;
     unsigned __int128 b = 20;
@@ -206,7 +206,7 @@ TEST(WideIntegerInt128, Arithmetic)
     EXPECT_EQ(gint::to_string(e), "2000");
 }
 
-TEST(WideIntegerInt128, SignedToUnsignedConversion)
+TEST(WideIntegerConversion, SignedToUnsignedConversion)
 {
     gint::integer<256, signed> w = 123;
     auto via_explicit = static_cast<unsigned __int128>(w);
@@ -217,7 +217,7 @@ TEST(WideIntegerInt128, SignedToUnsignedConversion)
     EXPECT_TRUE(neg_explicit == static_cast<unsigned __int128>(-1));
 }
 
-TEST(WideIntegerInt128, SignedConversion)
+TEST(WideIntegerConversion, SignedConversionInt128)
 {
     gint::integer<256, signed> w = 123;
     auto via_explicit = static_cast<__int128>(w);
@@ -288,7 +288,7 @@ static void test_float_ops()
     EXPECT_TRUE(a != b);
 }
 
-TEST(WideIntegerBuiltin, IntegralTypes)
+TEST(WideIntegerConversion, IntegralTypes)
 {
     test_integral_ops<int8_t>();
     test_integral_ops<uint8_t>();
@@ -302,7 +302,7 @@ TEST(WideIntegerBuiltin, IntegralTypes)
     test_integral_ops<unsigned __int128>();
 }
 
-TEST(WideIntegerBuiltin, FloatingTypes)
+TEST(WideIntegerConversion, FloatingTypes)
 {
     test_float_ops<float>();
     test_float_ops<double>();
@@ -316,7 +316,7 @@ TEST(WideIntegerConversion, LongDoubleZero)
     EXPECT_EQ(from_zero, (gint::integer<128, unsigned>(0)));
 }
 
-TEST(WideIntegerExtra, FloatConversion)
+TEST(WideIntegerConversion, ExtraFloatConversion)
 {
     gint::integer<128, unsigned> v = 123;
     double d = static_cast<double>(v);

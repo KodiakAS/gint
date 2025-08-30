@@ -2,7 +2,7 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
-TEST(WideIntegerAdditional, Comparison)
+TEST(WideIntegerComparison, UnsignedBasic)
 {
     gint::integer<128, unsigned> a = 5;
     gint::integer<128, unsigned> b = 10;
@@ -12,7 +12,7 @@ TEST(WideIntegerAdditional, Comparison)
     EXPECT_TRUE(b >= a);
 }
 
-TEST(WideIntegerAdditional, BuiltinComparison)
+TEST(WideIntegerComparison, BuiltinComparison)
 {
     gint::integer<128, unsigned> a = 5;
     int32_t iv = 10;
@@ -43,7 +43,7 @@ TEST(WideIntegerComparison, Floating)
     EXPECT_TRUE(0.0 >= a);
 }
 
-TEST(WideInteger256, Comparison)
+TEST(WideIntegerComparison, UInt256)
 {
     using U = gint::integer<256, unsigned>;
     U a = U(1) << 200;
@@ -54,7 +54,7 @@ TEST(WideInteger256, Comparison)
     EXPECT_TRUE(a >= a);
 }
 
-TEST(WideInteger512, Comparison)
+TEST(WideIntegerComparison, UInt512)
 {
     using U = gint::integer<512, unsigned>;
     U a = U(1) << 500;

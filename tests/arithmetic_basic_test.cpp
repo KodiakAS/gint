@@ -85,7 +85,7 @@ INSTANTIATE_TEST_SUITE_P(
         ArithCase{ArithOp::Mod, 200, 30, "20"}),
     arith_case_name);
 
-TEST(WideIntegerBasic, SignedArithmetic)
+TEST(WideIntegerArithmetic, SignedArithmetic)
 {
     gint::integer<128, signed> a = -5;
     gint::integer<128, signed> b = 2;
@@ -93,7 +93,7 @@ TEST(WideIntegerBasic, SignedArithmetic)
     EXPECT_EQ(gint::to_string(c), "-3");
 }
 
-TEST(WideInteger256, Arithmetic)
+TEST(WideIntegerArithmetic, UInt256)
 {
     using U = gint::integer<256, unsigned>;
     U a = (U(1) << 200) + (U(1) << 100) + 123;
@@ -103,7 +103,7 @@ TEST(WideInteger256, Arithmetic)
     EXPECT_TRUE(c > b);
 }
 
-TEST(WideInteger512, Arithmetic)
+TEST(WideIntegerArithmetic, UInt512)
 {
     using U = gint::integer<512, unsigned>;
     U a = (U(1) << 400) + (U(1) << 200) + 123456789;
@@ -113,7 +113,7 @@ TEST(WideInteger512, Arithmetic)
 }
 
 // From mul_limb_overflow_test.cpp
-TEST(WideIntegerMulLimbOverflow, AllOnes)
+TEST(WideIntegerArithmetic, MulLimbOverflowAllOnes)
 {
     using U256 = gint::integer<256, unsigned>;
     U256 a = 0;
