@@ -1209,7 +1209,9 @@ public:
             return lhs_neg;
         integer lhs_abs = lhs_neg ? -lhs : lhs;
         T rhs_abs = rhs_neg ? T(-rhs) : rhs;
-        return compare_with_float_abs(lhs_abs, rhs_abs) < 0;
+        int cmp = compare_with_float_abs(lhs_abs, rhs_abs);
+        // When both are negative, ordering reverses on absolute values.
+        return lhs_neg ? (cmp > 0) : (cmp < 0);
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
@@ -1233,7 +1235,9 @@ public:
             return !lhs_neg;
         integer lhs_abs = lhs_neg ? -lhs : lhs;
         T rhs_abs = rhs_neg ? T(-rhs) : rhs;
-        return compare_with_float_abs(lhs_abs, rhs_abs) > 0;
+        int cmp = compare_with_float_abs(lhs_abs, rhs_abs);
+        // When both are negative, ordering reverses on absolute values.
+        return lhs_neg ? (cmp < 0) : (cmp > 0);
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>

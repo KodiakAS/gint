@@ -105,3 +105,35 @@ TEST(FloatInteropEdges, EqualityPrecision)
     EXPECT_FALSE(b == db); // db rounds to da, should not be equal
     EXPECT_TRUE(b > db);
 }
+
+TEST(FloatInteropEdges, NegativeNegativeOrdering)
+{
+    using S256 = gint::integer<256, signed>;
+    S256 m3 = -3;
+    S256 m5 = -5;
+    double f3 = -3.0;
+    double f5 = -5.0;
+
+    // Cross-type comparisons with both negative should reverse abs ordering
+    EXPECT_FALSE(m3 < f5); // -3 < -5 is false
+    EXPECT_TRUE(m3 > f5);  // -3 > -5 is true
+    EXPECT_TRUE(m5 < f3);  // -5 < -3 is true
+    EXPECT_FALSE(m5 > f3); // -5 > -3 is false
+
+    // Symmetric operand order
+    EXPECT_FALSE(f3 < m5);
+    EXPECT_TRUE(f3 > m5);
+    EXPECT_TRUE(f5 < m3);
+    EXPECT_FALSE(f5 > m3);
+
+    // Non-integer negative float
+    double fn = -5.3;
+    EXPECT_FALSE(m3 < fn); // -3 < -5.3 false
+    EXPECT_TRUE(m3 > fn);  // -3 > -5.3 true
+    EXPECT_TRUE(fn < m3);
+    EXPECT_FALSE(fn > m3);
+
+    // Equality remains unaffected for equal magnitudes
+    EXPECT_TRUE(m3 == f3);
+    EXPECT_FALSE(m3 != f3);
+}
