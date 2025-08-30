@@ -62,6 +62,11 @@ Let **W** denote the bit width of the type.
   - **Default (macro *not* defined)**: **no check**; behavior is **undefined** (UB), just like built-ins.
   - **Checks enabled (`#define GINT_ENABLE_DIVZERO_CHECKS 1` before including `gint`)**: division or modulo by zero **throws `std::domain_error`**.
 
+- **Floating interop (revised)**  
+  To avoid precision loss for `Bits > 64`, mixed arithmetic with floating-point first truncates the float to an integer, then performs integer arithmetic (no conversion of the wide integer to `long double`).  
+  Comparisons against floating-point values use a Boost-style `frexp`-based algorithm comparing exponent and significand, not via converting the wide integer to `long double`.  
+  Note: dividing or taking modulo by a float with `|f| < 1` truncates to zero and is treated as divide-by-zero when checks are enabled.
+
 
 ## Building Tests
 

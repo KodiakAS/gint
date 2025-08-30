@@ -691,17 +691,15 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator+(integer lhs, T rhs) noexcept
     {
-        long double res = static_cast<long double>(lhs);
-        res += static_cast<long double>(rhs);
-        return integer(res);
+        lhs += integer(rhs);
+        return lhs;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator+(T lhs, integer rhs) noexcept
     {
-        long double res = static_cast<long double>(lhs);
-        res += static_cast<long double>(rhs);
-        return integer(res);
+        rhs += integer(lhs);
+        return rhs;
     }
 
     friend integer operator-(integer lhs, const integer & rhs) noexcept
@@ -726,17 +724,14 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator-(integer lhs, T rhs) noexcept
     {
-        long double res = static_cast<long double>(lhs);
-        res -= static_cast<long double>(rhs);
-        return integer(res);
+        lhs -= integer(rhs);
+        return lhs;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator-(T lhs, integer rhs) noexcept
     {
-        long double res = static_cast<long double>(lhs);
-        res -= static_cast<long double>(rhs);
-        return integer(res);
+        return integer(lhs) - rhs;
     }
 
     friend integer operator&(integer lhs, const integer & rhs) noexcept
@@ -843,17 +838,15 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator*(integer lhs, T rhs) noexcept
     {
-        long double res = static_cast<long double>(lhs);
-        res *= static_cast<long double>(rhs);
-        return integer(res);
+        lhs *= integer(rhs);
+        return lhs;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator*(T lhs, integer rhs) noexcept
     {
-        long double res = static_cast<long double>(lhs);
-        res *= static_cast<long double>(rhs);
-        return integer(res);
+        rhs *= integer(lhs);
+        return rhs;
     }
 
     friend integer operator/(integer lhs, const integer & rhs)
@@ -969,19 +962,16 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator/(integer lhs, T rhs)
     {
-        GINT_DIVZERO_CHECK(rhs == 0);
-        long double res = static_cast<long double>(lhs);
-        res /= static_cast<long double>(rhs);
-        return integer(res);
+        integer div(rhs);
+        GINT_DIVZERO_CHECK(div.is_zero());
+        return lhs / div;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator/(T lhs, integer rhs)
     {
         GINT_DIVZERO_CHECK(rhs.is_zero());
-        long double res = static_cast<long double>(lhs);
-        res /= static_cast<long double>(rhs);
-        return integer(res);
+        return integer(lhs) / rhs;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
@@ -1007,8 +997,9 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs)
     {
-        GINT_MODZERO_CHECK(rhs == 0);
-        return lhs % integer(rhs);
+        integer div(rhs);
+        GINT_MODZERO_CHECK(div.is_zero());
+        return lhs % div;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
@@ -1048,16 +1039,74 @@ public:
         return !(lhs == rhs);
     }
 
+    template <typename T>
+    static int compare_with_float_abs(const integer & lhs_abs, T rhs_abs) noexcept
+    {
+        // Both are non-negative.
+        if (lhs_abs.is_zero())
+            return rhs_abs == T(0) ? 0 : -1;
+        int e = 0;
+        T m = std::frexp(rhs_abs, &e); // rhs_abs = m * 2^e, 0.5<=m<1
+        if (m == T(0))
+            return 1; // lhs_abs > 0 > rhs_abs
+        int hb = lhs_abs.highest_bit();
+        int k = e - 1; // index of highest set bit of rhs_abs
+        if (hb != k)
+            return hb < k ? -1 : 1;
+        const int p = std::numeric_limits<T>::digits;
+        int shift = hb - (p - 1);
+        integer scaled = lhs_abs;
+        if (shift > 0)
+            scaled >>= shift;
+        else if (shift < 0)
+            scaled <<= -shift;
+        unsigned __int128 sigA = 0;
+        if (limbs >= 2)
+            sigA = (static_cast<unsigned __int128>(scaled.data_[1]) << 64) | scaled.data_[0];
+        else
+            sigA = scaled.data_[0];
+        if (p < 128)
+            sigA &= ((static_cast<unsigned __int128>(1) << p) - 1);
+        T scaled_rhs = std::ldexp(m, p);
+        unsigned __int128 sigB = static_cast<unsigned __int128>(scaled_rhs);
+        if (sigA < sigB)
+            return -1;
+        if (sigA > sigB)
+            return 1;
+        if (shift <= 0)
+        {
+            // If rhs has any fractional beyond p bits, then rhs > lhs.
+            T frac = scaled_rhs - std::floor(scaled_rhs);
+            return (frac > T(0)) ? -1 : 0;
+        }
+        else
+        {
+            integer rec = scaled;
+            rec <<= shift;
+            return (rec == lhs_abs) ? 0 : 1; // lhs has extra low bits -> larger
+        }
+    }
+
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator==(const integer & lhs, T rhs) noexcept
     {
-        return static_cast<long double>(lhs) == static_cast<long double>(rhs);
+        if (std::isnan(rhs))
+            return false;
+        if (rhs == T(0))
+            return lhs.is_zero();
+        bool lhs_neg = std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63);
+        bool rhs_neg = std::signbit(rhs);
+        if (lhs_neg != rhs_neg)
+            return false;
+        const integer lhs_abs = lhs_neg ? -lhs : lhs;
+        const T rhs_abs = rhs_neg ? T(-rhs) : rhs;
+        return compare_with_float_abs(lhs_abs, rhs_abs) == 0;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator==(T lhs, const integer & rhs) noexcept
     {
-        return static_cast<long double>(lhs) == static_cast<long double>(rhs);
+        return rhs == lhs;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
@@ -1146,49 +1195,77 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator<(const integer & lhs, T rhs) noexcept
     {
-        return static_cast<long double>(lhs) < static_cast<long double>(rhs);
+        if (std::isnan(rhs))
+            return false;
+        if (rhs == T(0))
+            return (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63)) && !lhs.is_zero();
+        bool lhs_neg = std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63);
+        bool rhs_neg = std::signbit(rhs);
+        if (lhs_neg != rhs_neg)
+            return lhs_neg;
+        integer lhs_abs = lhs_neg ? -lhs : lhs;
+        T rhs_abs = rhs_neg ? T(-rhs) : rhs;
+        return compare_with_float_abs(lhs_abs, rhs_abs) < 0;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator<(T lhs, const integer & rhs) noexcept
     {
-        return static_cast<long double>(lhs) < static_cast<long double>(rhs);
+        return rhs > lhs;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator>(const integer & lhs, T rhs) noexcept
     {
-        return static_cast<long double>(rhs) < static_cast<long double>(lhs);
+        if (std::isnan(rhs))
+            return false;
+        if (rhs == T(0))
+            return !(std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63)) && !lhs.is_zero();
+        bool lhs_neg = std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63);
+        bool rhs_neg = std::signbit(rhs);
+        if (lhs_neg != rhs_neg)
+            return !lhs_neg;
+        integer lhs_abs = lhs_neg ? -lhs : lhs;
+        T rhs_abs = rhs_neg ? T(-rhs) : rhs;
+        return compare_with_float_abs(lhs_abs, rhs_abs) > 0;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator>(T lhs, const integer & rhs) noexcept
     {
-        return static_cast<long double>(rhs) < static_cast<long double>(lhs);
+        return rhs < lhs;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator<=(const integer & lhs, T rhs) noexcept
     {
-        return !(static_cast<long double>(rhs) < static_cast<long double>(lhs));
+        if (std::isnan(rhs))
+            return false;
+        return !(lhs > rhs);
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator<=(T lhs, const integer & rhs) noexcept
     {
-        return !(static_cast<long double>(rhs) < static_cast<long double>(lhs));
+        if (std::isnan(lhs))
+            return false;
+        return !(lhs > rhs);
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator>=(const integer & lhs, T rhs) noexcept
     {
-        return !(static_cast<long double>(lhs) < static_cast<long double>(rhs));
+        if (std::isnan(rhs))
+            return false;
+        return !(lhs < rhs);
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend bool operator>=(T lhs, const integer & rhs) noexcept
     {
-        return !(static_cast<long double>(lhs) < static_cast<long double>(rhs));
+        if (std::isnan(lhs))
+            return false;
+        return !(lhs < rhs);
     }
 
     friend integer operator~(integer v) noexcept

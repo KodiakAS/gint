@@ -128,8 +128,9 @@ TEST(WideIntegerConversion, FloatingDivisionBothWays)
     using S256 = gint::integer<256, signed>;
     S256 a = 1000;
     double b = 3.5;
-    EXPECT_EQ(S256(a / b), S256(static_cast<long double>(1000) / 3.5L));
-    EXPECT_EQ(S256(b / a), S256(3.5L / static_cast<long double>(1000)));
+    // Float operand is truncated to integer before integer division.
+    EXPECT_EQ(S256(a / b), S256(a / S256(b)));
+    EXPECT_EQ(S256(b / a), S256(S256(b) / a));
 }
 
 TEST(WideIntegerConversion, FloatingModuloBothWays)
@@ -266,13 +267,14 @@ static void test_float_ops()
     const __int128 ai = 1000;
     W a = ai;
     T b = static_cast<T>(123.5);
-    long double bd = static_cast<long double>(b);
-    __int128 expected_add = static_cast<__int128>(static_cast<long double>(ai) + bd);
-    __int128 expected_sub = static_cast<__int128>(static_cast<long double>(ai) - bd);
-    __int128 expected_rsub = static_cast<__int128>(bd - static_cast<long double>(ai));
-    __int128 expected_mul = static_cast<__int128>(static_cast<long double>(ai) * bd);
-    __int128 expected_div = static_cast<__int128>(static_cast<long double>(ai) / bd);
-    __int128 expected_rdiv = static_cast<__int128>(bd / static_cast<long double>(ai));
+    // New semantics: mixed int/float arithmetic truncates the float to integer first.
+    __int128 bi = static_cast<__int128>(b);
+    __int128 expected_add = ai + bi;
+    __int128 expected_sub = ai - bi;
+    __int128 expected_rsub = bi - ai;
+    __int128 expected_mul = ai * bi;
+    __int128 expected_div = ai / bi;
+    __int128 expected_rdiv = bi / ai;
     EXPECT_EQ(W(a + b), W(expected_add));
     EXPECT_EQ(W(b + a), W(expected_add));
     EXPECT_EQ(W(a - b), W(expected_sub));
