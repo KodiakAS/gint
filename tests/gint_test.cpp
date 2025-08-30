@@ -3,6 +3,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
@@ -1300,4 +1301,26 @@ TEST(WideIntegerConversionOverflow, FromLargeNative)
     unsigned __int128 big = (static_cast<unsigned __int128>(1) << 100) + 7;
     U64 v = big;
     EXPECT_EQ(v, U64(7));
+}
+
+TEST(WideIntegerConstruction, DefaultCopyMove)
+{
+    using U256 = gint::integer<256, unsigned>;
+
+    U256 a; // default construction
+    EXPECT_EQ(a, U256(0));
+
+    U256 b(a); // copy construction
+    EXPECT_EQ(b, U256(0));
+
+    U256 c(std::move(b)); // move construction
+    EXPECT_EQ(c, U256(0));
+
+    U256 d; // copy assignment
+    d = c;
+    EXPECT_EQ(d, U256(0));
+
+    U256 e; // move assignment
+    e = std::move(d);
+    EXPECT_EQ(e, U256(0));
 }
