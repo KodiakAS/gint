@@ -45,7 +45,11 @@ if(GINT_BUILD_TESTS)
             target_link_options(${name} PRIVATE ${GINT_TEST_LINK_OPTIONS})
         endif()
         target_link_libraries(${name} PRIVATE GTest::gtest_main)
-        gtest_discover_tests(${name} NO_PRETTY_VALUES)
+        # Increase discovery timeout to avoid flaky timeouts when listing tests
+        gtest_discover_tests(${name}
+            NO_PRETTY_VALUES
+            DISCOVERY_TIMEOUT 60
+        )
     endfunction()
 
     # Basic tests
