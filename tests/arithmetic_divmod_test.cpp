@@ -1,4 +1,7 @@
+#define GINT_ENABLE_DIVZERO_CHECKS
+#define private public
 #include <gint/gint.h>
+#undef private
 #include <gtest/gtest.h>
 
 TEST(WideIntegerDivision, SmallDivMod)
@@ -322,4 +325,48 @@ TEST(WideIntegerDivision, UInt256Division)
     EXPECT_EQ(q * div + r, a);
     EXPECT_EQ(gint::to_string(q), "1627024769791889844363837995440879160110719541703693");
     EXPECT_EQ(static_cast<uint64_t>(r), 865650712ULL);
+}
+
+TEST(WideIntegerDivision, ShiftSubtractLarge)
+{
+    using U320 = gint::integer<320, unsigned>;
+    U320 lhs = (U320(1) << 256) + (U320(1) << 128) + U320(12345);
+    U320 divisor = (U320(1) << 64) + U320(3);
+    U320 q = lhs / divisor;
+    U320 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
+}
+
+TEST(WideIntegerDivision, SignedLimbDiv)
+{
+    using S256 = gint::integer<256, signed>;
+    S256 lhs = (S256(1) << 200) + S256(12345);
+    int64_t rhs = -7;
+    S256 q = lhs / rhs;
+    S256 r = lhs % rhs;
+    EXPECT_EQ(q * rhs + r, lhs);
+}
+
+TEST(WideIntegerDivision, Div128SingleLimbPath)
+{
+    using U64 = gint::integer<64, unsigned>;
+    U64 a = 123456789ULL;
+    U64 b = 12345ULL;
+    U64 q = U64::div_128(a, b);
+    EXPECT_EQ(static_cast<uint64_t>(q), static_cast<uint64_t>(a) / static_cast<uint64_t>(b));
+}
+
+TEST(WideIntegerDivision, DivLargeBreak)
+{
+    using U192 = gint::integer<192, unsigned>;
+    U192 lhs;
+    lhs.data_[0] = 0;
+    lhs.data_[1] = 0xffffffffffffffffULL;
+    lhs.data_[2] = 1;
+    U192 divisor;
+    divisor.data_[0] = 0xffffffffffffffffULL;
+    divisor.data_[1] = 0xffffffffffffffffULL;
+    divisor.data_[2] = 0;
+    U192 q = U192::div_large(lhs, divisor, 2);
+    EXPECT_EQ(static_cast<uint64_t>(q), 1ULL);
 }
