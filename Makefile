@@ -38,8 +38,8 @@ coverage: coverage-lcov
 coverage-gcovr: $(COVERAGE_DIR)/Makefile
 	@echo "[coverage] Building tests with coverage flags..."
 	cmake --build $(COVERAGE_DIR) --config Debug
-	@echo "[coverage] Running unified test binary (to improve header-only coverage aggregation)..."
-	$(COVERAGE_DIR)/gint_all_tests --gtest_color=no
+	@echo "[coverage] Running unit tests..."
+	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	@# Verify gcovr is available (either binary or python module)
 	@$(GCOVR) --version >/dev/null 2>&1 || { \
 		printf "\nERROR: gcovr not found. Install with one of:\n  pipx install gcovr\n  pip3 install --user gcovr\n  brew install gcovr\n\n"; \
