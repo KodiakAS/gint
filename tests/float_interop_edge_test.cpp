@@ -116,8 +116,8 @@ TEST(FloatInteropEdges, NegativeNegativeOrdering)
 
     // Cross-type comparisons with both negative should reverse abs ordering
     EXPECT_FALSE(m3 < f5); // -3 < -5 is false
-    EXPECT_TRUE(m3 > f5);  // -3 > -5 is true
-    EXPECT_TRUE(m5 < f3);  // -5 < -3 is true
+    EXPECT_TRUE(m3 > f5); // -3 > -5 is true
+    EXPECT_TRUE(m5 < f3); // -5 < -3 is true
     EXPECT_FALSE(m5 > f3); // -5 > -3 is false
 
     // Symmetric operand order
@@ -129,11 +129,51 @@ TEST(FloatInteropEdges, NegativeNegativeOrdering)
     // Non-integer negative float
     double fn = -5.3;
     EXPECT_FALSE(m3 < fn); // -3 < -5.3 false
-    EXPECT_TRUE(m3 > fn);  // -3 > -5.3 true
+    EXPECT_TRUE(m3 > fn); // -3 > -5.3 true
     EXPECT_TRUE(fn < m3);
     EXPECT_FALSE(fn > m3);
 
     // Equality remains unaffected for equal magnitudes
     EXPECT_TRUE(m3 == f3);
     EXPECT_FALSE(m3 != f3);
+}
+
+TEST(FloatInteropEdges, ArithmeticWithInfAndNaN)
+{
+    using U256 = gint::integer<256, unsigned>;
+    using S256 = gint::integer<256, signed>;
+    U256 u = 10;
+    S256 s = -10;
+    const double pinf = std::numeric_limits<double>::infinity();
+    const double ninf = -std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+
+    // Division by ±inf yields 0
+    EXPECT_EQ(u / pinf, U256(0));
+    EXPECT_EQ(u / ninf, U256(0));
+    EXPECT_EQ(s / pinf, S256(0));
+    EXPECT_EQ(s / ninf, S256(0));
+
+    // Modulo by ±inf yields the dividend unchanged
+    EXPECT_EQ(u % pinf, u);
+    EXPECT_EQ(u % ninf, u);
+    EXPECT_EQ(s % pinf, s);
+    EXPECT_EQ(s % ninf, s);
+
+    // Division by NaN throws
+    EXPECT_THROW((void)(u / nan), std::domain_error);
+    EXPECT_THROW((void)(s / nan), std::domain_error);
+    // Modulo by NaN throws
+    EXPECT_THROW((void)(u % nan), std::domain_error);
+    EXPECT_THROW((void)(s % nan), std::domain_error);
+
+    // Infinite or NaN dividend (float ÷ int, float % int) throws
+    U256 d = 3;
+    EXPECT_THROW((void)(pinf / d), std::domain_error);
+    EXPECT_THROW((void)(ninf / d), std::domain_error);
+    EXPECT_THROW((void)(nan / d), std::domain_error);
+
+    EXPECT_THROW((void)(pinf % d), std::domain_error);
+    EXPECT_THROW((void)(ninf % d), std::domain_error);
+    EXPECT_THROW((void)(nan % d), std::domain_error);
 }

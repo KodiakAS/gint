@@ -962,6 +962,10 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator/(integer lhs, T rhs)
     {
+        if (std::isnan(rhs))
+            throw std::domain_error("division by NaN");
+        if (std::isinf(rhs))
+            return integer(); // finite / ±inf -> 0
         integer div(rhs);
         GINT_DIVZERO_CHECK(div.is_zero());
         return lhs / div;
@@ -970,6 +974,10 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator/(T lhs, integer rhs)
     {
+        if (std::isnan(lhs))
+            throw std::domain_error("division by NaN");
+        if (std::isinf(lhs))
+            throw std::domain_error("infinite dividend");
         GINT_DIVZERO_CHECK(rhs.is_zero());
         return integer(lhs) / rhs;
     }
@@ -997,6 +1005,10 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs)
     {
+        if (std::isnan(rhs))
+            throw std::domain_error("modulo by NaN");
+        if (std::isinf(rhs))
+            return lhs; // finite % ±inf -> lhs
         integer div(rhs);
         GINT_MODZERO_CHECK(div.is_zero());
         return lhs % div;
@@ -1005,6 +1017,10 @@ public:
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
     friend integer operator%(T lhs, integer rhs)
     {
+        if (std::isnan(lhs))
+            throw std::domain_error("modulo by NaN");
+        if (std::isinf(lhs))
+            throw std::domain_error("infinite dividend in modulo");
         return integer(lhs) % rhs;
     }
 
