@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 
@@ -245,43 +246,109 @@ inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs
 template <>
 inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    // Fast path: if the high limbs are zero, operands fit in 128 bits and we
-    // can reuse the simpler 128-bit routine.
-    if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
+    // Robust Comba for 4 limbs with 128-bit carry accumulation that avoids
+    // intermediate overflow when summing multiple 128-bit products.
+    using u128 = unsigned __int128;
+
+    u128 carry = 0;
+
+    // k = 0
     {
-        mul_128(res, lhs, rhs);
-        return;
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[0];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+        res[0] = lo;
     }
 
-    // Otherwise use a Comba-style method: pack each pair of 64-bit limbs into a
-    // 128-bit value and compute cross products to form the 256-bit result.
-    using Half = unsigned __int128;
-    // Pack limb pairs from lhs and rhs.
-    Half a01 = (Half(lhs[1]) << 64) | lhs[0];
-    Half a23 = (Half(lhs[3]) << 64) | lhs[2];
-    Half b01 = (Half(rhs[1]) << 64) | rhs[0];
-    Half b23 = (Half(rhs[3]) << 64) | rhs[2];
+    // k = 1: a0*b1 + a1*b0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[1];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
-    // Compute cross products and assemble final limbs.
-    Half r23 = a23 * b01 + a01 * b23 + Half(lhs[1]) * rhs[1];
-    Half r01 = Half(lhs[0]) * rhs[0];
-    Half r12 = (r01 >> 64) + (r23 << 64);
-    Half cross = Half(lhs[1]) * rhs[0];
+        t = u128(lhs[1]) * rhs[0];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
-    res[0] = static_cast<uint64_t>(r01);
-    res[3] = static_cast<uint64_t>(r23 >> 64);
+        res[1] = lo;
+    }
 
-    Half cross2 = Half(lhs[0]) * rhs[1];
-    cross += cross2;
-    if (cross < cross2)
-        ++res[3];
+    // k = 2: a0*b2 + a1*b1 + a2*b0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[2];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
-    r12 += cross;
-    if (r12 < cross)
-        ++res[3];
+        t = u128(lhs[1]) * rhs[1];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
-    res[1] = static_cast<uint64_t>(r12);
-    res[2] = static_cast<uint64_t>(r12 >> 64);
+        t = u128(lhs[2]) * rhs[0];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        res[2] = lo;
+    }
+
+    // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[3];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[1]) * rhs[2];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[2]) * rhs[1];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[3]) * rhs[0];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        res[3] = lo;
+        // carry beyond limb 3 is discarded (fixed width semantics)
+    }
 }
 
 template <size_t L>
@@ -370,9 +437,16 @@ private:
     template <typename T, size_t I>
     static constexpr limb_type limb_from(T v) noexcept
     {
-        using wide = typename std::conditional<detail::is_signed<T>::value, __int128, unsigned __int128>::type;
-        return I < (sizeof(T) * 8 + 63) / 64 ? static_cast<limb_type>(static_cast<unsigned __int128>(static_cast<wide>(v) >> (I * 64)))
-                                             : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
+        // Build the 128-bit two's complement representation of v (sign-extended
+        // to 128 bits if T is signed), then perform a logical right shift. This
+        // avoids implementation-defined behavior of shifting negative signed values.
+        typedef __int128 wide_signed;
+        typedef unsigned __int128 wide_unsigned;
+        return I < (sizeof(T) * 8 + 63) / 64
+            ? static_cast<limb_type>(
+                  (detail::is_signed<T>::value ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v))
+                  >> (I * 64))
+            : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
     }
 
 public:
@@ -395,14 +469,41 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     explicit operator T() const noexcept
     {
-        unsigned __int128 value = 0;
-        for (size_t i = 0; i < limbs && i < (sizeof(T) + sizeof(limb_type) - 1) / sizeof(limb_type); ++i)
-            value |= static_cast<unsigned __int128>(data_[i]) << (i * 64);
+        using u128 = unsigned __int128;
+        using s128 = __int128;
+        // Assemble up to the lower 128 bits from limbs
+        u128 value = 0;
+        const size_t t_limbs = (sizeof(T) + sizeof(limb_type) - 1) / sizeof(limb_type);
+        for (size_t i = 0; i < limbs && i < t_limbs; ++i)
+            value |= u128(data_[i]) << (i * 64);
 
-        if (detail::is_signed<T>::value)
-            return static_cast<T>(static_cast<__int128>(value));
-        else
+        const unsigned wbits = static_cast<unsigned>(sizeof(T) * 8);
+        if (detail::is_unsigned<T>::value)
+        {
+            // Truncate to T's width and return
+            if (wbits < 128)
+            {
+                const u128 mask = (u128(1) << wbits) - 1;
+                value &= mask;
+            }
             return static_cast<T>(value);
+        }
+        else
+        {
+            // Signed: perform explicit sign extension for widths < 128.
+            if (wbits < 128)
+            {
+                const u128 mask = (u128(1) << wbits) - 1;
+                value &= mask;
+                const bool neg = (value >> (wbits - 1)) & 1;
+                s128 s = static_cast<s128>(value);
+                if (neg)
+                    s -= static_cast<s128>(u128(1) << wbits);
+                return static_cast<T>(s);
+            }
+            // wbits == 128: rely on two's complement conversion on GCC/Clang
+            return static_cast<T>(static_cast<s128>(value));
+        }
     }
 
     explicit operator long double() const noexcept
@@ -1445,7 +1546,7 @@ public:
     static const bool is_exact = true;
     static const bool has_infinity = false;
     static const bool has_quiet_NaN = false;
-    static const bool has_signaling_NaN = true;
+    static const bool has_signaling_NaN = false;
     static const bool has_denorm_loss = false;
     static const std::float_round_style round_style = std::round_toward_zero;
     static const bool is_iec559 = false;
