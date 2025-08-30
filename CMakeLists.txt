@@ -83,6 +83,35 @@ if(GINT_BUILD_TESTS)
     if(HAS_CXX20)
         add_gint_test(gint_compile_cpp20 tests/compile_test.cpp 20)
     endif()
+
+    # Unified test runner to improve coverage aggregation (single binary)
+    # Collect all test sources
+    file(GLOB GINT_ALL_TEST_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
+    # Exclude tests that require conflicting compile-time macros or are redundant
+    list(REMOVE_ITEM GINT_ALL_TEST_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/exceptions_overflow_test.cpp
+        )
+
+    add_executable(gint_all_tests ${GINT_ALL_TEST_SOURCES})
+    target_include_directories(gint_all_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    # Prefer C++20 if available, otherwise C++17, else C++11
+    if(HAS_CXX20)
+        set_target_properties(gint_all_tests PROPERTIES CXX_STANDARD 20)
+    elseif(HAS_CXX17)
+        set_target_properties(gint_all_tests PROPERTIES CXX_STANDARD 17)
+    else()
+        set_target_properties(gint_all_tests PROPERTIES CXX_STANDARD 11)
+    endif()
+    target_compile_options(gint_all_tests PRIVATE ${GINT_TEST_OPTIONS})
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_all_tests PRIVATE ${GINT_TEST_LINK_OPTIONS})
+    endif()
+    target_link_libraries(gint_all_tests PRIVATE GTest::gtest_main fmt::fmt)
+    # Enable fmt integration across all-tests target
+    target_compile_definitions(gint_all_tests PRIVATE GINT_ENABLE_FMT)
+    # Prefix test names to make them discoverable uniquely if using CTest
+    gtest_discover_tests(gint_all_tests NO_PRETTY_VALUES TEST_PREFIX "all.")
 endif()
 
 if(GINT_BUILD_BENCHMARKS)
