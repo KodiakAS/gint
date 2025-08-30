@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <limits>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
-#include <stdexcept>
 
 #ifdef GINT_ENABLE_FMT
 #    include <fmt/format.h>
@@ -272,12 +272,16 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
         u128 t = u128(lhs[0]) * rhs[1];
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         t = u128(lhs[1]) * rhs[0];
         add = static_cast<uint64_t>(t);
         old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         res[1] = lo;
     }
@@ -289,17 +293,23 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
         u128 t = u128(lhs[0]) * rhs[2];
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         t = u128(lhs[1]) * rhs[1];
         add = static_cast<uint64_t>(t);
         old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         t = u128(lhs[2]) * rhs[0];
         add = static_cast<uint64_t>(t);
         old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         res[2] = lo;
     }
@@ -311,22 +321,30 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
         u128 t = u128(lhs[0]) * rhs[3];
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         t = u128(lhs[1]) * rhs[2];
         add = static_cast<uint64_t>(t);
         old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         t = u128(lhs[2]) * rhs[1];
         add = static_cast<uint64_t>(t);
         old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         t = u128(lhs[3]) * rhs[0];
         add = static_cast<uint64_t>(t);
         old = lo;
-        lo += add; carry += (lo < old); carry += (t >> 64);
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
 
         res[3] = lo;
         // carry beyond limb 3 is discarded (fixed width semantics)
@@ -425,10 +443,10 @@ private:
         typedef __int128 wide_signed;
         typedef unsigned __int128 wide_unsigned;
         return I < (sizeof(T) * 8 + 63) / 64
-                   ? static_cast<limb_type>((detail::is_signed<T>::value
-                                                ? static_cast<wide_unsigned>(static_cast<wide_signed>(v))
-                                                : static_cast<wide_unsigned>(v)) >> (I * 64))
-                   : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
+            ? static_cast<limb_type>(
+                  (detail::is_signed<T>::value ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v))
+                  >> (I * 64))
+            : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
     }
 
 public:
