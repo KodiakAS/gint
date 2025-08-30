@@ -13,16 +13,16 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Performance
 
-Benchmarks on a 2.8 GHz CPU compare the C++11 implementation of
-`gint::integer<256>` against Boost.Multiprecision's `int256_t`. Timings
-are in nanoseconds (lower is better).
+Latest benchmarks (ns, lower is better) for 256‑bit wide ints vs Boost (mixed operands):
 
-| Operation (mixed operands) | `gint` | Boost.Multiprecision |
-| ------------------------- | -------------: | -------------------: |
-| Addition                  |        3.70 ns |             10.4 ns |
-| Subtraction               |        4.57 ns |             25.4 ns |
-| Multiplication            |        9.42 ns |             22.3 ns |
-| Division                  |        21.0 ns |              161 ns |
+| Operation       | `gint` | Boost.Multiprecision |
+| --------------- | -----: | -------------------: |
+| Addition        |  1.16  |                3.20 |
+| Subtraction     |  1.48  |                3.65 |
+| Multiplication  |  1.69  |                8.74 |
+| Division        |  5.69  |                 192 |
+
+Full results and instructions: see `docs/BENCHMARKS.md`.
 
 
 ## Quick Start
@@ -85,6 +85,11 @@ make coverage
 
 This builds the project with coverage flags, runs the tests, and
 produces a coverage report under the `build-coverage` directory.
+
+## Documentation
+
+- Technical spec: `docs/TECH_SPEC.md`
+- Benchmarks: `docs/BENCHMARKS.md`
 
 ## Development Environment
 

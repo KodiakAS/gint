@@ -2,7 +2,12 @@ TEST_BUILD_DIR ?= build
 BENCH_BUILD_DIR ?= build-bench
 COVERAGE_DIR ?= build-coverage
 
-.PHONY: test bench coverage clean image
+# Tools
+GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
+GCOVR ?= $(if $(GCOVR_BIN),$(GCOVR_BIN),python3 -m gcovr)
+LLVM_COV ?= $(shell xcrun -f llvm-cov 2>/dev/null || command -v llvm-cov 2>/dev/null)
+
+.PHONY: test bench coverage coverage-gcovr coverage-lcov clean image
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -27,7 +32,36 @@ bench: $(BENCH_BUILD_DIR)/Makefile
 	$(BENCH_BUILD_DIR)/perf_compare_int256
 
 # Build, test and generate coverage report
-coverage: $(COVERAGE_DIR)/Makefile
+coverage: coverage-lcov
+
+# Build, test and generate coverage via gcovr
+coverage-gcovr: $(COVERAGE_DIR)/Makefile
+	@echo "[coverage] Building tests with coverage flags..."
+	cmake --build $(COVERAGE_DIR) --config Debug
+	@echo "[coverage] Running unit tests..."
+	cd $(COVERAGE_DIR) && ctest --output-on-failure
+	@# Verify gcovr is available (either binary or python module)
+	@$(GCOVR) --version >/dev/null 2>&1 || { \
+		printf "\nERROR: gcovr not found. Install with one of:\n  pipx install gcovr\n  pip3 install --user gcovr\n  brew install gcovr\n\n"; \
+		exit 2; \
+	}
+	@echo "[coverage] Generating gcovr reports (console, HTML, XML, JSON)..."
+	$(GCOVR) \
+		--gcov-executable "$(LLVM_COV) gcov" \
+		--root . \
+		--object-directory $(COVERAGE_DIR) \
+		--filter 'include/' \
+		--exclude 'tests' \
+		--exclude '.*googletest.*' \
+		--exclude '/usr/.*' \
+		--print-summary \
+		--html-details $(COVERAGE_DIR)/coverage.html \
+		--xml $(COVERAGE_DIR)/coverage.xml \
+		--json $(COVERAGE_DIR)/coverage.json
+	@echo "[coverage] HTML report: $(COVERAGE_DIR)/coverage.html"
+
+# lcov-based coverage
+coverage-lcov: $(COVERAGE_DIR)/Makefile
 	cmake --build $(COVERAGE_DIR) --config Debug
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
 	lcov --capture --directory $(COVERAGE_DIR) --output-file $(COVERAGE_DIR)/coverage.info $(LCOV_IGNORE_MISMATCH)

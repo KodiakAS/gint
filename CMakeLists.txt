@@ -49,9 +49,24 @@ if(GINT_BUILD_TESTS)
     endfunction()
 
     # Basic tests
-    add_gint_test(gint_test tests/gint_test.cpp 11)
-    target_compile_definitions(gint_test PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(gint_test PRIVATE fmt::fmt)
+    add_gint_test(gint_test_construction tests/construction_test.cpp 11)
+    add_gint_test(gint_test_conversion tests/conversion_test.cpp 11)
+    add_gint_test(gint_test_comparison tests/comparison_test.cpp 11)
+    add_gint_test(gint_test_boundary tests/boundary_test.cpp 11)
+    add_gint_test(gint_test_numeric_limits tests/numeric_limits_test.cpp 11)
+    add_gint_test(gint_test_stream tests/stream_test.cpp 11)
+    add_gint_test(gint_test_exceptions_overflow tests/exceptions_overflow_test.cpp 11)
+
+    add_gint_test(gint_arith_basic_test tests/arithmetic_basic_test.cpp 11)
+    target_compile_definitions(gint_arith_basic_test PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_arith_basic_test PRIVATE fmt::fmt)
+
+    add_gint_test(gint_bitwise_test tests/bitwise_test.cpp 11)
+    target_compile_definitions(gint_bitwise_test PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_bitwise_test PRIVATE fmt::fmt)
+
+    add_gint_test(gint_shift_test tests/shift_test.cpp 11)
+    add_gint_test(gint_arith_divmod_test tests/arithmetic_divmod_test.cpp 11)
 
     # Fmt support tests
     add_gint_test(gint_fmt_test tests/fmt_support_test.cpp 11)

@@ -17,13 +17,13 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
-            sudo apt-get install -y cmake build-essential \
+            sudo apt-get install -y cmake build-essential clang-format \
               libfmt-dev libgtest-dev libboost-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             brew update-reset
             brew update
             brew uninstall --ignore-dependencies cmake || true
-            brew install cmake fmt googletest boost
+            brew install cmake clang-format fmt googletest boost
           fi
       - name: Configure
         run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -33,6 +33,13 @@ jobs:
         run: |
           cd build
           ctest --output-on-failure
+      - name: Check code format
+        run: |
+          FILES=$(git ls-files '*.cpp' '*.hpp' '*.h')
+          if [ -n "$FILES" ]; then
+            clang-format -i --style=file $FILES
+            git diff --exit-code
+          fi
 
   coverage:
     runs-on: ubuntu-latest
@@ -41,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential \
+          sudo apt-get install -y cmake build-essential clang-format \
             libfmt-dev libgtest-dev lcov libboost-dev
       - name: Configure
         run: cmake -S . -B build -DENABLE_COVERAGE=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -56,22 +63,6 @@ jobs:
           lcov --capture --directory build --output-file coverage.info --ignore-errors mismatch
           lcov --remove coverage.info '/usr/*' '*/tests/*' --output-file coverage.info
           lcov --list coverage.info
-
-  format:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install clang-format
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format
-      - name: Check code format
-        run: |
-          FILES=$(git ls-files '*.cpp' '*.hpp' '*.h')
-          if [ -n "$FILES" ]; then
-            clang-format -i --style=file $FILES
-            git diff --exit-code
-          fi
 
   benchmark:
     runs-on: ubuntu-latest
