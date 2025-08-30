@@ -66,14 +66,14 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(BitCase{BitOp::And, 10, 12, "8"}, BitCase{BitOp::Or, 10, 12, "14"}, BitCase{BitOp::Xor, 10, 12, "6"}),
     bit_case_name);
 
-TEST(WideIntegerAdditional, BitwiseNot)
+TEST(WideIntegerBitwise, BitwiseNot)
 {
     gint::integer<128, unsigned> a = 0;
     auto b = ~a;
     EXPECT_EQ(gint::to_string(b), "340282366920938463463374607431768211455");
 }
 
-TEST(WideInteger256, BitwiseAndShift)
+TEST(WideIntegerBitwise, BitwiseAndShift256)
 {
     using U = gint::integer<256, unsigned>;
     U v = 1;
@@ -82,7 +82,7 @@ TEST(WideInteger256, BitwiseAndShift)
     EXPECT_EQ((s & v), U(0));
 }
 
-TEST(WideInteger512, BitwiseOps)
+TEST(WideIntegerBitwise, BitwiseOps512)
 {
     using U = gint::integer<512, unsigned>;
     U a = U(1) << 511;

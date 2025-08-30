@@ -1,7 +1,7 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
-TEST(WideIntegerConstexpr, Construction)
+TEST(WideIntegerConstruction, ConstexprConstruction)
 {
     constexpr gint::integer<128, unsigned> a = 42;
     static_assert(a == 42, "constexpr constructor failed");

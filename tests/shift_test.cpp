@@ -1,7 +1,7 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
-TEST(WideIntegerBasic, Shift)
+TEST(WideIntegerShift, Basic)
 {
     gint::integer<128, unsigned> a = 1;
     auto left = a << 100;
