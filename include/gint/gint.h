@@ -1740,3 +1740,11 @@ struct formatter<gint::integer<Bits, Signed>>
 };
 } // namespace fmt
 #endif
+
+//=== Macro cleanup =============================================================
+
+#undef GINT_UNLIKELY
+#undef GINT_ZERO_CHECK
+#undef GINT_DIVZERO_CHECK
+#undef GINT_MODZERO_CHECK
+#undef GINT_CONSTEXPR14
