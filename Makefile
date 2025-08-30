@@ -17,7 +17,7 @@ GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
 GCOVR ?= $(if $(GCOVR_BIN),$(GCOVR_BIN),python3 -m gcovr)
 LLVM_COV ?= $(shell xcrun -f llvm-cov 2>/dev/null || command -v llvm-cov 2>/dev/null)
 
-.PHONY: test bench coverage coverage-gcovr coverage-lcov clean image
+.PHONY: test bench coverage coverage-gcovr coverage-lcov clean clean-coverage image
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -42,13 +42,19 @@ bench: $(BENCH_BUILD_DIR)/Makefile
 	$(BENCH_BUILD_DIR)/perf
 	$(BENCH_BUILD_DIR)/perf_compare_int256
 
-# Build, test and generate coverage report
-coverage: coverage-lcov
+# Build, test and generate coverage report (clean first to avoid stale data)
+coverage:
+	@echo "[coverage] Cleaning previous coverage build..."
+	$(MAKE) clean-coverage
+	@echo "[coverage] Rebuilding and generating coverage (lcov)..."
+	$(MAKE) coverage-lcov
 
 # Build, test and generate coverage via gcovr
-
-
-coverage-gcovr: $(COVERAGE_DIR)/Makefile
+coverage-gcovr:
+	@echo "[coverage] Cleaning previous coverage build..."
+	$(MAKE) clean-coverage
+	@echo "[coverage] Configuring coverage build..."
+	$(MAKE) $(COVERAGE_DIR)/Makefile
 	@echo "[coverage] Building tests with coverage flags..."
 	cmake --build $(COVERAGE_DIR) --config Debug --parallel $(JOBS)
 	@echo "[coverage] Running unit tests..."
@@ -74,7 +80,6 @@ coverage-gcovr: $(COVERAGE_DIR)/Makefile
 	@echo "[coverage] HTML report: $(COVERAGE_DIR)/coverage.html"
 
 # lcov-based coverage
-
 coverage-lcov: $(COVERAGE_DIR)/Makefile
 	cmake --build $(COVERAGE_DIR) --config Debug --parallel $(JOBS)
 	cd $(COVERAGE_DIR) && ctest --output-on-failure
@@ -85,6 +90,10 @@ coverage-lcov: $(COVERAGE_DIR)/Makefile
 # Remove build directories
 clean:
 	rm -rf $(TEST_BUILD_DIR) $(BENCH_BUILD_DIR) $(COVERAGE_DIR)
+
+# Remove only coverage build directory
+clean-coverage:
+	rm -rf $(COVERAGE_DIR)
 
 # Build Docker image
 image:
