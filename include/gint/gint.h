@@ -1092,6 +1092,8 @@ public:
     {
         if (std::isnan(rhs))
             return false;
+        if (std::isinf(rhs))
+            return false; // finite integer is never equal to ±inf
         if (rhs == T(0))
             return lhs.is_zero();
         bool lhs_neg = std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63);
@@ -1197,6 +1199,8 @@ public:
     {
         if (std::isnan(rhs))
             return false;
+        if (std::isinf(rhs))
+            return rhs > 0; // lhs (finite) is always < +inf, never < -inf
         if (rhs == T(0))
             return (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63)) && !lhs.is_zero();
         bool lhs_neg = std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63);
@@ -1219,6 +1223,8 @@ public:
     {
         if (std::isnan(rhs))
             return false;
+        if (std::isinf(rhs))
+            return rhs < 0; // lhs (finite) is always > -inf, never > +inf
         if (rhs == T(0))
             return !(std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63)) && !lhs.is_zero();
         bool lhs_neg = std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63);
@@ -1241,6 +1247,8 @@ public:
     {
         if (std::isnan(rhs))
             return false;
+        if (std::isinf(rhs))
+            return rhs > 0; // lhs (finite) <= +inf; lhs (finite) <= -inf is false
         return !(lhs > rhs);
     }
 
@@ -1257,6 +1265,8 @@ public:
     {
         if (std::isnan(rhs))
             return false;
+        if (std::isinf(rhs))
+            return rhs < 0; // lhs (finite) >= -inf; lhs (finite) >= +inf is false
         return !(lhs < rhs);
     }
 
