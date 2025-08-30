@@ -73,6 +73,19 @@ TEST(WideIntegerShift, SignedRightShiftWrapper)
     EXPECT_EQ(r, S128(2));
 }
 
+TEST(WideIntegerShift, SignedArithmeticRightShift)
+{
+    using S128 = gint::integer<128, signed>;
+    // Basic sign-propagation within a limb
+    EXPECT_EQ(S128(-8) >> 1, S128(-4));
+    EXPECT_EQ(S128(-8) >> 2, S128(-2));
+    EXPECT_EQ(S128(-1) >> 1, S128(-1));
+
+    // Cross-limb: for 256-bit, shifting negative values must fill with ones
+    using S256 = gint::integer<256, signed>;
+    EXPECT_EQ(S256(-1) >> 65, S256(-1));
+}
+
 TEST(WideIntegerShift, EdgeCasesSigned512)
 {
     using S512 = gint::integer<512, signed>;
@@ -87,4 +100,14 @@ TEST(WideIntegerShift, EdgeCasesSigned512)
     t = x;
     t >>= 600; // >= total_bits
     EXPECT_EQ(t, S512(0));
+}
+
+TEST(WideIntegerShift, EdgeCasesSigned512Negative)
+{
+    using S512 = gint::integer<512, signed>;
+    S512 x = -42;
+    S512 t = x;
+    t >>= 600; // >= total_bits
+    // Arithmetic shift of negative by >= width yields -1
+    EXPECT_EQ(t, S512(-1));
 }

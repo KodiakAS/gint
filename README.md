@@ -56,6 +56,7 @@ Let **W** denote the bit width of the type.
   Shifts are defined explicitly:  
   - signed `>>` is **arithmetic** (sign-propagating)  
   - unsigned `>>` is **logical** (zero-fill)
+  - negative shift amounts are a **no-op** (debug builds `assert`)
 
 - **Division / modulo by zero**  
   Controlled by the compile-time macro **`GINT_ENABLE_DIVZERO_CHECKS`**:
