@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -57,6 +58,7 @@ namespace detail
 template <size_t Bits>
 struct storage_count
 {
+    static_assert(Bits > 0, "Bits must be > 0");
     static_assert(Bits % 64 == 0, "Bits must be multiple of 64");
     static constexpr size_t value = Bits / 64;
 };
@@ -211,23 +213,6 @@ inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
 // Perform 128-bit multiplication using a straightforward schoolbook
 // method. The operands are split into low/high 64-bit limbs and cross
 // multiplied with 128-bit intermediates to produce a 256-bit result.
-inline void mul_128(uint64_t * res, const uint64_t * a, const uint64_t * b) noexcept
-{
-    unsigned __int128 a_lo = a[0];
-    unsigned __int128 a_hi = a[1];
-    unsigned __int128 b_lo = b[0];
-    unsigned __int128 b_hi = b[1];
-
-    unsigned __int128 lo = a_lo * b_lo;
-    unsigned __int128 mid = a_lo * b_hi + a_hi * b_lo + (lo >> 64);
-    unsigned __int128 hi = a_hi * b_hi + (mid >> 64);
-
-    res[0] = static_cast<uint64_t>(lo);
-    res[1] = static_cast<uint64_t>(mid);
-    res[2] = static_cast<uint64_t>(hi);
-    res[3] = static_cast<uint64_t>(hi >> 64);
-}
-
 template <size_t L>
 inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
@@ -242,6 +227,31 @@ inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs
             carry = cur >> 64;
         }
     }
+}
+
+// Fast path for 128-bit (2-limb) multiplication: leverage the dedicated
+// 128x128->256 routine and keep the low 128 bits (fixed-width semantics).
+template <>
+inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    // 128-bit specialized schoolbook: decompose into 64-bit limbs and
+    // accumulate cross products with 128-bit carries. Keep low 128 bits.
+    using u128 = unsigned __int128;
+    const u128 a0 = lhs[0];
+    const u128 a1 = lhs[1];
+    const u128 b0 = rhs[0];
+    const u128 b1 = rhs[1];
+
+    const u128 p00 = a0 * b0; // contributes to res[0] (low) and carry to res[1]
+    const u128 p01 = a0 * b1; // contributes to res[1]
+    const u128 p10 = a1 * b0; // contributes to res[1]
+
+    uint64_t lo = static_cast<uint64_t>(p00);
+    u128 carry = (p00 >> 64);
+    u128 sum1 = carry + p01 + p10;
+
+    res[0] = lo;
+    res[1] = static_cast<uint64_t>(sum1);
 }
 
 template <>
@@ -562,10 +572,19 @@ public:
     }
 
     // Shift operators
+    // Notes:
+    // - Negative shift amounts are a no-op by design (avoids UB). In debug
+    //   builds, an assertion will fire to highlight potential misuse.
+    // - Right shift is arithmetic for signed integers (sign-propagating),
+    //   and logical (zero-fill) for unsigned.
     integer & operator<<=(int n) noexcept
     {
         if (n <= 0)
+        {
+            // Debug hint: negative shifts are a no-op by design.
+            assert(n >= 0 && "negative shift is a no-op");
             return *this;
+        }
         size_t total_bits = limbs * 64;
         size_t shift = static_cast<size_t>(n);
         if (shift >= total_bits)
@@ -599,13 +618,21 @@ public:
     integer & operator>>=(int n) noexcept
     {
         if (n <= 0)
+        {
+            // Debug hint: negative shifts are a no-op by design.
+            assert(n >= 0 && "negative shift is a no-op");
             return *this;
+        }
+        const bool is_signed_t = std::is_same<Signed, signed>::value;
+        const bool neg = is_signed_t && (data_[limbs - 1] >> 63);
         size_t total_bits = limbs * 64;
         size_t shift = static_cast<size_t>(n);
         if (shift >= total_bits)
         {
+            // Shifting out all bits: 0 for unsigned, -1 for signed negatives.
+            const limb_type fill = (neg ? ~limb_type(0) : limb_type(0));
             for (size_t i = 0; i < limbs; ++i)
-                data_[i] = 0;
+                data_[i] = fill;
             return *this;
         }
         size_t limb_shift = shift / 64;
@@ -615,7 +642,7 @@ public:
             for (size_t i = 0; i < limbs - limb_shift; ++i)
                 data_[i] = data_[i + limb_shift];
             for (size_t i = limbs - limb_shift; i < limbs; ++i)
-                data_[i] = 0;
+                data_[i] = neg ? ~limb_type(0) : limb_type(0);
         }
         if (bit_shift)
         {
@@ -625,6 +652,11 @@ public:
                 if (i + 1 < limbs)
                     part |= static_cast<unsigned __int128>(data_[i + 1]) << (64 - bit_shift);
                 data_[i] = static_cast<limb_type>(part);
+            }
+            // Sign-extend vacated high bits for negative signed values.
+            if (neg)
+            {
+                data_[limbs - 1] |= (~limb_type(0)) << (64 - bit_shift);
             }
         }
         return *this;
