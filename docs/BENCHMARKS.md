@@ -26,42 +26,42 @@ Operation results (ns, lower is better):
 | Division       | 2.69 | 4.06 | 10.4 |
 | ToString       | 219  | 582  | 1778 |
 
-## perf_compare_int256 — vs ClickHouse wide::integer<256> (ns)
+## perf_compare_int256 — gint vs ClickHouse vs Boost (ns)
 
 Command: `make bench && build-bench/perf_compare_int256`
 
 Mixed operands (ns):
 
-| Case  | gint | ClickHouse |
-| ----- | ---: | ----: |
-| Add   | 2.57 |  3.63 |
-| Sub   | 2.15 |  2.99 |
-| Mul   | 7.28 | 11.8 |
-| Div   | 35.2 |  977 |
+| Case  | gint | ClickHouse | Boost |
+| ----- | ---: | ---------: | ----: |
+| Add   | 2.58 |      3.82 |  9.34 |
+| Sub   | 2.42 |      2.76 |  9.57 |
+| Mul   | 7.74 |      12.9 |  19.2 |
+| Div   | 32.1 |       959 |   152 |
 
 Small operands (ns):
 
-| Case  | gint | ClickHouse |
-| ----- | ---: | ----: |
-| Add   | 2.53 |  2.15 |
-| Sub   | 2.10 |  2.52 |
-| Mul   | 7.18 | 10.5 |
-| Div   | 8.83 | 22.4 |
+| Case  | gint | ClickHouse | Boost |
+| ----- | ---: | ---------: | ----: |
+| Add   | 2.80 |      2.09 |  2.76 |
+| Sub   | 2.41 |      2.82 |  5.48 |
+| Mul   | 7.26 |      11.1 |  3.14 |
+| Div   | 19.6 |      52.7 |  30.0 |
 
 Large operands (ns):
 
-| Case  | gint | ClickHouse |
-| ----- | ---: | ----: |
-| Add   | 2.53 |  2.50 |
-| Sub   | 2.13 |  2.59 |
-| Mul   | 7.19 | 10.3 |
-| Div   | 54.2 |  971 |
+| Case  | gint | ClickHouse | Boost |
+| ----- | ---: | ---------: | ----: |
+| Add   | 2.78 |      2.74 |  8.62 |
+| Sub   | 2.43 |      2.83 |  9.43 |
+| Mul   | 7.29 |      11.2 |  21.1 |
+| Div   | 107  |       950 |   158 |
 
 Similar magnitude operands (ns):
 
-| Case  | gint | ClickHouse |
-| ----- | ---: | ----: |
-| Div   | 38.7 |  473 |
+| Case  | gint | ClickHouse | Boost |
+| ----- | ---: | ---------: | ----: |
+| Div   | 67.5 |       483 |  80.5 |
 
 Notes
 - Absolute numbers vary by machine; relative trends are stable across runs.

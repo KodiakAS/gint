@@ -2,6 +2,7 @@
 #ifdef GINT_ENABLE_CH_COMPARE
 #    include <wide_integer/wide_integer.h>
 #endif
+#include <boost/multiprecision/cpp_int.hpp>
 
 #include <gint/gint.h>
 
@@ -9,6 +10,7 @@ using WInt = gint::integer<256, signed>;
 #ifdef GINT_ENABLE_CH_COMPARE
 using CInt = wide::integer<256, signed>;
 #endif
+using BInt = boost::multiprecision::int256_t;
 
 template <typename Int>
 static void AddSmall(benchmark::State & state)
@@ -199,57 +201,70 @@ int main(int argc, char ** argv)
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Add/Small/ClickHouse", &AddSmall<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Add/Small/Boost", &AddSmall<BInt>);
     benchmark::RegisterBenchmark("Add/Large/gint", &AddLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Add/Large/ClickHouse", &AddLarge<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Add/Large/Boost", &AddLarge<BInt>);
     benchmark::RegisterBenchmark("Add/Mixed/gint", &AddMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Add/Mixed/ClickHouse", &AddMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Add/Mixed/Boost", &AddMixed<BInt>);
 
     benchmark::RegisterBenchmark("Sub/Small/gint", &SubSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Sub/Small/ClickHouse", &SubSmall<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Sub/Small/Boost", &SubSmall<BInt>);
     benchmark::RegisterBenchmark("Sub/Large/gint", &SubLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Sub/Large/ClickHouse", &SubLarge<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Sub/Large/Boost", &SubLarge<BInt>);
     benchmark::RegisterBenchmark("Sub/Mixed/gint", &SubMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Sub/Mixed/ClickHouse", &SubMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Sub/Mixed/Boost", &SubMixed<BInt>);
 
     benchmark::RegisterBenchmark("Mul/Small/gint", &MulSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Mul/Small/ClickHouse", &MulSmall<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Mul/Small/Boost", &MulSmall<BInt>);
     benchmark::RegisterBenchmark("Mul/Large/gint", &MulLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Mul/Large/ClickHouse", &MulLarge<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Mul/Large/Boost", &MulLarge<BInt>);
     benchmark::RegisterBenchmark("Mul/Mixed/gint", &MulMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Mul/Mixed/ClickHouse", &MulMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Mul/Mixed/Boost", &MulMixed<BInt>);
 
     benchmark::RegisterBenchmark("Div/Small/gint", &DivSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Small/ClickHouse", &DivSmall<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Div/Small/Boost", &DivSmall<BInt>);
     benchmark::RegisterBenchmark("Div/Large/gint", &DivLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Large/ClickHouse", &DivLarge<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Div/Large/Boost", &DivLarge<BInt>);
     benchmark::RegisterBenchmark("Div/Mixed/gint", &DivMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Mixed/ClickHouse", &DivMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Div/Mixed/Boost", &DivMixed<BInt>);
     benchmark::RegisterBenchmark("Div/Similar/gint", &DivSimilar<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Similar/ClickHouse", &DivSimilar<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Div/Similar/Boost", &DivSimilar<BInt>);
 
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();
