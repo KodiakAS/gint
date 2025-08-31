@@ -189,25 +189,46 @@ GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noe
 template <>
 GINT_CONSTEXPR14 inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    unsigned __int128 borrow = 0;
-    unsigned __int128 lhs0 = lhs[0];
-    unsigned __int128 rhs0 = rhs[0];
-    lhs[0] = static_cast<uint64_t>(lhs0 - rhs0);
-    borrow = lhs0 < rhs0;
+    uint64_t r0 = lhs[0] - rhs[0];
+    bool b0 = lhs[0] < rhs[0];
 
-    unsigned __int128 lhs1 = lhs[1];
-    unsigned __int128 rhs1 = static_cast<unsigned __int128>(rhs[1]) + borrow;
-    lhs[1] = static_cast<uint64_t>(lhs1 - rhs1);
-    borrow = lhs1 < rhs1;
+    uint64_t r1 = lhs[1] - rhs[1];
+    bool b1 = lhs[1] < rhs[1];
 
-    unsigned __int128 lhs2 = lhs[2];
-    unsigned __int128 rhs2 = static_cast<unsigned __int128>(rhs[2]) + borrow;
-    lhs[2] = static_cast<uint64_t>(lhs2 - rhs2);
-    borrow = lhs2 < rhs2;
+    uint64_t r2 = lhs[2] - rhs[2];
+    bool b2 = lhs[2] < rhs[2];
 
-    unsigned __int128 lhs3 = lhs[3];
-    unsigned __int128 rhs3 = static_cast<unsigned __int128>(rhs[3]) + borrow;
-    lhs[3] = static_cast<uint64_t>(lhs3 - rhs3);
+    uint64_t r3 = lhs[3] - rhs[3];
+
+    if (b0)
+    {
+        if (r1 == 0)
+        {
+            b1 = true;
+            r1 = UINT64_MAX;
+        }
+        else
+            --r1;
+    }
+
+    if (b1)
+    {
+        if (r2 == 0)
+        {
+            b2 = true;
+            r2 = UINT64_MAX;
+        }
+        else
+            --r2;
+    }
+
+    if (b2)
+        --r3;
+
+    lhs[0] = r0;
+    lhs[1] = r1;
+    lhs[2] = r2;
+    lhs[3] = r3;
 }
 
 // Perform 128-bit multiplication using a straightforward schoolbook

@@ -13,14 +13,14 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Performance
 
-- 256‑bit vs Boost (mixed operands):
+- 256‑bit (mixed operands):
 
-  | Operation       | `gint` | Boost.Multiprecision |
-  | --------------- | -----: | -------------------: |
-  | Addition        |  1.16  |                3.20 |
-  | Subtraction     |  1.48  |                3.65 |
-  | Multiplication  |  1.69  |                8.74 |
-  | Division        |  5.69  |                 192 |
+  | Operation       | `gint` | ClickHouse | Boost.Multiprecision |
+  | --------------- | -----: | ---------: | -------------------: |
+  | Addition        |  2.58  |      3.82 |                9.34 |
+  | Subtraction     |  2.42  |      2.76 |                9.57 |
+  | Multiplication  |  7.74  |      12.9 |                19.2 |
+  | Division        |  32.1  |       959 |                 152 |
 
 Full results and instructions: see `docs/BENCHMARKS.md`.
 
