@@ -10,6 +10,7 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 * **Header-only** for painless integration.
 * **High performance** by design.
 * **Bit-accurate width** strictly matching the definition.
+* Default-constructed integers are zero-initialized.
 
 ## Performance
 
