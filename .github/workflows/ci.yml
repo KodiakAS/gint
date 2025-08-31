@@ -23,14 +23,17 @@ jobs:
             sudo apt-get install -y --no-install-recommends \
               cmake build-essential libfmt-dev libgtest-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install cmake fmt googletest
+            # Avoid reinstalling preinstalled or pinned formulae on GitHub macOS runners
+            (brew list cmake >/dev/null 2>&1) || brew install cmake
+            (brew list fmt >/dev/null 2>&1) || brew install fmt
+            (brew list googletest >/dev/null 2>&1) || brew install googletest
           fi
       - name: Install ccache
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get install -y --no-install-recommends ccache
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install ccache
+            (brew list ccache >/dev/null 2>&1) || brew install ccache
           fi
       - name: Cache ccache
         uses: actions/cache@v3
