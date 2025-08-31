@@ -278,10 +278,29 @@ inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
 template <>
 inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    // Robust Comba for 4 limbs with 128-bit carry accumulation that avoids
-    // intermediate overflow when summing multiple 128-bit products.
     using u128 = unsigned __int128;
 
+    // Fast path: if both operands fit within 128 bits we can reduce to the
+    // specialized 128-bit multiplication or even a single 64-bit multiply.
+    if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
+    {
+        if ((lhs[1] | rhs[1]) == 0)
+        {
+            u128 p = u128(lhs[0]) * rhs[0];
+            res[0] = static_cast<uint64_t>(p);
+            res[1] = static_cast<uint64_t>(p >> 64);
+        }
+        else
+        {
+            mul_limbs<2>(res, lhs, rhs);
+        }
+        res[2] = 0;
+        res[3] = 0;
+        return;
+    }
+
+    // Robust Comba for 4 limbs with 128-bit carry accumulation that avoids
+    // intermediate overflow when summing multiple 128-bit products.
     u128 carry = 0;
 
     // k = 0

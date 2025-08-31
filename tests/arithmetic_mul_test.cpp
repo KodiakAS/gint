@@ -12,6 +12,18 @@ TEST(WideIntegerMultiplication, SmallMul)
     EXPECT_EQ(c * 7ULL, UInt256(864197523));
 }
 
+// 256-bit multiply where both operands fit in 64 bits
+TEST(WideIntegerMultiplication, UInt256_U64xU64)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = U256(0x0123456789ABCDEFULL);
+    U256 b = U256(0xFEDCBA9876543210ULL);
+    U256 p = a * b;
+    unsigned __int128 expected
+        = static_cast<unsigned __int128>(0x0123456789ABCDEFULL) * static_cast<unsigned __int128>(0xFEDCBA9876543210ULL);
+    EXPECT_EQ(p, U256(expected));
+}
+
 // 128-bit wide×wide multiplication specialized path (mul_limbs<2>)
 TEST(WideIntegerMultiplication, UInt128_WideTimesWide_Specialized)
 {
