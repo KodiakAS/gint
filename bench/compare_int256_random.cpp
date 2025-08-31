@@ -6,11 +6,17 @@
 #include <benchmark/benchmark.h>
 #include <boost/multiprecision/cpp_int.hpp>
 #include <fmt/format.h>
+#ifdef GINT_ENABLE_CH_COMPARE
+#    include <wide_integer/wide_integer.h>
+#endif
 
 #include <gint/gint.h>
 
 using WInt = gint::integer<256, signed>;
 using BInt = boost::multiprecision::int256_t;
+#ifdef GINT_ENABLE_CH_COMPARE
+using CInt = wide::integer<256, signed>;
+#endif
 
 static constexpr size_t ITERATIONS = 100000;
 
@@ -195,8 +201,57 @@ static void run_case(const std::string & name, Op op, uint64_t seed_offset)
     auto boost_data = generate_inputs<BInt, Gen>(g_seed + seed_offset);
     auto wide_ns = measure(wide_data, op);
     auto boost_ns = measure(boost_data, op);
+#ifdef GINT_ENABLE_CH_COMPARE
+    auto ch_data = generate_inputs<CInt, Gen>(g_seed + seed_offset);
+    auto ch_ns = measure(ch_data, op);
+    fmt::print(
+        "{}: wide={}ns boost={}ns clickhouse={}ns ratio_boost={:.2f} ratio_clickhouse={:.2f}\n",
+        name,
+        wide_ns,
+        boost_ns,
+        ch_ns,
+        static_cast<double>(wide_ns) / boost_ns,
+        static_cast<double>(wide_ns) / ch_ns);
+#else
     fmt::print("{}: wide={}ns boost={}ns ratio={:.2f}\n", name, wide_ns, boost_ns, static_cast<double>(wide_ns) / boost_ns);
+#endif
 }
+
+struct AddOp
+{
+    template <typename T>
+    T operator()(const T & x, const T & y) const
+    {
+        return x + y;
+    }
+};
+
+struct SubOp
+{
+    template <typename T>
+    T operator()(const T & x, const T & y) const
+    {
+        return x - y;
+    }
+};
+
+struct MulOp
+{
+    template <typename T>
+    T operator()(const T & x, const T & y) const
+    {
+        return x * y;
+    }
+};
+
+struct DivOp
+{
+    template <typename T>
+    T operator()(const T & x, const T & y) const
+    {
+        return x / y;
+    }
+};
 
 int main(int argc, char ** argv)
 {
@@ -215,21 +270,21 @@ int main(int argc, char ** argv)
     benchmark::Initialize(&argc, argv);
     fmt::print("seed={}\n", g_seed);
 
-    run_case<AddSmallGen>("Add/Small", [](const auto & x, const auto & y) { return x + y; }, 1);
-    run_case<AddLargeGen>("Add/Large", [](const auto & x, const auto & y) { return x + y; }, 2);
-    run_case<AddMixedGen>("Add/Mixed", [](const auto & x, const auto & y) { return x + y; }, 3);
+    run_case<AddSmallGen>("Add/Small", AddOp{}, 1);
+    run_case<AddLargeGen>("Add/Large", AddOp{}, 2);
+    run_case<AddMixedGen>("Add/Mixed", AddOp{}, 3);
 
-    run_case<SubSmallGen>("Sub/Small", [](const auto & x, const auto & y) { return x - y; }, 4);
-    run_case<SubLargeGen>("Sub/Large", [](const auto & x, const auto & y) { return x - y; }, 5);
-    run_case<SubMixedGen>("Sub/Mixed", [](const auto & x, const auto & y) { return x - y; }, 6);
+    run_case<SubSmallGen>("Sub/Small", SubOp{}, 4);
+    run_case<SubLargeGen>("Sub/Large", SubOp{}, 5);
+    run_case<SubMixedGen>("Sub/Mixed", SubOp{}, 6);
 
-    run_case<MulSmallGen>("Mul/Small", [](const auto & x, const auto & y) { return x * y; }, 7);
-    run_case<MulLargeGen>("Mul/Large", [](const auto & x, const auto & y) { return x * y; }, 8);
-    run_case<MulMixedGen>("Mul/Mixed", [](const auto & x, const auto & y) { return x * y; }, 9);
+    run_case<MulSmallGen>("Mul/Small", MulOp{}, 7);
+    run_case<MulLargeGen>("Mul/Large", MulOp{}, 8);
+    run_case<MulMixedGen>("Mul/Mixed", MulOp{}, 9);
 
-    run_case<DivSmallGen>("Div/Small", [](const auto & x, const auto & y) { return x / y; }, 10);
-    run_case<DivLargeGen>("Div/Large", [](const auto & x, const auto & y) { return x / y; }, 11);
-    run_case<DivMixedGen>("Div/Mixed", [](const auto & x, const auto & y) { return x / y; }, 12);
+    run_case<DivSmallGen>("Div/Small", DivOp{}, 10);
+    run_case<DivLargeGen>("Div/Large", DivOp{}, 11);
+    run_case<DivMixedGen>("Div/Mixed", DivOp{}, 12);
 
     return 0;
 }
