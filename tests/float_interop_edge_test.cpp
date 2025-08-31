@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
@@ -144,9 +145,10 @@ TEST(FloatInteropEdges, ArithmeticWithInfAndNaN)
     using S256 = gint::integer<256, signed>;
     U256 u = 10;
     S256 s = -10;
-    const double pinf = std::numeric_limits<double>::infinity();
-    const double ninf = -std::numeric_limits<double>::infinity();
-    const double nan = std::numeric_limits<double>::quiet_NaN();
+    volatile double pinf = std::numeric_limits<double>::max();
+    pinf *= 2;
+    volatile double ninf = -pinf;
+    volatile double nan = pinf - pinf;
 
     // Division by ±inf yields 0
     EXPECT_EQ(u / pinf, U256(0));
@@ -176,4 +178,19 @@ TEST(FloatInteropEdges, ArithmeticWithInfAndNaN)
     EXPECT_THROW((void)(pinf % d), std::domain_error);
     EXPECT_THROW((void)(ninf % d), std::domain_error);
     EXPECT_THROW((void)(nan % d), std::domain_error);
+}
+
+TEST(FloatInteropEdges, ZeroComparisonsRuntime)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 zero = 0;
+    U256 one = 1;
+    volatile double fzero = 1.0;
+    fzero -= 1.0;
+    volatile double fpos = fzero + 1.0;
+
+    EXPECT_TRUE(zero == fzero);
+    EXPECT_TRUE(zero < fpos);
+    EXPECT_TRUE(one > fzero);
+    EXPECT_FALSE(one < fzero);
 }
