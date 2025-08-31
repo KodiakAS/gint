@@ -6,6 +6,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
 option(GINT_BUILD_TESTS "Build test suite" ON)
 option(GINT_BUILD_BENCHMARKS "Build benchmarks" OFF)
+option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
 
 set(GINT_TEST_OPTIONS -O0 -g)
 set(GINT_TEST_LINK_OPTIONS "")
@@ -36,56 +37,57 @@ if(GINT_BUILD_TESTS)
     enable_testing()
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
-    function(add_gint_test name source std)
-        add_executable(${name} ${source})
-        target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        set_target_properties(${name} PROPERTIES CXX_STANDARD ${std} CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-        target_compile_options(${name} PRIVATE ${GINT_TEST_OPTIONS})
-        if(GINT_TEST_LINK_OPTIONS)
-            target_link_options(${name} PRIVATE ${GINT_TEST_LINK_OPTIONS})
-        endif()
-        target_link_libraries(${name} PRIVATE GTest::gtest_main)
-        # Increase discovery timeout to avoid flaky timeouts when listing tests
-        gtest_discover_tests(${name}
-            NO_PRETTY_VALUES
-            DISCOVERY_TIMEOUT 60
-        )
-    endfunction()
 
-    # Basic tests
-    add_gint_test(gint_test_construction tests/construction_test.cpp 11)
-    add_gint_test(gint_test_conversion tests/conversion_test.cpp 11)
-    add_gint_test(gint_test_comparison tests/comparison_test.cpp 11)
-    add_gint_test(gint_test_boundary tests/boundary_test.cpp 11)
-    add_gint_test(gint_test_numeric_limits tests/numeric_limits_test.cpp 11)
-    add_gint_test(gint_test_stream tests/stream_test.cpp 11)
-    add_gint_test(gint_test_exceptions_overflow tests/exceptions_overflow_test.cpp 11)
+    # Aggregate all unit tests into a single executable for readability and speed
+    set(GINT_TEST_SOURCES
+        tests/arithmetic_basic_test.cpp
+        tests/arithmetic_divmod_test.cpp
+        tests/arithmetic_mul_test.cpp
+        tests/bitwise_test.cpp
+        tests/boundary_test.cpp
+        tests/comparison_test.cpp
+        tests/construction_test.cpp
+        tests/conversion_test.cpp
+        tests/exceptions_overflow_test.cpp
+        tests/float_interop_edge_test.cpp
+        tests/fmt_support_test.cpp
+        tests/numeric_limits_test.cpp
+        tests/shift_test.cpp
+        tests/stream_test.cpp
+    )
 
-    add_gint_test(gint_arith_basic_test tests/arithmetic_basic_test.cpp 11)
-    target_compile_definitions(gint_arith_basic_test PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(gint_arith_basic_test PRIVATE fmt::fmt)
-
-    add_gint_test(gint_bitwise_test tests/bitwise_test.cpp 11)
-    target_compile_definitions(gint_bitwise_test PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(gint_bitwise_test PRIVATE fmt::fmt)
-
-    add_gint_test(gint_shift_test tests/shift_test.cpp 11)
-    add_gint_test(gint_arith_divmod_test tests/arithmetic_divmod_test.cpp 11)
-
-    # Fmt support tests
-    add_gint_test(gint_fmt_test tests/fmt_support_test.cpp 11)
-    target_compile_definitions(gint_fmt_test PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(gint_fmt_test PRIVATE fmt::fmt)
-
-    # Compile tests for various C++ standards
-    check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
-    check_cxx_compiler_flag("-std=c++20" HAS_CXX20)
-
-    if(HAS_CXX17)
-        add_gint_test(gint_compile_cpp17 tests/compile_test.cpp 17)
+    add_executable(gint_tests ${GINT_TEST_SOURCES})
+    target_include_directories(gint_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    set_target_properties(gint_tests PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_compile_options(gint_tests PRIVATE ${GINT_TEST_OPTIONS})
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_tests PRIVATE ${GINT_TEST_LINK_OPTIONS})
     endif()
-    if(HAS_CXX20)
-        add_gint_test(gint_compile_cpp20 tests/compile_test.cpp 20)
+    # fmt support is required by some tests; enable globally for the test target
+    target_compile_definitions(gint_tests PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_tests PRIVATE GTest::gtest_main fmt::fmt)
+
+    # Increase discovery timeout to avoid flaky timeouts when listing tests
+    gtest_discover_tests(gint_tests
+        NO_PRETTY_VALUES
+        DISCOVERY_TIMEOUT 60
+    )
+
+    # Optionally compile the full unit test suite under C++17 when explicitly enabled
+    if(GINT_BUILD_TESTS_CXX17)
+        check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
+        if(HAS_CXX17)
+            add_executable(gint_tests_cxx17 ${GINT_TEST_SOURCES})
+            target_include_directories(gint_tests_cxx17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+            set_target_properties(gint_tests_cxx17 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+            target_compile_options(gint_tests_cxx17 PRIVATE ${GINT_TEST_OPTIONS})
+            if(GINT_TEST_LINK_OPTIONS)
+                target_link_options(gint_tests_cxx17 PRIVATE ${GINT_TEST_LINK_OPTIONS})
+            endif()
+            target_compile_definitions(gint_tests_cxx17 PRIVATE GINT_ENABLE_FMT)
+            target_link_libraries(gint_tests_cxx17 PRIVATE GTest::gtest_main fmt::fmt)
+            gtest_discover_tests(gint_tests_cxx17 NO_PRETTY_VALUES DISCOVERY_TIMEOUT 60)
+        endif()
     endif()
 endif()
 

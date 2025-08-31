@@ -1,6 +1,17 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#if __cplusplus >= 201402L
+constexpr gint::UInt256 gint_constexpr_assignment_check()
+{
+    gint::UInt256 x = 42;
+    gint::UInt256 y;
+    y = x; // assignment must be allowed in constexpr since C++14
+    return y;
+}
+static_assert(gint_constexpr_assignment_check() == gint::UInt256(42), "assignment must be constexpr");
+#endif
+
 static_assert(gint::integer<256, unsigned>() == 0, "default unsigned integer should be zero");
 static_assert(gint::integer<256, signed>() == 0, "default signed integer should be zero");
 
