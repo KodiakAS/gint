@@ -26,6 +26,7 @@ This project is a **high-performance wide-integer library**. It aims to provide 
 * `tests/` — unit tests (GoogleTest)
 * `bench/` — benchmarks (Google Benchmark)
 * `docs/` — documents
+* `third_party/` — vendored dependencies (read-only; for building and testing)
 
 ---
 
@@ -43,5 +44,3 @@ Run `clang-format` after editing. The configuration is `.clang-format` at the re
    * Always submit pull requests using the templates provided in `.github/PULL_REQUEST_TEMPLATE/`.
    * Select the **most appropriate specialized template** (`feature.md`, `bug_fix.md`, `perf_change.md`, `refactor.md`, `docs_chore.md`, `breaking_change.md`).
    * Only use the **default template** if your change does not fit into any specialized category.
-
----
