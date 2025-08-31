@@ -26,9 +26,9 @@ Operation results (ns, lower is better):
 | Division       | 2.69 | 4.06 | 10.4 |
 | ToString       | 219  | 582  | 1778 |
 
-## perf_compare_int256 — vs Boost.Multiprecision (ns)
+## perf_compare_int256_boost — vs Boost.Multiprecision (ns)
 
-Command: `make bench && build-bench/perf_compare_int256`
+Command: `make bench && build-bench/perf_compare_int256_boost`
 
 Mixed operands (ns):
 

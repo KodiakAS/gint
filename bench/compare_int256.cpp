@@ -197,74 +197,74 @@ static void DivSimilar(benchmark::State & state)
 
 int main(int argc, char ** argv)
 {
-    benchmark::RegisterBenchmark("Add/Small/Wide", &AddSmall<WInt>);
-    benchmark::RegisterBenchmark("Add/Small/Boost", &AddSmall<BInt>);
+    benchmark::RegisterBenchmark("Add/Small/gint", &AddSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Add/Small/ClickHouse", &AddSmall<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Add/Large/Wide", &AddLarge<WInt>);
-    benchmark::RegisterBenchmark("Add/Large/Boost", &AddLarge<BInt>);
+    benchmark::RegisterBenchmark("Add/Small/Boost", &AddSmall<BInt>);
+    benchmark::RegisterBenchmark("Add/Large/gint", &AddLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Add/Large/ClickHouse", &AddLarge<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Add/Mixed/Wide", &AddMixed<WInt>);
-    benchmark::RegisterBenchmark("Add/Mixed/Boost", &AddMixed<BInt>);
+    benchmark::RegisterBenchmark("Add/Large/Boost", &AddLarge<BInt>);
+    benchmark::RegisterBenchmark("Add/Mixed/gint", &AddMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Add/Mixed/ClickHouse", &AddMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Add/Mixed/Boost", &AddMixed<BInt>);
 
-    benchmark::RegisterBenchmark("Sub/Small/Wide", &SubSmall<WInt>);
-    benchmark::RegisterBenchmark("Sub/Small/Boost", &SubSmall<BInt>);
+    benchmark::RegisterBenchmark("Sub/Small/gint", &SubSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Sub/Small/ClickHouse", &SubSmall<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Sub/Large/Wide", &SubLarge<WInt>);
-    benchmark::RegisterBenchmark("Sub/Large/Boost", &SubLarge<BInt>);
+    benchmark::RegisterBenchmark("Sub/Small/Boost", &SubSmall<BInt>);
+    benchmark::RegisterBenchmark("Sub/Large/gint", &SubLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Sub/Large/ClickHouse", &SubLarge<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Sub/Mixed/Wide", &SubMixed<WInt>);
-    benchmark::RegisterBenchmark("Sub/Mixed/Boost", &SubMixed<BInt>);
+    benchmark::RegisterBenchmark("Sub/Large/Boost", &SubLarge<BInt>);
+    benchmark::RegisterBenchmark("Sub/Mixed/gint", &SubMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Sub/Mixed/ClickHouse", &SubMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Sub/Mixed/Boost", &SubMixed<BInt>);
 
-    benchmark::RegisterBenchmark("Mul/Small/Wide", &MulSmall<WInt>);
-    benchmark::RegisterBenchmark("Mul/Small/Boost", &MulSmall<BInt>);
+    benchmark::RegisterBenchmark("Mul/Small/gint", &MulSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Mul/Small/ClickHouse", &MulSmall<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Mul/Large/Wide", &MulLarge<WInt>);
-    benchmark::RegisterBenchmark("Mul/Large/Boost", &MulLarge<BInt>);
+    benchmark::RegisterBenchmark("Mul/Small/Boost", &MulSmall<BInt>);
+    benchmark::RegisterBenchmark("Mul/Large/gint", &MulLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Mul/Large/ClickHouse", &MulLarge<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Mul/Mixed/Wide", &MulMixed<WInt>);
-    benchmark::RegisterBenchmark("Mul/Mixed/Boost", &MulMixed<BInt>);
+    benchmark::RegisterBenchmark("Mul/Large/Boost", &MulLarge<BInt>);
+    benchmark::RegisterBenchmark("Mul/Mixed/gint", &MulMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Mul/Mixed/ClickHouse", &MulMixed<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Mul/Mixed/Boost", &MulMixed<BInt>);
 
-    benchmark::RegisterBenchmark("Div/Small/Wide", &DivSmall<WInt>);
-    benchmark::RegisterBenchmark("Div/Small/Boost", &DivSmall<BInt>);
+    benchmark::RegisterBenchmark("Div/Small/gint", &DivSmall<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Small/ClickHouse", &DivSmall<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Div/Large/Wide", &DivLarge<WInt>);
-    benchmark::RegisterBenchmark("Div/Large/Boost", &DivLarge<BInt>);
+    benchmark::RegisterBenchmark("Div/Small/Boost", &DivSmall<BInt>);
+    benchmark::RegisterBenchmark("Div/Large/gint", &DivLarge<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Large/ClickHouse", &DivLarge<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Div/Mixed/Wide", &DivMixed<WInt>);
-    benchmark::RegisterBenchmark("Div/Mixed/Boost", &DivMixed<BInt>);
+    benchmark::RegisterBenchmark("Div/Large/Boost", &DivLarge<BInt>);
+    benchmark::RegisterBenchmark("Div/Mixed/gint", &DivMixed<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Mixed/ClickHouse", &DivMixed<CInt>);
 #endif
-    benchmark::RegisterBenchmark("Div/Similar/Wide", &DivSimilar<WInt>);
-    benchmark::RegisterBenchmark("Div/Similar/Boost", &DivSimilar<BInt>);
+    benchmark::RegisterBenchmark("Div/Mixed/Boost", &DivMixed<BInt>);
+    benchmark::RegisterBenchmark("Div/Similar/gint", &DivSimilar<WInt>);
 #ifdef GINT_ENABLE_CH_COMPARE
     benchmark::RegisterBenchmark("Div/Similar/ClickHouse", &DivSimilar<CInt>);
 #endif
+    benchmark::RegisterBenchmark("Div/Similar/Boost", &DivSimilar<BInt>);
 
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();
