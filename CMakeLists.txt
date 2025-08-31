@@ -103,29 +103,17 @@ if(GINT_BUILD_BENCHMARKS)
     target_compile_definitions(perf PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf PRIVATE -O3 -DNDEBUG)
-
-    # Int256 comparison benchmarks (gint vs Boost, C++11)
-    add_executable(perf_compare_int256_boost
+    # Int256 comparison benchmarks (gint vs ClickHouse, C++17)
+    add_executable(perf_compare_int256
         bench/compare_int256.cpp
     )
-    set_target_properties(perf_compare_int256_boost PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_include_directories(perf_compare_int256_boost PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_compile_definitions(perf_compare_int256_boost PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(perf_compare_int256_boost PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_compare_int256_boost PRIVATE -O3 -DNDEBUG)
-
-    # Int256 comparison benchmarks (gint vs ClickHouse vs Boost, C++17)
-    add_executable(perf_compare_int256_ch_boost
-        bench/compare_int256.cpp
-    )
-    set_target_properties(perf_compare_int256_ch_boost PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_include_directories(perf_compare_int256_ch_boost PRIVATE
+    set_target_properties(perf_compare_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_include_directories(perf_compare_int256 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
-    target_compile_definitions(perf_compare_int256_ch_boost PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE)
-    target_link_libraries(perf_compare_int256_ch_boost PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_compare_int256_ch_boost PRIVATE -O3 -DNDEBUG)
+    target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE)
+    target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
+    target_compile_options(perf_compare_int256 PRIVATE -O3 -DNDEBUG)
+
 endif()

@@ -26,43 +26,43 @@ Operation results (ns, lower is better):
 | Division       | 2.69 | 4.06 | 10.4 |
 | ToString       | 219  | 582  | 1778 |
 
-## perf_compare_int256_boost — vs Boost.Multiprecision (ns)
+## perf_compare_int256 — vs ClickHouse wide::integer<256> (ns)
 
-Command: `make bench && build-bench/perf_compare_int256_boost`
+Command: `make bench && build-bench/perf_compare_int256`
 
 Mixed operands (ns):
 
-| Case  | gint | Boost |
+| Case  | gint | ClickHouse |
 | ----- | ---: | ----: |
-| Add   | 1.16 |  3.20 |
-| Sub   | 1.48 |  3.65 |
-| Mul   | 1.69 |  8.74 |
-| Div   | 5.69 |   192 |
+| Add   | 2.57 |  3.63 |
+| Sub   | 2.15 |  2.99 |
+| Mul   | 7.28 | 11.8 |
+| Div   | 35.2 |  977 |
 
 Small operands (ns):
 
-| Case  | gint | Boost |
+| Case  | gint | ClickHouse |
 | ----- | ---: | ----: |
-| Add   | 1.14 |  1.44 |
-| Sub   | 1.19 |  1.71 |
-| Mul   | 1.22 |  2.45 |
-| Div   | 3.08 |  5.87 |
+| Add   | 2.53 |  2.15 |
+| Sub   | 2.10 |  2.52 |
+| Mul   | 7.18 | 10.5 |
+| Div   | 8.83 | 22.4 |
 
 Large operands (ns):
 
-| Case  | gint | Boost |
+| Case  | gint | ClickHouse |
 | ----- | ---: | ----: |
-| Add   | 1.15 |  3.41 |
-| Sub   | 1.41 |  3.66 |
-| Mul   | 1.64 |  7.96 |
-| Div   | 22.1 |   186 |
+| Add   | 2.53 |  2.50 |
+| Sub   | 2.13 |  2.59 |
+| Mul   | 7.19 | 10.3 |
+| Div   | 54.2 |  971 |
 
 Similar magnitude operands (ns):
 
-| Case  | gint | Boost |
+| Case  | gint | ClickHouse |
 | ----- | ---: | ----: |
-| Div   | 13.7 |    93 |
+| Div   | 38.7 |  473 |
 
 Notes
 - Absolute numbers vary by machine; relative trends are stable across runs.
-- 256‑bit gint is consistently faster than Boost for mixed、large、and similar‑magnitude division; Boost may be closer on some small‑operand cases.
+- 256‑bit gint is consistently faster than ClickHouse for mixed、large、and similar‑magnitude division; ClickHouse may be closer on some small‑operand cases.
