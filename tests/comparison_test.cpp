@@ -64,3 +64,21 @@ TEST(WideIntegerComparison, UInt512)
     EXPECT_TRUE(a != b);
     EXPECT_TRUE(a >= a);
 }
+
+TEST(WideIntegerComparison, LimbsEqualShortCircuitPaths)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 base = (U256(1) << 200) + (U256(1) << 100) + U256(5);
+    U256 a = base;
+    U256 b = base;
+    // All equal path
+    EXPECT_TRUE(a == b);
+
+    // Highest limb differs (short-circuit at top level)
+    U256 c = b + (U256(1) << 192);
+    EXPECT_FALSE(b == c);
+
+    // Highest limb equal, next limb differs
+    U256 d = b + (U256(1) << 128);
+    EXPECT_FALSE(b == d);
+}

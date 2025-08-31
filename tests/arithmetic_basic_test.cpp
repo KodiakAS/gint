@@ -125,3 +125,47 @@ TEST(WideIntegerArithmetic, MulLimbOverflowAllOnes)
     U256 res = a * rhs;
     EXPECT_EQ(gint::to_string(res), "38165250106338254442706927385283291263099041807018295318034436735252813010320");
 }
+
+TEST(WideIntegerArithmetic, PrefixPostfixIncrement128)
+{
+    using U128 = gint::integer<128, unsigned>;
+    U128 a = (U128(1) << 64) - U128(1); // 2^64-1
+    U128 prev = a++;
+    EXPECT_EQ(prev, (U128(1) << 64) - U128(1));
+    EXPECT_EQ(a, U128(1) << 64);
+    ++a;
+    EXPECT_EQ(a, (U128(1) << 64) + U128(1));
+}
+
+TEST(WideIntegerArithmetic, PrefixPostfixDecrement256)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = U256(1) << 128; // trigger borrow across multiple limbs
+    U256 prev = a--;
+    EXPECT_EQ(prev, U256(1) << 128);
+
+    U256 expected = 0;
+    expected += U256(0xffffffffffffffffULL);
+    expected += U256(0xffffffffffffffffULL) << 64;
+    EXPECT_EQ(a, expected);
+
+    --a;
+    U256 expected2 = 0;
+    expected2 += U256(0xfffffffffffffffeULL);
+    expected2 += U256(0xffffffffffffffffULL) << 64;
+    EXPECT_EQ(a, expected2);
+}
+
+TEST(WideIntegerArithmetic, SubBorrowChain256)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 top = U256(1) << 192; // limb[3] = 1
+    U256 one = 1;
+    U256 diff = top - one; // cascaded borrow across 3 limbs
+
+    U256 expected = 0;
+    expected += U256(0xffffffffffffffffULL);
+    expected += U256(0xffffffffffffffffULL) << 64;
+    expected += U256(0xffffffffffffffffULL) << 128;
+    EXPECT_EQ(diff, expected);
+}
