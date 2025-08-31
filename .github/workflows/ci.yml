@@ -72,7 +72,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
       - name: Configure
-        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_CXX17=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build C++17 tests
         run: cmake --build build --target gint_tests_cxx17 --config Debug --parallel
       - name: Run C++17 tests
