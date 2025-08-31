@@ -370,3 +370,15 @@ TEST(WideIntegerDivision, DivLargeBreak)
     U192 q = U192::div_large(lhs, divisor, 2);
     EXPECT_EQ(static_cast<uint64_t>(q), 1ULL);
 }
+
+// Exercise div_mod_small 64-bit divisor generic path for limbs != 4 (here: 192-bit)
+TEST(WideIntegerDivision, DivModSmall64GenericU192)
+{
+    using U192 = gint::integer<192, unsigned>;
+    U192 lhs = (U192(1) << 190) + (U192(1) << 128) + U192(123456789ULL);
+    uint64_t div = (1ULL << 63) + 123ULL; // > 32-bit -> 64-bit reciprocal branch
+
+    U192 q = lhs / div; // goes through integer(rhs) -> small divisor -> div_mod_small generic
+    U192 r = lhs % div;
+    EXPECT_EQ(q * U192(div) + r, lhs);
+}
