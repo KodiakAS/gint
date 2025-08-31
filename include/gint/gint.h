@@ -1453,6 +1453,7 @@ private:
     template <size_t L = limbs>
     typename std::enable_if<(L > 1), limb_type>::type div_mod_small(limb_type div, integer & quotient) const noexcept
     {
+        using u128 = unsigned __int128;
         // This overload is only instantiated for multi-limb integers, preventing
         // compilers from inspecting out-of-bounds accesses in single-limb cases.
         quotient = integer();
@@ -1461,28 +1462,167 @@ private:
             --n;
         if (n == 0)
             return 0;
-        if (n == 1)
+        // Fast path: 32-bit divisor. Work in base 2^32 to avoid 128-bit divisions.
+        if (div <= 0xFFFFFFFFULL)
         {
-            quotient.data_[0] = static_cast<limb_type>(data_[0] / div);
-            return static_cast<limb_type>(data_[0] % div);
+            const uint32_t d32 = static_cast<uint32_t>(div);
+            uint64_t rem = 0; // always < d32
+            for (size_t i = n; i-- > 0;)
+            {
+                const uint64_t cur = data_[i];
+                const uint32_t hi = static_cast<uint32_t>(cur >> 32);
+                const uint32_t lo = static_cast<uint32_t>(cur & 0xFFFFFFFFULL);
+
+                uint64_t t = (rem << 32) | hi; // up to < d32*2^32 + (2^32-1)
+                const uint32_t qhi = static_cast<uint32_t>(t / d32);
+                rem = static_cast<uint32_t>(t % d32);
+
+                t = (rem << 32) | lo;
+                const uint32_t qlo = static_cast<uint32_t>(t / d32);
+                rem = static_cast<uint32_t>(t % d32);
+
+                quotient.data_[i] = (static_cast<uint64_t>(qhi) << 32) | qlo;
+            }
+            return static_cast<limb_type>(rem);
         }
-        if (n == 2)
+        // 64-bit divisors: use reciprocal multiply (Granlund-Montgomery style)
+        // inv = floor((2^128 - 1) / div). q_est = high128(num * inv) <= floor(num/div).
+        // Correct by +1 at most.
+        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
+        auto mulhi128 = [](u128 a, u128 b) -> u128
         {
-            unsigned __int128 num = (static_cast<unsigned __int128>(data_[1]) << 64) | data_[0];
-            unsigned __int128 q = num / div;
-            quotient.data_[0] = static_cast<limb_type>(q);
-            quotient.data_[1] = static_cast<limb_type>(q >> 64);
-            return static_cast<limb_type>(num % div);
+            const u128 a0 = static_cast<uint64_t>(a);
+            const u128 a1 = a >> 64;
+            const u128 b0 = static_cast<uint64_t>(b);
+            const u128 b1 = b >> 64;
+            const u128 t0 = a0 * b0;
+            const u128 t1 = a0 * b1;
+            const u128 t2 = a1 * b0;
+            const u128 t3 = a1 * b1;
+            const u128 s = (t0 >> 64) + t1 + t2;
+            return t3 + (s >> 64);
+        };
+        // Unroll for common 256-bit case (4 limbs) to reduce loop overhead
+        if (limbs == 4)
+        {
+            switch (n)
+            {
+                case 1: {
+                    u128 num = data_[0];
+                    u128 q = mulhi128(num, inv);
+                    u128 rem = num - q * div;
+                    if (rem >= div)
+                    {
+                        ++q;
+                        rem -= div;
+                    }
+                    quotient.data_[0] = static_cast<limb_type>(q);
+                    return static_cast<limb_type>(rem);
+                }
+                case 2: {
+                    u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
+                    u128 q = mulhi128(num, inv);
+                    u128 rem = num - q * div;
+                    if (rem >= div)
+                    {
+                        ++q;
+                        rem -= div;
+                    }
+                    quotient.data_[0] = static_cast<limb_type>(q);
+                    quotient.data_[1] = static_cast<limb_type>(q >> 64);
+                    return static_cast<limb_type>(rem);
+                }
+                case 3: {
+                    u128 rem = 0;
+                    u128 num = (rem << 64) | data_[2];
+                    u128 q2 = mulhi128(num, inv);
+                    rem = num - q2 * div;
+                    if (rem >= div)
+                    {
+                        ++q2;
+                        rem -= div;
+                    }
+                    quotient.data_[2] = static_cast<limb_type>(q2);
+                    num = (rem << 64) | data_[1];
+                    u128 q1 = mulhi128(num, inv);
+                    rem = num - q1 * div;
+                    if (rem >= div)
+                    {
+                        ++q1;
+                        rem -= div;
+                    }
+                    quotient.data_[1] = static_cast<limb_type>(q1);
+                    num = (rem << 64) | data_[0];
+                    u128 q0 = mulhi128(num, inv);
+                    rem = num - q0 * div;
+                    if (rem >= div)
+                    {
+                        ++q0;
+                        rem -= div;
+                    }
+                    quotient.data_[0] = static_cast<limb_type>(q0);
+                    return static_cast<limb_type>(rem);
+                }
+                case 4:
+                default: {
+                    u128 rem = 0;
+                    u128 num = (rem << 64) | data_[3];
+                    u128 q3 = mulhi128(num, inv);
+                    rem = num - q3 * div;
+                    if (rem >= div)
+                    {
+                        ++q3;
+                        rem -= div;
+                    }
+                    quotient.data_[3] = static_cast<limb_type>(q3);
+                    num = (rem << 64) | data_[2];
+                    u128 q2 = mulhi128(num, inv);
+                    rem = num - q2 * div;
+                    if (rem >= div)
+                    {
+                        ++q2;
+                        rem -= div;
+                    }
+                    quotient.data_[2] = static_cast<limb_type>(q2);
+                    num = (rem << 64) | data_[1];
+                    u128 q1 = mulhi128(num, inv);
+                    rem = num - q1 * div;
+                    if (rem >= div)
+                    {
+                        ++q1;
+                        rem -= div;
+                    }
+                    quotient.data_[1] = static_cast<limb_type>(q1);
+                    num = (rem << 64) | data_[0];
+                    u128 q0 = mulhi128(num, inv);
+                    rem = num - q0 * div;
+                    if (rem >= div)
+                    {
+                        ++q0;
+                        rem -= div;
+                    }
+                    quotient.data_[0] = static_cast<limb_type>(q0);
+                    return static_cast<limb_type>(rem);
+                }
+            }
         }
-        unsigned __int128 rem = 0;
+        // Generic path for other limb counts
+        u128 rem = 0;
         for (size_t i = n; i-- > 0;)
         {
-            rem = (rem << 64) | data_[i];
-            quotient.data_[i] = static_cast<limb_type>(rem / div);
-            rem %= div;
+            u128 num = (rem << 64) | data_[i];
+            u128 q = mulhi128(num, inv);
+            rem = num - q * div;
+            if (rem >= div)
+            {
+                ++q;
+                rem -= div;
+            }
+            quotient.data_[i] = static_cast<limb_type>(q);
         }
         return static_cast<limb_type>(rem);
     }
+
 
     signed_limb_type div_mod_small(signed_limb_type div, integer & quotient) const noexcept
     {

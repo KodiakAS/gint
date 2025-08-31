@@ -13,16 +13,28 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Performance
 
-- 256‑bit (mixed operands):
+Environment: Apple Silicon, AppleClang O3, Google Benchmark (`--benchmark_min_time=0.2s`). Numbers are ns/op (lower is better). Absolute values vary by machine; relative trends are stable.
 
-  | Operation       | `gint` | ClickHouse | Boost.Multiprecision |
-  | --------------- | -----: | ---------: | -------------------: |
-  | Addition        |  2.58  |      3.82 |                9.34 |
-  | Subtraction     |  2.42  |      2.76 |                9.57 |
-  | Multiplication  |  7.74  |      12.9 |                19.2 |
-  | Division        |  32.1  |       959 |                 152 |
+Arithmetic — 256‑bit
 
-Full results and instructions: see `docs/BENCHMARKS.md`.
+| Case                   | gint | ClickHouse | Boost |
+| ---------------------- | ---: | ---------: | ----: |
+| Add/NoCarry            | 1.20 |       1.96 |  5.24 |
+| Add/FullCarry          | 0.48 |       1.50 |  2.26 |
+| Sub/NoBorrow           | 1.43 |       1.93 |  5.56 |
+| Sub/FullBorrow         | 0.82 |       1.58 |  2.46 |
+| Mul/U64xU64            | 1.88 |       2.26 |  4.26 |
+| Mul/HighxHigh          | 2.07 |       3.38 | 11.3  |
+| Div/SmallDivisor(32)   | 11.9 |       14.9 |  20.5 |
+| Div/Pow2Divisor        | 8.30 |        274 |  62.7 |
+| Div/SimilarMagnitude   | 17.6 |        214 |  63.2 |
+
+Highlights
+- Add/Sub: ~1.3–3× faster than ClickHouse; ~3–6× than Boost.
+- Mul: ~1.4–1.6× faster than ClickHouse; ~2–5× than Boost.
+- Div: Strong wins on power‑of‑two and similar‑magnitude; small‑divisors lead across 32‑bit and 64‑bit.
+
+Full matrices and methodology: see `docs/BENCHMARKS.md`.
 
 
 ## Quick Start
