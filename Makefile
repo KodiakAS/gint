@@ -48,6 +48,11 @@ bench-compare: $(BENCH_BUILD_DIR)/Makefile
 	cmake --build $(BENCH_BUILD_DIR) --target perf_compare_int256 --parallel $(JOBS)
 	$(BENCH_BUILD_DIR)/perf_compare_int256 $(BENCH_ARGS)
 
+# Build and run the Boost comparison benchmark in C++11
+bench-compare-boost: $(BENCH_BUILD_DIR)/Makefile
+	cmake --build $(BENCH_BUILD_DIR) --target perf_compare_int256_boost --parallel $(JOBS)
+	$(BENCH_BUILD_DIR)/perf_compare_int256_boost $(BENCH_ARGS)
+
 # Build and run the full comparison benchmark matrix
 bench-compare-full: $(BENCH_BUILD_DIR)/Makefile
 	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
