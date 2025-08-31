@@ -1,6 +1,9 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+static_assert(gint::integer<256, unsigned>() == 0, "default unsigned integer should be zero");
+static_assert(gint::integer<256, signed>() == 0, "default signed integer should be zero");
+
 TEST(WideIntegerConstruction, ConstexprConstruction)
 {
     constexpr gint::integer<128, unsigned> a = 42;
