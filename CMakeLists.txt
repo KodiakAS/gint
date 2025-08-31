@@ -103,7 +103,8 @@ if(GINT_BUILD_BENCHMARKS)
     target_compile_definitions(perf PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf PRIVATE -O3 -DNDEBUG)
-    # Int256 comparison benchmarks (gint vs ClickHouse, C++17)
+
+    # Int256 comparison benchmarks (gint vs ClickHouse vs boost, in C++17)
     add_executable(perf_compare_int256
         bench/compare_int256.cpp
     )
