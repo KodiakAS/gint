@@ -54,7 +54,7 @@ jobs:
           ctest -j 2 --output-on-failure
 
   build-cxx17:
-    name: Build and test (C++17, Ubuntu)
+    name: build (ubuntu-latest-cxx17)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
