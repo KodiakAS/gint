@@ -1,8 +1,13 @@
 #include <array>
 #include <limits>
 #include <sstream>
+#include <type_traits>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
+
+// Compile-time convertibility checks (moved from removed compile_test.cpp)
+static_assert(std::is_convertible<int, gint::Int256>::value, "int should convert to Int256 implicitly");
+static_assert(!std::is_convertible<gint::Int256, int>::value, "Int256 should not implicitly convert to int");
 
 TEST(WideIntegerConversion, Int128NegativeConversion)
 {

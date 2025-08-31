@@ -12,41 +12,74 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
-            sudo apt-get install -y cmake build-essential \
-              libfmt-dev libgtest-dev libboost-dev
+            sudo apt-get install -y --no-install-recommends \
+              cmake build-essential libfmt-dev libgtest-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew update-reset
-            brew update
-            brew uninstall --ignore-dependencies cmake || true
-            brew install cmake fmt googletest boost
+            brew install cmake fmt googletest
           fi
+      - name: Install ccache
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get install -y --no-install-recommends ccache
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install ccache
+          fi
+      - name: Cache ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'include/**', 'tests/**') }}
       - name: Configure
-        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
-        run: cmake --build build --config Debug
+        run: cmake --build build --config Debug --parallel
       - name: Run tests
         run: |
           cd build
-          ctest --output-on-failure
+          ctest -j 2 --output-on-failure
+
+  build-cxx17:
+    name: Build and test (C++17, Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake build-essential libfmt-dev libgtest-dev ccache
+      - name: Cache ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'include/**', 'tests/**') }}
+      - name: Configure
+        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build C++17 tests
+        run: cmake --build build --target gint_tests_cxx17 --config Debug --parallel
+      - name: Run C++17 tests
+        run: ./build/gint_tests_cxx17 --gtest_color=yes
 
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential \
-            libfmt-dev libgtest-dev lcov libboost-dev
+          sudo apt-get install -y --no-install-recommends cmake build-essential \
+            libfmt-dev libgtest-dev lcov
       - name: Configure
         run: cmake -S . -B build -DENABLE_COVERAGE=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
       - name: Build
-        run: cmake --build build --config Debug
+        run: cmake --build build --config Debug --parallel
       - name: Run tests
         run: |
           cd build
@@ -60,7 +93,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install clang-format
         run: |
           sudo apt-get update
@@ -76,7 +109,7 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -84,7 +117,7 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
       - name: Run benchmarks
         run: |
           build/perf --benchmark_min_time=0.01s

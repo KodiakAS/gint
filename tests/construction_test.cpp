@@ -1,6 +1,17 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#if __cplusplus >= 201402L
+constexpr gint::UInt256 gint_constexpr_assignment_check()
+{
+    gint::UInt256 x = 42;
+    gint::UInt256 y;
+    y = x; // assignment must be allowed in constexpr since C++14
+    return y;
+}
+static_assert(gint_constexpr_assignment_check() == gint::UInt256(42), "assignment must be constexpr");
+#endif
+
 TEST(WideIntegerConstruction, ConstexprConstruction)
 {
     constexpr gint::integer<128, unsigned> a = 42;

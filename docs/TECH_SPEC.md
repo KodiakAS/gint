@@ -115,7 +115,7 @@
   - 宏已定义（需在包含头文件前定义）：除零或模零抛出 `std::domain_error`。
 - 其它操作（溢出、下溢、移位越界等）：不抛异常，按模或规则处理（见 §6、§8）。
 
-测试参考：`tests/exceptions_overflow_test.cpp`、`tests/compile_test.cpp`。
+测试参考：`tests/exceptions_overflow_test.cpp`。
 
 ## 14. 边界与特殊情况（规范性说明）
 
