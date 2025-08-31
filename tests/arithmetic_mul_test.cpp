@@ -24,6 +24,26 @@ TEST(WideIntegerMultiplication, UInt256_U64xU64)
     EXPECT_EQ(p, U256(expected));
 }
 
+// 256-bit multiply where operands fit in 128 bits but product exceeds 2^128
+TEST(WideIntegerMultiplication, UInt256_128x128_ProducesFull256)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = U256(1) << 64;
+    U256 b = a;
+    U256 p = a * b;
+    EXPECT_EQ(p, U256(1) << 128);
+}
+
+// 256-bit multiply of 64-bit by 128-bit numbers
+TEST(WideIntegerMultiplication, UInt256_64x128_ProducesFull256)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = U256(1) << 64;
+    U256 b = U256(1) << 96;
+    U256 p = a * b;
+    EXPECT_EQ(p, U256(1) << 160);
+}
+
 // 128-bit wide×wide multiplication specialized path (mul_limbs<2>)
 TEST(WideIntegerMultiplication, UInt128_WideTimesWide_Specialized)
 {

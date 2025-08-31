@@ -289,13 +289,44 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
             u128 p = u128(lhs[0]) * rhs[0];
             res[0] = static_cast<uint64_t>(p);
             res[1] = static_cast<uint64_t>(p >> 64);
+            res[2] = 0;
+            res[3] = 0;
         }
         else
         {
-            mul_limbs<2>(res, lhs, rhs);
+            const u128 a0 = lhs[0];
+            const u128 a1 = lhs[1];
+            const u128 b0 = rhs[0];
+            const u128 b1 = rhs[1];
+
+            u128 p00 = a0 * b0;
+            u128 p01 = a0 * b1;
+            u128 p10 = a1 * b0;
+            u128 p11 = a1 * b1;
+
+            res[0] = static_cast<uint64_t>(p00);
+            u128 sum = (p00 >> 64) + static_cast<uint64_t>(p01) + static_cast<uint64_t>(p10);
+            res[1] = static_cast<uint64_t>(sum);
+            u128 carry = sum >> 64;
+
+            u128 high = p11;
+            uint64_t high_carry = 0;
+            u128 prev = high;
+            high += (p01 >> 64);
+            if (high < prev)
+                ++high_carry;
+            prev = high;
+            high += (p10 >> 64);
+            if (high < prev)
+                ++high_carry;
+            prev = high;
+            high += carry;
+            if (high < prev)
+                ++high_carry;
+
+            res[2] = static_cast<uint64_t>(high);
+            res[3] = static_cast<uint64_t>(high >> 64) + high_carry;
         }
-        res[2] = 0;
-        res[3] = 0;
         return;
     }
 
