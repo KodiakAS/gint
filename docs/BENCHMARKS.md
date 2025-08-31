@@ -54,7 +54,8 @@
 ### 方法学
 - 每个用例 256 对确定性样本（固定种子），循环中轮询；
 - 三方库共享相同输入；
-- 使用 `benchmark::DoNotOptimize` 防止常量折叠与分支偏置；
+- 预生成数据集，循环内仅取引用与计算，不做拷贝/构造；
+- 对循环不变操作数与表达式使用 `benchmark::DoNotOptimize`，防止常量折叠或被外提；
 - 倾向覆盖常见“快/慢”路径与真实工作负载热点。
 
 ### 结果（完整矩阵，ns/op）
@@ -68,9 +69,9 @@
 
 | 用例            | gint | ClickHouse | Boost |
 | --------------- | ---: | ---------: | ----: |
-| NoCarry         | 1.19 |       1.93 |  5.36 |
-| FullCarry       | 0.48 |       1.45 |  2.04 |
-| CarryChain64    | 1.24 |       2.09 |  5.54 |
+| NoCarry         | 1.17 |       1.71 |  5.48 |
+| FullCarry       | 1.17 |       1.52 |  2.11 |
+| CarryChain64    | 1.18 |       1.67 |  5.55 |
 
 #### 减法（Subtraction）
 
@@ -81,9 +82,9 @@
 
 | 用例            | gint | ClickHouse | Boost |
 | --------------- | ---: | ---------: | ----: |
-| NoBorrow        | 1.50 |       1.90 |  5.36 |
-| FullBorrow      | 0.81 |       1.55 |  2.29 |
-| BorrowChain64   | 1.50 |       2.09 |  5.39 |
+| NoBorrow        | 1.66 |       1.48 |  5.42 |
+| FullBorrow      | 1.67 |       1.58 |  2.36 |
+| BorrowChain64   | 1.67 |       1.67 |  5.34 |
 
 #### 乘法（Multiplication）
 
@@ -94,9 +95,9 @@
 
 | 用例        | gint | ClickHouse | Boost |
 | ----------- | ---: | ---------: | ----: |
-| U64xU64     | 1.87 |       2.41 |  4.33 |
-| HighxHigh   | 2.02 |       3.28 | 10.9  |
-| U32xWide    | 2.23 |       2.79 |  4.55 |
+| U64xU64     | 1.78 |       2.61 |  2.23 |
+| HighxHigh   | 1.80 |       2.62 |  9.76 |
+| U32xWide    | 1.79 |       3.46 |  3.99 |
 
 #### 除法（Division）
 
@@ -110,9 +111,9 @@
 
 | 用例                       | gint | ClickHouse | Boost |
 | -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 11.6 |       14.1 |  20.3 |
-| SmallDivisor64（64 位）    | 12.9 |       13.5 |  24.2 |
-| Pow2Divisor（2 的幂）      | 8.21 |        403 |  63.2 |
-| SimilarMagnitude           | 17.6 |        209 |  61.8 |
-| LargeDivisor128（两 limb） | 21.4 |        455 |  34.6 |
-| SimilarMagnitude2          | 14.9 |        229 |  17.9 |
+| SmallDivisor32（32 位）    | 10.8 |       13.5 |  19.6 |
+| SmallDivisor64（64 位）    | 12.8 |       13.0 |  26.2 |
+| Pow2Divisor（2 的幂）      | 7.60 |        277 |  62.3 |
+| SimilarMagnitude           | 17.7 |        212 |  63.8 |
+| LargeDivisor128（两 limb） | 21.8 |        458 |  36.7 |
+| SimilarMagnitude2          | 15.6 |        237 |  20.1 |

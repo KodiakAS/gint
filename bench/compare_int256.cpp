@@ -63,12 +63,9 @@ static void Add_NoCarry(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a + b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a + b);
     }
 }
 
@@ -76,14 +73,23 @@ template <typename Int>
 static void Add_FullCarry(benchmark::State & state)
 {
     // Worst-case: all bits set + 1 causes ripple across all limbs
-    Int a = Int{-1};
-    Int b = Int{1};
+    // Use a static dataset to ensure loads from memory (avoid const-fold).
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        for (size_t i = 0; i < kDataN; ++i)
+            d[i] = {Int{-1}, Int{1}};
+        return d;
+    }();
+    size_t i = 0;
     for (auto _ : state)
     {
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a + b;
-        benchmark::DoNotOptimize(c);
+        const auto & p = data[i++ & (kDataN - 1)];
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(const_cast<Int &>(a));
+        benchmark::DoNotOptimize(const_cast<Int &>(b));
+        benchmark::DoNotOptimize(a + b);
     }
 }
 
@@ -110,12 +116,9 @@ static void Sub_NoBorrow(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a - b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a - b);
     }
 }
 
@@ -123,14 +126,22 @@ template <typename Int>
 static void Sub_FullBorrow(benchmark::State & state)
 {
     // Worst-case: 0 - 1 borrows across all limbs
-    Int a = Int{0};
-    Int b = Int{1};
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        for (size_t i = 0; i < kDataN; ++i)
+            d[i] = {Int{0}, Int{1}};
+        return d;
+    }();
+    size_t i = 0;
     for (auto _ : state)
     {
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a - b;
-        benchmark::DoNotOptimize(c);
+        const auto & p = data[i++ & (kDataN - 1)];
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(const_cast<Int &>(a));
+        benchmark::DoNotOptimize(const_cast<Int &>(b));
+        benchmark::DoNotOptimize(a - b);
     }
 }
 
@@ -138,12 +149,12 @@ static void Sub_FullBorrow(benchmark::State & state)
 template <typename Int>
 static void Mul_U64xU64(benchmark::State & state)
 {
-    static std::array<std::pair<uint64_t, uint64_t>, kDataN> data = []
+    static std::array<std::pair<Int, Int>, kDataN> data = []
     {
-        std::array<std::pair<uint64_t, uint64_t>, kDataN> d{};
+        std::array<std::pair<Int, Int>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0xC001'D00D'BADC'0FFEuLL);
         for (size_t i = 0; i < kDataN; ++i)
-            d[i] = {rng(), rng()};
+            d[i] = {Int{rng()}, Int{rng()}};
         return d;
     }();
 
@@ -151,12 +162,9 @@ static void Mul_U64xU64(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = Int{p.first};
-        Int b = Int{p.second};
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a * b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a * b);
     }
 }
 
@@ -181,12 +189,9 @@ static void Mul_HighxHigh(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a * b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a * b);
     }
 }
 
@@ -212,12 +217,9 @@ static void Div_SmallDivisor32(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a / b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a / b);
     }
 }
 
@@ -245,12 +247,9 @@ static void Div_SmallDivisor64(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a / b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a / b);
     }
 }
 
@@ -276,12 +275,9 @@ static void Div_Pow2Divisor(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a / b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a / b);
     }
 }
 
@@ -307,12 +303,9 @@ static void Div_SimilarMagnitude(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a / b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a / b);
     }
 }
 
@@ -377,12 +370,9 @@ static void Add_CarryChain64(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a + b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a + b);
     }
 }
 
@@ -405,27 +395,24 @@ static void Sub_BorrowChain64(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = p.second;
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a - b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a - b);
     }
 }
 
 template <typename Int>
 static void Mul_U32xWide(benchmark::State & state)
 {
-    static std::array<std::pair<Int, uint32_t>, kDataN> data = []
+    static std::array<std::pair<Int, Int>, kDataN> data = []
     {
-        std::array<std::pair<Int, uint32_t>, kDataN> d{};
+        std::array<std::pair<Int, Int>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x55AA'AA55'55AA'AA55ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
-            uint32_t m = static_cast<uint32_t>(rng());
-            d[i] = {a, m};
+            Int b = Int{static_cast<uint32_t>(rng())};
+            d[i] = {a, b};
         }
         return d;
     }();
@@ -433,12 +420,9 @@ static void Mul_U32xWide(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int a = p.first;
-        Int b = Int{p.second};
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a * b;
-        benchmark::DoNotOptimize(c);
+        const Int & a = p.first;
+        const Int & b = p.second;
+        benchmark::DoNotOptimize(a * b);
     }
 }
 
@@ -451,10 +435,9 @@ static void Div_LargeDivisor128(benchmark::State & state)
     U b = (U{1} << 127) + U{12345};
     for (auto _ : state)
     {
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a / b;
-        benchmark::DoNotOptimize(c);
+        benchmark::DoNotOptimize(const_cast<U &>(a));
+        benchmark::DoNotOptimize(const_cast<U &>(b));
+        benchmark::DoNotOptimize(a / b);
     }
 }
 
@@ -467,10 +450,9 @@ static void Div_SimilarMagnitude2(benchmark::State & state)
     U b = (U{1} << 191) + U{314159265};
     for (auto _ : state)
     {
-        benchmark::DoNotOptimize(a);
-        benchmark::DoNotOptimize(b);
-        auto c = a / b;
-        benchmark::DoNotOptimize(c);
+        benchmark::DoNotOptimize(const_cast<U &>(a));
+        benchmark::DoNotOptimize(const_cast<U &>(b));
+        benchmark::DoNotOptimize(a / b);
     }
 }
 

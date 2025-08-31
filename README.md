@@ -19,20 +19,20 @@ Arithmetic — 256‑bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
-| Add/NoCarry            | 1.20 |       1.96 |  5.24 |
-| Add/FullCarry          | 0.48 |       1.50 |  2.26 |
-| Sub/NoBorrow           | 1.43 |       1.93 |  5.56 |
-| Sub/FullBorrow         | 0.82 |       1.58 |  2.46 |
-| Mul/U64xU64            | 1.88 |       2.26 |  4.26 |
-| Mul/HighxHigh          | 2.07 |       3.38 | 11.3  |
-| Div/SmallDivisor(32)   | 11.9 |       14.9 |  20.5 |
-| Div/Pow2Divisor        | 8.30 |        274 |  62.7 |
-| Div/SimilarMagnitude   | 17.6 |        214 |  63.2 |
+| Add/NoCarry            | 1.17 |       1.71 |  5.48 |
+| Add/FullCarry          | 1.17 |       1.52 |  2.11 |
+| Sub/NoBorrow           | 1.66 |       1.48 |  5.42 |
+| Sub/FullBorrow         | 1.67 |       1.58 |  2.36 |
+| Mul/U64xU64            | 1.78 |       2.61 |  2.23 |
+| Mul/HighxHigh          | 1.80 |       2.62 |  9.76 |
+| Div/SmallDivisor32     | 10.8 |       13.5 |  19.6 |
+| Div/Pow2Divisor        | 7.60 |        277 |  62.3 |
+| Div/SimilarMagnitude   | 17.7 |        212 |  63.8 |
 
 Highlights
-- Add/Sub: ~1.3–3× faster than ClickHouse; ~3–6× than Boost.
-- Mul: ~1.4–1.6× faster than ClickHouse; ~2–5× than Boost.
-- Div: Strong wins on power‑of‑two and similar‑magnitude; small‑divisors lead across 32‑bit and 64‑bit.
+- Add/Sub: ~1.1–1.5× faster vs ClickHouse; ~2.5–4× vs Boost.
+- Mul: ~1.4–1.5× faster vs ClickHouse; competitive vs Boost (much faster on high×high).
+- Div: Large wins for power-of-two and similar magnitude; strong on 32/64-bit small divisors as well.
 
 Full matrices and methodology: see `docs/BENCHMARKS.md`.
 
