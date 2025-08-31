@@ -39,6 +39,8 @@ Run `clang-format` after editing. The configuration is `.clang-format` at the re
 ## Pull Request Guidelines
 
 1. **Branch names** must be in English.
-2. **Every feature** must come with unit tests.
-3. **Every performance optimization** must include before/after benchmark results.
+2. **PR template is mandatory**:
 
+   * Always submit pull requests using the templates provided in `.github/PULL_REQUEST_TEMPLATE/`.
+   * Select the **most appropriate specialized template** (`feature.md`, `bug_fix.md`, `perf_change.md`, `refactor.md`, `docs_chore.md`, `breaking_change.md`).
+   * Only use the **default template** if your change does not fit into any specialized category.

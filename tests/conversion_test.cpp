@@ -333,3 +333,12 @@ TEST(WideIntegerConversion, ExtraFloatConversion)
     gint::integer<128, signed> s = d2;
     EXPECT_EQ(s, -789);
 }
+
+TEST(WideIntegerConversion, BoolConversion)
+{
+    using U128 = gint::integer<128, unsigned>;
+    U128 z = 0;
+    U128 o = 1;
+    EXPECT_FALSE(static_cast<bool>(z));
+    EXPECT_TRUE(static_cast<bool>(o));
+}
