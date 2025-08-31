@@ -44,7 +44,7 @@ static void Add_NoCarry(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xA55A'AA55'1234'5678ull);
+        std::mt19937_64 rng(kSeedBase ^ 0xA55AAA5512345678ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             // a: random 256-bit; b: small 32-bit, avoids multi-limb carry in most cases
@@ -94,13 +94,13 @@ static void Sub_NoBorrow(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xBEEF'FACE'CAFEBABEull);
+        std::mt19937_64 rng(kSeedBase ^ 0xBEEFFACECAFEBABEull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             // a has low 32 bits set high (1<<31); b fits in 31 bits => no cross-limb borrow
             Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
             a |= (Int{1} << 31);
-            Int b = Int{uint32_t(rng() & 0x7FFF'FFFFu)};
+            Int b = Int{uint32_t(rng() & 0x7FFFFFFFu)};
             d[i] = {a, b};
         }
         return d;
@@ -141,7 +141,7 @@ static void Mul_U64xU64(benchmark::State & state)
     static std::array<std::pair<uint64_t, uint64_t>, kDataN> data = []
     {
         std::array<std::pair<uint64_t, uint64_t>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xC001'D00D'BADC'0FFEuLL);
+        std::mt19937_64 rng(kSeedBase ^ 0xC001D00DBADC0FFEuLL);
         for (size_t i = 0; i < kDataN; ++i)
             d[i] = {rng(), rng()};
         return d;
@@ -166,7 +166,7 @@ static void Mul_HighxHigh(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xDEAD'BEEF'8BAD'F00Dull);
+        std::mt19937_64 rng(kSeedBase ^ 0xDEADBEEF8BADF00Dull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             // Set high words to trigger multi-limb schoolbook paths
@@ -197,11 +197,11 @@ static void Div_SmallDivisor32(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0x1234'5678'9ABC'DEF0ull);
+        std::mt19937_64 rng(kSeedBase ^ 0x123456789ABCDEF0ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
-            uint32_t dv = static_cast<uint32_t>((rng() | 1ull) & 0xFFFF'FFFFu); // ensure non-zero
+            uint32_t dv = static_cast<uint32_t>((rng() | 1ull) & 0xFFFFFFFFu); // ensure non-zero
             Int b = Int{dv};
             d[i] = {a, b};
         }
@@ -228,7 +228,7 @@ static void Div_SmallDivisor64(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xA1B2'C3D4'E5F6'1234ull);
+        std::mt19937_64 rng(kSeedBase ^ 0xA1B2C3D4E5F61234ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
@@ -260,7 +260,7 @@ static void Div_Pow2Divisor(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xF00F'F00F'00F0'0F00ull);
+        std::mt19937_64 rng(kSeedBase ^ 0xF00FF00F00F00F00ull);
         std::uniform_int_distribution<int> dist_k(1, 200);
         for (size_t i = 0; i < kDataN; ++i)
         {
@@ -291,7 +291,7 @@ static void Div_SimilarMagnitude(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0x0BAD'CAFE'FEED'FACEull);
+        std::mt19937_64 rng(kSeedBase ^ 0x0BADCAFEFEEDFACEull);
         std::uniform_int_distribution<int> dist_shift(180, 220);
         for (size_t i = 0; i < kDataN; ++i)
         {
@@ -364,7 +364,7 @@ static void Add_CarryChain64(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xCC55'DDAA'9988'7766ull);
+        std::mt19937_64 rng(kSeedBase ^ 0xCC55DDAA99887766ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             Int a = assemble_u256<Int>(~0ULL, rng(), rng(), rng()); // low limb all 1s
@@ -392,7 +392,7 @@ static void Sub_BorrowChain64(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0x1122'3344'5566'7788ull);
+        std::mt19937_64 rng(kSeedBase ^ 0x1122334455667788ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             Int a = assemble_u256<Int>(0, rng(), rng(), rng()); // low limb zero
@@ -420,7 +420,7 @@ static void Mul_U32xWide(benchmark::State & state)
     static std::array<std::pair<Int, uint32_t>, kDataN> data = []
     {
         std::array<std::pair<Int, uint32_t>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0x55AA'AA55'55AA'AA55ull);
+        std::mt19937_64 rng(kSeedBase ^ 0x55AAAA5555AAAA55ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
             Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());

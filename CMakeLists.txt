@@ -117,4 +117,15 @@ if(GINT_BUILD_BENCHMARKS)
     target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_compare_int256 PRIVATE -O3 -DNDEBUG)
 
+    # Int256 comparison benchmarks (gint vs boost, in C++11)
+    add_executable(perf_compare_int256_boost
+        bench/compare_int256.cpp
+    )
+    set_target_properties(perf_compare_int256_boost PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_include_directories(perf_compare_int256_boost PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_definitions(perf_compare_int256_boost PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(perf_compare_int256_boost PRIVATE fmt::fmt benchmark::benchmark)
+    target_compile_options(perf_compare_int256_boost PRIVATE -O3 -DNDEBUG)
 endif()
