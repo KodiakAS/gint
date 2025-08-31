@@ -177,3 +177,41 @@ TEST(FloatInteropEdges, ArithmeticWithInfAndNaN)
     EXPECT_THROW((void)(ninf % d), std::domain_error);
     EXPECT_THROW((void)(nan % d), std::domain_error);
 }
+
+TEST(FloatInteropEdges, CompareWithFloat_ShiftPositive_ExactAndExtra)
+{
+    using U256 = gint::integer<256, unsigned>;
+    // shift > 0 and exact representable as double
+    U256 a = U256(1) << 200;
+    double d = std::ldexp(1.0, 200);
+    EXPECT_TRUE(a == d);
+    EXPECT_FALSE(a != d);
+    EXPECT_TRUE(a <= d);
+    EXPECT_TRUE(a >= d);
+
+    // shift > 0 and lhs has extra low bits -> lhs > rhs
+    U256 a2 = a + U256(1);
+    EXPECT_TRUE(a2 > d);
+    EXPECT_FALSE(a2 == d);
+}
+
+TEST(FloatInteropEdges, CompareWithFloat_ShiftNonPositive_FractionalTail)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = 42;
+    double d = 42.25; // fractional tail beyond integer
+    EXPECT_TRUE(a < d);
+    EXPECT_TRUE(d > a);
+    EXPECT_FALSE(a == d);
+}
+
+TEST(FloatInteropEdges, CompareWithFloat_FloatPrecision)
+{
+    using U256 = gint::integer<256, unsigned>;
+    // float p=24, shift > 0
+    U256 a = U256(1) << 30;
+    U256 a2 = a + U256(1);
+    float f = std::ldexp(1.0f, 30);
+    EXPECT_TRUE(a == f);
+    EXPECT_TRUE(a2 > f);
+}
