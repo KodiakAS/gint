@@ -26,6 +26,7 @@ This project is a **high-performance wide-integer library**. It aims to provide 
 * `tests/` — unit tests (GoogleTest)
 * `bench/` — benchmarks (Google Benchmark)
 * `docs/` — documents
+* `third_party/` — vendored dependencies (read-only; for building and testing)
 
 ---
 
@@ -40,3 +41,4 @@ Run `clang-format` after editing. The configuration is `.clang-format` at the re
 1. **Branch names** must be in English.
 2. **Every feature** must come with unit tests.
 3. **Every performance optimization** must include before/after benchmark results.
+
