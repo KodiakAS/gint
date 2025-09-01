@@ -25,7 +25,7 @@
 
 ### 用法
 - 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 直接运行：`build-bench/perf_bench_int256 --benchmark_min_time=0.2s`
+- 直接运行：`build-bench/perf_benchmark_int256 --benchmark_min_time=0.2s`
 
 ### 常用参数
 - `--benchmark_min_time=0.2s`：设置最短运行时间以降低抖动。
@@ -40,7 +40,7 @@
 - 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 对比测试标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 对比测试完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
-  - 或 `build-bench/perf_benchmark_int256 --gint_full --benchmark_min_time=0.2s`
+  - 或 `build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
 
 ### 方法学
 - 每个用例 256 对确定性样本（固定种子），循环中轮询；
