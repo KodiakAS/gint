@@ -148,7 +148,7 @@ struct limbs_equal<0>
 };
 // Compute the high 128 bits of a 128x128->256 multiplication using
 // 64x64 partial products. Inlines well on GCC/Clang and maps to umulh
-// on AArch64 and efficient MUL+SHRD sequences on x86-64.
+// on AArch64 and efficient MUL+SHRD sequences on x86_64.
 inline unsigned __int128 mulhi_u128(unsigned __int128 a, unsigned __int128 b) noexcept
 {
     const unsigned __int128 a0 = static_cast<uint64_t>(a);
