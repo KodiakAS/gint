@@ -41,18 +41,18 @@ BENCH_ARGS ?=
 bench: $(BENCH_BUILD_DIR)/Makefile
 	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
 	$(BENCH_BUILD_DIR)/perf_bench_int256 $(BENCH_ARGS)
-	$(BENCH_BUILD_DIR)/perf_compare_int256 $(BENCH_ARGS)
+	$(BENCH_BUILD_DIR)/perf_benchmark_int256 $(BENCH_ARGS)
 
 # Build and run only the comparison benchmark
 bench-compare: $(BENCH_BUILD_DIR)/Makefile
-	cmake --build $(BENCH_BUILD_DIR) --target perf_compare_int256 --parallel $(JOBS)
-	$(BENCH_BUILD_DIR)/perf_compare_int256 $(BENCH_ARGS)
+	cmake --build $(BENCH_BUILD_DIR) --target perf_benchmark_int256 --parallel $(JOBS)
+	$(BENCH_BUILD_DIR)/perf_benchmark_int256 $(BENCH_ARGS)
 
 # Build and run the full comparison benchmark matrix
 bench-compare-full: $(BENCH_BUILD_DIR)/Makefile
 	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
 	@echo "[full] Running comparison full matrix ..."
-	$(BENCH_BUILD_DIR)/perf_compare_int256 --gint_full $(BENCH_ARGS)
+	$(BENCH_BUILD_DIR)/perf_benchmark_int256 --gint_full $(BENCH_ARGS)
 
 # Build, test and generate coverage report (clean first to avoid stale data)
 coverage:

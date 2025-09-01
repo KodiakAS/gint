@@ -95,7 +95,7 @@ if(GINT_BUILD_BENCHMARKS)
     find_package(benchmark REQUIRED)
 
     add_executable(perf_bench_int256
-        bench/compare_int256.cpp
+        bench/benchmark_int256.cpp
     )
     set_target_properties(perf_bench_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
     target_include_directories(perf_bench_int256 PRIVATE
@@ -106,16 +106,16 @@ if(GINT_BUILD_BENCHMARKS)
     target_link_libraries(perf_bench_int256 PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_bench_int256 PRIVATE -O3 -DNDEBUG)
 
-    add_executable(perf_compare_int256
-        bench/compare_int256.cpp
+    add_executable(perf_benchmark_int256
+        bench/benchmark_int256.cpp
     )
-    set_target_properties(perf_compare_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_include_directories(perf_compare_int256 PRIVATE
+    set_target_properties(perf_benchmark_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_include_directories(perf_benchmark_int256 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
-    target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
-    target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_compare_int256 PRIVATE -O3 -DNDEBUG)
+    target_compile_definitions(perf_benchmark_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
+    target_link_libraries(perf_benchmark_int256 PRIVATE fmt::fmt benchmark::benchmark)
+    target_compile_options(perf_benchmark_int256 PRIVATE -O3 -DNDEBUG)
 
 endif()
