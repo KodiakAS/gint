@@ -1,8 +1,10 @@
-﻿#include <benchmark/benchmark.h>
+#include <benchmark/benchmark.h>
 #ifdef GINT_ENABLE_CH_COMPARE
 #    include <wide_integer/wide_integer.h>
 #endif
-#include <boost/multiprecision/cpp_int.hpp>
+#ifdef GINT_ENABLE_BOOST_COMPARE
+#    include <boost/multiprecision/cpp_int.hpp>
+#endif
 
 #include <array>
 #include <cstdlib>
@@ -16,7 +18,26 @@ using WInt = gint::integer<256, signed>;
 #ifdef GINT_ENABLE_CH_COMPARE
 using CInt = wide::integer<256, signed>;
 #endif
+#ifdef GINT_ENABLE_BOOST_COMPARE
 using BInt = boost::multiprecision::int256_t;
+#endif
+
+inline std::string to_string_convert(const WInt & x)
+{
+    return gint::to_string(x);
+}
+#ifdef GINT_ENABLE_CH_COMPARE
+inline std::string to_string_convert(const CInt & x)
+{
+    return wide::to_string(x);
+}
+#endif
+#ifdef GINT_ENABLE_BOOST_COMPARE
+inline std::string to_string_convert(const BInt & x)
+{
+    return x.str();
+}
+#endif
 
 namespace
 {
@@ -309,6 +330,18 @@ static void Div_SimilarMagnitude(benchmark::State & state)
     }
 }
 
+template <typename Int>
+static void ToString(benchmark::State & state)
+{
+    Int a = (Int{1} << 255) + Int{123456789};
+    for (auto _ : state)
+    {
+        auto s = to_string_convert(a);
+        benchmark::DoNotOptimize(s);
+        a += Int{1};
+    }
+}
+
 static bool parse_full_matrix_flag(int & argc, char **& argv)
 {
     bool full = false;
@@ -334,21 +367,22 @@ static bool parse_full_matrix_flag(int & argc, char **& argv)
 }
 
 #ifdef GINT_ENABLE_CH_COMPARE
-#    define REG_CASE(Base, Func) \
-        do \
-        { \
-            benchmark::RegisterBenchmark(Base "/gint", &Func<WInt>); \
-            benchmark::RegisterBenchmark(Base "/ClickHouse", &Func<CInt>); \
-            benchmark::RegisterBenchmark(Base "/Boost", &Func<BInt>); \
-        } while (false)
+#    define REG_CASE_CH(Base, Func) benchmark::RegisterBenchmark(Base "/ClickHouse", &Func<CInt>)
 #else
-#    define REG_CASE(Base, Func) \
-        do \
-        { \
-            benchmark::RegisterBenchmark(Base "/gint", &Func<WInt>); \
-            benchmark::RegisterBenchmark(Base "/Boost", &Func<BInt>); \
-        } while (false)
+#    define REG_CASE_CH(Base, Func)
 #endif
+#ifdef GINT_ENABLE_BOOST_COMPARE
+#    define REG_CASE_BOOST(Base, Func) benchmark::RegisterBenchmark(Base "/Boost", &Func<BInt>)
+#else
+#    define REG_CASE_BOOST(Base, Func)
+#endif
+#define REG_CASE(Base, Func) \
+    do \
+    { \
+        benchmark::RegisterBenchmark(Base "/gint", &Func<WInt>); \
+        REG_CASE_CH(Base, Func); \
+        REG_CASE_BOOST(Base, Func); \
+    } while (false)
 
 // Extra cases for the full matrix only
 template <typename Int>
@@ -476,6 +510,9 @@ int main(int argc, char ** argv)
     REG_CASE("Div/SmallDivisor64", Div_SmallDivisor64);
     REG_CASE("Div/Pow2Divisor", Div_Pow2Divisor);
     REG_CASE("Div/SimilarMagnitude", Div_SimilarMagnitude);
+
+    // ToString
+    REG_CASE("ToString/Base10", ToString);
 
     if (full_matrix)
     {
