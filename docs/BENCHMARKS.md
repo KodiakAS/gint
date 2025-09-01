@@ -38,7 +38,7 @@
 
 ### 用法
 - 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 仅运行对比用例：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 对比测试标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 对比测试完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
   - 或 `build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
 
