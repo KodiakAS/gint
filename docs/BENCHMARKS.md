@@ -18,6 +18,19 @@
 - 最短运行时间：建议加入 `--benchmark_min_time=0.2s`（单位必须为秒）。
 - 过滤子集：可用 `--benchmark_filter`（示例：`--benchmark_filter=^Div/SmallDivisor64/`）。
 
+## 基准测试（Benchmark）
+
+### 目的
+- 仅运行 gint 自身的用例，评估绝对性能。
+
+### 用法
+- 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 直接运行：`build-bench/perf_bench_int256 --benchmark_min_time=0.2s`
+
+### 常用参数
+- `--benchmark_min_time=0.2s`：设置最短运行时间以降低抖动。
+- `--benchmark_filter=<regex>`：只运行匹配的用例。
+
 ## 对比测试（Comparison）
 
 ### 目的
@@ -25,7 +38,7 @@
 
 ### 用法
 - 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 基准测试可单独运行：`build-bench/perf_bench_int256 --benchmark_min_time=0.2s`
+- 仅运行对比用例：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 对比测试完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
   - 或 `build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
 
