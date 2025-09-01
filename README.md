@@ -15,7 +15,7 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 Environment: Apple Silicon, AppleClang O3, Google Benchmark (`--benchmark_min_time=0.2s`). Numbers are ns/op (lower is better). Absolute values vary by machine; relative trends are stable.
 
-Arithmetic — 256‑bit
+Arithmetic & ToString — 256‑bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
@@ -28,6 +28,7 @@ Arithmetic — 256‑bit
 | Div/SmallDivisor32     | 10.8 |       13.5 |  19.6 |
 | Div/Pow2Divisor        | 7.60 |        277 |  62.3 |
 | Div/SimilarMagnitude   | 17.7 |        212 |  63.8 |
+| ToString/Base10        |  600 |       2050 |   418 |
 
 Highlights
 - Add/Sub: ~1.1–1.5× faster vs ClickHouse; ~2.5–4× vs Boost.

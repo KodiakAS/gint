@@ -40,7 +40,7 @@ BENCH_ARGS ?=
 
 bench: $(BENCH_BUILD_DIR)/Makefile
 	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
-	$(BENCH_BUILD_DIR)/perf $(BENCH_ARGS)
+	$(BENCH_BUILD_DIR)/perf_benchmark_int256 $(BENCH_ARGS)
 	$(BENCH_BUILD_DIR)/perf_compare_int256 $(BENCH_ARGS)
 
 # Build and run only the comparison benchmark

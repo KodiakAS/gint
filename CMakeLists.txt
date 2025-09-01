@@ -94,28 +94,27 @@ endif()
 if(GINT_BUILD_BENCHMARKS)
     find_package(benchmark REQUIRED)
 
-    # General performance benchmarks
-    add_executable(perf
-        bench/performance.cpp
+    add_executable(perf_benchmark_int256
+        bench/benchmark_int256.cpp
     )
-    target_include_directories(perf PRIVATE
+    set_target_properties(perf_benchmark_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_include_directories(perf_benchmark_int256 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
-    target_compile_features(perf PRIVATE cxx_std_11)
-    target_compile_definitions(perf PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(perf PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf PRIVATE -O3 -DNDEBUG)
+    target_compile_definitions(perf_benchmark_int256 PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(perf_benchmark_int256 PRIVATE fmt::fmt benchmark::benchmark)
+    target_compile_options(perf_benchmark_int256 PRIVATE -O3 -DNDEBUG)
 
-    # Int256 comparison benchmarks (gint vs ClickHouse vs boost, in C++17)
     add_executable(perf_compare_int256
-        bench/compare_int256.cpp
+        bench/benchmark_int256.cpp
     )
     set_target_properties(perf_compare_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
     target_include_directories(perf_compare_int256 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
-    target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE)
+    target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
     target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
     target_compile_options(perf_compare_int256 PRIVATE -O3 -DNDEBUG)
 

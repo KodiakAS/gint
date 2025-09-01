@@ -131,5 +131,5 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Run benchmarks
         run: |
-          build/perf --benchmark_min_time=0.01s
+          build/perf_benchmark_int256 --benchmark_min_time=0.01s
           build/perf_compare_int256 --benchmark_min_time=0.01s

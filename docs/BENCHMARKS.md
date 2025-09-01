@@ -1,8 +1,8 @@
 # 基准测试
 
-本文档将基准测试划分为两大模块：
-- 核心算子（Core Ops）：单库内的基本算子性能（加/减/乘/除/ToString 等）。
-- 对比测试（Comparison）：gint 对比 ClickHouse 宽整数与 Boost.Multiprecision 的 256 位算术。
+本文档介绍性能测试结构：
+- **基准测试（Benchmark）**：仅编译并运行 gint 的用例，用于观察绝对性能。
+- **对比测试（Comparison）**：在同一套用例上，对比 ClickHouse 宽整数与 Boost.Multiprecision 的 256 位算术。
 
 测试平台
 - Apple Silicon（macOS）
@@ -18,27 +18,18 @@
 - 最短运行时间：建议加入 `--benchmark_min_time=0.2s`（单位必须为秒）。
 - 过滤子集：可用 `--benchmark_filter`（示例：`--benchmark_filter=^Div/SmallDivisor64/`）。
 
-## 核心算子（Core Ops）
+## 基准测试（Benchmark）
 
 ### 目的
-- 观察同一库在不同位宽与路径下的纵向表现，非库间对比。
+- 仅运行 gint 自身的用例，评估绝对性能。
 
-### 运行
-- 构建：`make bench`（会生成 `build-bench/perf`）
-- 执行：`build-bench/perf --benchmark_min_time=0.2s`
+### 用法
+- 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 直接运行：`build-bench/perf_benchmark_int256 --benchmark_min_time=0.2s`
 
-### 示例结果（ns/op，越小越好）
-
-| 操作           | 256  | 512  | 1024 |
-| -------------- | ---: | ---: | ---: |
-| Addition       | 2.04 | 2.06 | 2.17 |
-| Subtraction    | 2.07 | 2.50 | 6.12 |
-| Multiplication | 3.86 | 9.74 | 62.30 |
-| Division       | 2.69 | 4.06 | 10.4 |
-| ToString       | 219  | 582  | 1778 |
-
-### 说明
-- Core Ops 仅用于纵向观察，具体数值会因硬件/编译器不同而变化。
+### 常用参数
+- `--benchmark_min_time=0.2s`：设置最短运行时间以降低抖动。
+- `--benchmark_filter=<regex>`：只运行匹配的用例。
 
 ## 对比测试（Comparison）
 
@@ -46,9 +37,9 @@
 - 在代表性细分场景下，对比 256 位算术在不同实现（gint/ClickHouse/Boost）间的性能差异。
 
 ### 用法
-- 标准矩阵（默认，较少但代表性强）：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 完整矩阵（覆盖更广，本文性能指标以此为准）：
-  - `make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 对比测试标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 对比测试完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
   - 或 `build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
 
 ### 方法学
@@ -117,3 +108,12 @@
 | SimilarMagnitude           | 17.7 |        212 |  63.8 |
 | LargeDivisor128（两 limb） | 21.8 |        458 |  36.7 |
 | SimilarMagnitude2          | 15.6 |        237 |  20.1 |
+
+#### 字符串转换（ToString）
+
+**设计**
+- Base10：高位为 1 的逐步递增数，评估十进制字符串转换效率。
+
+| 用例    | gint | ClickHouse | Boost |
+| ------- | ---: | ---------: | ----: |
+| Base10  | 600  |      2050  |   418 |
