@@ -1874,11 +1874,11 @@ inline std::string to_string(const integer<Bits, Signed> & v)
         return "0";
 
     using Int = integer<Bits, Signed>;
-    const typename Int::limb_type base = 1000000000ULL; // 1e9
-    const unsigned chunk_digits = 9;
+    const typename Int::limb_type base = 10000000000000000000ULL; // 1e19
+    const unsigned chunk_digits = 19;
 
     std::vector<typename Int::limb_type> chunks;
-    chunks.reserve((Bits + 29) / 30);
+    chunks.reserve((Bits + 62) / 63);
     while (!tmp.is_zero())
     {
         Int q;
@@ -1888,10 +1888,21 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     }
 
     std::string out;
+    out.reserve(chunks.size() * chunk_digits + 1);
     // most significant chunk
     auto it = chunks.rbegin();
-    out += std::to_string(*it);
-    ++it;
+    {
+        char buf[32];
+        unsigned idx = 32;
+        typename Int::limb_type x = *it;
+        while (x)
+        {
+            buf[--idx] = static_cast<char>('0' + (x % 10));
+            x /= 10;
+        }
+        out.append(buf + idx, 32 - idx);
+        ++it;
+    }
     // zero-padded remaining chunks
     for (; it != chunks.rend(); ++it)
     {

@@ -28,12 +28,13 @@ Arithmetic & ToString — 256‑bit
 | Div/SmallDivisor32     | 10.8 |       13.5 |  19.6 |
 | Div/Pow2Divisor        | 7.60 |        277 |  62.3 |
 | Div/SimilarMagnitude   | 17.7 |        212 |  63.8 |
-| ToString/Base10        |  600 |       2050 |   418 |
+| ToString/Base10        |  263 |       1446 |   302 |
 
 Highlights
 - Add/Sub: ~1.1–1.5× faster vs ClickHouse; ~2.5–4× vs Boost.
 - Mul: ~1.4–1.5× faster vs ClickHouse; competitive vs Boost (much faster on high×high).
 - Div: Large wins for power-of-two and similar magnitude; strong on 32/64-bit small divisors as well.
+- ToString: ~1.1× faster vs Boost; ~5.5× vs ClickHouse.
 
 Full matrices and methodology: see `docs/BENCHMARKS.md`.
 
