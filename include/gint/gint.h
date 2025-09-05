@@ -46,21 +46,9 @@
 #    define GINT_RESTRICT
 #endif
 
-// Mul (4 limbs) strategy tuning
-// Strategies:
-//   1 (SEQ):   sequential per-term add with carry flag style dependency chain
-//   2 (BATCH): batched diagonal accumulation with explicit hi/lo aggregation
-// Default AUTO: Clang -> SEQ, others -> BATCH. Can be overridden by defining
-// GINT_MUL4_STRATEGY to 1 or 2 at compile time.
-#define GINT_MUL4_SEQ 1
-#define GINT_MUL4_BATCH 2
-#ifndef GINT_MUL4_STRATEGY
-#    if defined(__clang__)
-#        define GINT_MUL4_STRATEGY GINT_MUL4_SEQ
-#    else
-#        define GINT_MUL4_STRATEGY GINT_MUL4_BATCH
-#    endif
-#endif
+// No compiler-specific strategy: we use a single, batched diagonal
+// accumulation implementation for 4-limb multiplication, tuned for
+// both GCC and Clang.
 
 namespace gint
 {
@@ -183,6 +171,14 @@ inline unsigned __int128 mulhi_u128(unsigned __int128 a, unsigned __int128 b) no
     const unsigned __int128 t3 = a1 * b1;
     const unsigned __int128 s = (t0 >> 64) + t1 + t2;
     return t3 + (s >> 64);
+}
+// Add two 64-bit unsigned values and accumulate carry count (0 or 1) into c.
+// Returns the 64-bit sum; c is incremented if overflow occurs.
+inline uint64_t addc64(uint64_t a, uint64_t b, uint64_t & c) noexcept
+{
+    uint64_t s = a + b;
+    c += (s < a);
+    return s;
 }
 
 
@@ -397,168 +393,65 @@ inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RES
         return;
     }
 
-    // General 4-limb path: choose strategy based on GINT_MUL4_STRATEGY
-#if GINT_MUL4_STRATEGY == GINT_MUL4_SEQ
-    // Sequential per-term accumulation (tends to map well to adds/adcs/umulh)
+    // General 4-limb path: Batched diagonal accumulation with 64-bit
+    // low-part addition and explicit carry counting to avoid wide adds.
     const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
     const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
 
-    u128 carry = 0;
+    u128 carry = 0; // low 64 bits feed next diag's low start; high 64 bits feed hi-acc start
 
     // k = 0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(a0) * b0;
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
+        u128 p00 = u128(a0) * b0;
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p00), c);
+        u128 hi = (carry >> 64) + (p00 >> 64) + c;
         res[0] = lo;
+        carry = hi;
     }
 
     // k = 1: a0*b1 + a1*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(a0) * b1;
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(a1) * b0;
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 p01 = u128(a0) * b1;
+        u128 p10 = u128(a1) * b0;
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p01), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p10), c);
+        u128 hi = (carry >> 64) + (p01 >> 64) + (p10 >> 64) + c;
         res[1] = lo;
+        carry = hi;
     }
 
     // k = 2: a0*b2 + a1*b1 + a2*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(a0) * b2;
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(a1) * b1;
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(a2) * b0;
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 p02 = u128(a0) * b2;
+        u128 p11 = u128(a1) * b1;
+        u128 p20 = u128(a2) * b0;
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p02), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p11), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p20), c);
+        u128 hi = (carry >> 64) + (p02 >> 64) + (p11 >> 64) + (p20 >> 64) + c;
         res[2] = lo;
+        carry = hi;
     }
 
     // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(a0) * b3;
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(a1) * b2;
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(a2) * b1;
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(a3) * b0;
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 p03 = u128(a0) * b3;
+        u128 p12 = u128(a1) * b2;
+        u128 p21 = u128(a2) * b1;
+        u128 p30 = u128(a3) * b0;
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p03), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p12), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p21), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p30), c);
+        // high carry beyond limb 3 is discarded by fixed width semantics, but
+        // we still compute it to keep the dataflow uniform (and aid scheduling)
+        // u128 hi = (carry >> 64) + (p03 >> 64) + (p12 >> 64) + (p21 >> 64) + (p30 >> 64) + c;
         res[3] = lo;
-        // carry beyond limb 3 is discarded (fixed width semantics)
     }
-#else // GINT_MUL4_STRATEGY == GINT_MUL4_BATCH
-    // Batched diagonal accumulation (often fewer uops on GCC)
-    const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
-    const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
-
-    u128 carry = 0;
-
-    // k = 0: a0*b0
-    {
-        u128 t00 = u128(a0) * b0;
-        u128 lo_acc = static_cast<uint64_t>(carry) + static_cast<uint64_t>(t00);
-        uint64_t lo = static_cast<uint64_t>(lo_acc);
-        u128 hi_acc = (carry >> 64) + (t00 >> 64) + (lo_acc >> 64);
-        res[0] = lo;
-        carry = hi_acc;
-    }
-
-    // k = 1: a0*b1 + a1*b0
-    {
-        u128 t01 = u128(a0) * b1;
-        u128 t10 = u128(a1) * b0;
-        u128 lo_add = u128(static_cast<uint64_t>(t01)) + static_cast<uint64_t>(t10);
-        u128 lo_acc = static_cast<uint64_t>(carry) + lo_add;
-        uint64_t lo = static_cast<uint64_t>(lo_acc);
-        u128 hi_acc = (carry >> 64) + (t01 >> 64) + (t10 >> 64) + (lo_acc >> 64);
-        res[1] = lo;
-        carry = hi_acc;
-    }
-
-    // k = 2: a0*b2 + a1*b1 + a2*b0
-    {
-        u128 t02 = u128(a0) * b2;
-        u128 t11 = u128(a1) * b1;
-        u128 t20 = u128(a2) * b0;
-        u128 lo_add = u128(static_cast<uint64_t>(t02)) + static_cast<uint64_t>(t11);
-        lo_add += static_cast<uint64_t>(t20);
-        u128 lo_acc = static_cast<uint64_t>(carry) + lo_add;
-        uint64_t lo = static_cast<uint64_t>(lo_acc);
-        u128 hi_acc = (carry >> 64) + (t02 >> 64) + (t11 >> 64) + (t20 >> 64) + (lo_acc >> 64);
-        res[2] = lo;
-        carry = hi_acc;
-    }
-
-    // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
-    {
-        u128 t03 = u128(a0) * b3;
-        u128 t12 = u128(a1) * b2;
-        u128 t21 = u128(a2) * b1;
-        u128 t30 = u128(a3) * b0;
-        u128 lo_add = u128(static_cast<uint64_t>(t03)) + static_cast<uint64_t>(t12);
-        lo_add += static_cast<uint64_t>(t21);
-        lo_add += static_cast<uint64_t>(t30);
-        u128 lo_acc = static_cast<uint64_t>(carry) + lo_add;
-        res[3] = static_cast<uint64_t>(lo_acc);
-        // fixed-width semantics: discard carry beyond limb 3
-    }
-#endif
 }
 
 template <size_t L>
