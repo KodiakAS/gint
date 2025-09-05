@@ -40,6 +40,12 @@
 #    define GINT_CONSTEXPR14
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#    define GINT_RESTRICT __restrict
+#else
+#    define GINT_RESTRICT
+#endif
+
 // Mul (4 limbs) strategy tuning
 // Strategies:
 //   1 (SEQ):   sequential per-term add with carry flag style dependency chain
@@ -309,7 +315,7 @@ inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
 }
 
 template <>
-inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     using u128 = unsigned __int128;
 
@@ -363,16 +369,47 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
         return;
     }
 
+    // One-operand single-limb fast paths
+    if ((rhs[1] | rhs[2] | rhs[3]) == 0)
+    {
+        // res = lhs * rhs[0]
+        u128 carry = 0;
+        uint64_t k = rhs[0];
+        for (size_t i = 0; i < 4; ++i)
+        {
+            u128 cur = u128(lhs[i]) * k + carry;
+            res[i] = static_cast<uint64_t>(cur);
+            carry = cur >> 64;
+        }
+        return;
+    }
+    if ((lhs[1] | lhs[2] | lhs[3]) == 0)
+    {
+        // res = rhs * lhs[0]
+        u128 carry = 0;
+        uint64_t k = lhs[0];
+        for (size_t i = 0; i < 4; ++i)
+        {
+            u128 cur = u128(rhs[i]) * k + carry;
+            res[i] = static_cast<uint64_t>(cur);
+            carry = cur >> 64;
+        }
+        return;
+    }
+
     // General 4-limb path: choose strategy based on GINT_MUL4_STRATEGY
 #if GINT_MUL4_STRATEGY == GINT_MUL4_SEQ
     // Sequential per-term accumulation (tends to map well to adds/adcs/umulh)
+    const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
+    const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
+
     u128 carry = 0;
 
     // k = 0
     {
         uint64_t lo = static_cast<uint64_t>(carry);
         carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[0];
+        u128 t = u128(a0) * b0;
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
         lo += add;
@@ -385,14 +422,14 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
     {
         uint64_t lo = static_cast<uint64_t>(carry);
         carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[1];
+        u128 t = u128(a0) * b1;
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
         lo += add;
         carry += (lo < old);
         carry += (t >> 64);
 
-        t = u128(lhs[1]) * rhs[0];
+        t = u128(a1) * b0;
         add = static_cast<uint64_t>(t);
         old = lo;
         lo += add;
@@ -406,21 +443,21 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
     {
         uint64_t lo = static_cast<uint64_t>(carry);
         carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[2];
+        u128 t = u128(a0) * b2;
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
         lo += add;
         carry += (lo < old);
         carry += (t >> 64);
 
-        t = u128(lhs[1]) * rhs[1];
+        t = u128(a1) * b1;
         add = static_cast<uint64_t>(t);
         old = lo;
         lo += add;
         carry += (lo < old);
         carry += (t >> 64);
 
-        t = u128(lhs[2]) * rhs[0];
+        t = u128(a2) * b0;
         add = static_cast<uint64_t>(t);
         old = lo;
         lo += add;
@@ -434,28 +471,28 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
     {
         uint64_t lo = static_cast<uint64_t>(carry);
         carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[3];
+        u128 t = u128(a0) * b3;
         uint64_t add = static_cast<uint64_t>(t);
         uint64_t old = lo;
         lo += add;
         carry += (lo < old);
         carry += (t >> 64);
 
-        t = u128(lhs[1]) * rhs[2];
+        t = u128(a1) * b2;
         add = static_cast<uint64_t>(t);
         old = lo;
         lo += add;
         carry += (lo < old);
         carry += (t >> 64);
 
-        t = u128(lhs[2]) * rhs[1];
+        t = u128(a2) * b1;
         add = static_cast<uint64_t>(t);
         old = lo;
         lo += add;
         carry += (lo < old);
         carry += (t >> 64);
 
-        t = u128(lhs[3]) * rhs[0];
+        t = u128(a3) * b0;
         add = static_cast<uint64_t>(t);
         old = lo;
         lo += add;
