@@ -393,42 +393,33 @@ inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RES
         return;
     }
 
-    // General 4-limb path: Batched diagonal accumulation using only 64-bit
-    // additions (low-part add w/ carry counting; high-part add w/ carry
-    // counting) to minimize wide add pressure and dependency chains.
+    // General 4-limb path: Batched diagonal accumulation with 128-bit
+    // intermediates for compact instruction sequences on GCC/Clang.
     const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
     const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
 
-    uint64_t carry_lo = 0; // feeds next diagonal's low start
-    uint64_t carry_hi = 0; // feeds next diagonal's high start
+    u128 carry = 0; // high 64 carries, low 64 is the starting low word
 
     // k = 0
     {
         u128 p00 = u128(a0) * b0;
-        uint64_t c = 0;
-        uint64_t lo = detail::addc64(carry_lo, static_cast<uint64_t>(p00), c);
-        uint64_t hi = carry_hi, hc = 0;
-        hi = detail::addc64(hi, static_cast<uint64_t>(p00 >> 64), hc);
-        hi = detail::addc64(hi, c, hc);
+        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + static_cast<uint64_t>(p00);
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        u128 hi_acc = (carry >> 64) + (p00 >> 64) + (lo_acc >> 64);
         res[0] = lo;
-        carry_lo = hi;
-        carry_hi = hc;
+        carry = hi_acc;
     }
 
     // k = 1: a0*b1 + a1*b0
     {
         u128 p01 = u128(a0) * b1;
         u128 p10 = u128(a1) * b0;
-        uint64_t c = 0;
-        uint64_t lo = detail::addc64(carry_lo, static_cast<uint64_t>(p01), c);
-        lo = detail::addc64(lo, static_cast<uint64_t>(p10), c);
-        uint64_t hi = carry_hi, hc = 0;
-        hi = detail::addc64(hi, static_cast<uint64_t>(p01 >> 64), hc);
-        hi = detail::addc64(hi, static_cast<uint64_t>(p10 >> 64), hc);
-        hi = detail::addc64(hi, c, hc);
+        u128 lo_add = u128(static_cast<uint64_t>(p01)) + static_cast<uint64_t>(p10);
+        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        u128 hi_acc = (carry >> 64) + (p01 >> 64) + (p10 >> 64) + (lo_acc >> 64);
         res[1] = lo;
-        carry_lo = hi;
-        carry_hi = hc;
+        carry = hi_acc;
     }
 
     // k = 2: a0*b2 + a1*b1 + a2*b0
@@ -436,18 +427,13 @@ inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RES
         u128 p02 = u128(a0) * b2;
         u128 p11 = u128(a1) * b1;
         u128 p20 = u128(a2) * b0;
-        uint64_t c = 0;
-        uint64_t lo = detail::addc64(carry_lo, static_cast<uint64_t>(p02), c);
-        lo = detail::addc64(lo, static_cast<uint64_t>(p11), c);
-        lo = detail::addc64(lo, static_cast<uint64_t>(p20), c);
-        uint64_t hi = carry_hi, hc = 0;
-        hi = detail::addc64(hi, static_cast<uint64_t>(p02 >> 64), hc);
-        hi = detail::addc64(hi, static_cast<uint64_t>(p11 >> 64), hc);
-        hi = detail::addc64(hi, static_cast<uint64_t>(p20 >> 64), hc);
-        hi = detail::addc64(hi, c, hc);
+        u128 lo_add = u128(static_cast<uint64_t>(p02)) + static_cast<uint64_t>(p11);
+        lo_add += static_cast<uint64_t>(p20);
+        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        u128 hi_acc = (carry >> 64) + (p02 >> 64) + (p11 >> 64) + (p20 >> 64) + (lo_acc >> 64);
         res[2] = lo;
-        carry_lo = hi;
-        carry_hi = hc;
+        carry = hi_acc;
     }
 
     // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
@@ -456,21 +442,11 @@ inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RES
         u128 p12 = u128(a1) * b2;
         u128 p21 = u128(a2) * b1;
         u128 p30 = u128(a3) * b0;
-        uint64_t c = 0;
-        uint64_t lo = detail::addc64(carry_lo, static_cast<uint64_t>(p03), c);
-        lo = detail::addc64(lo, static_cast<uint64_t>(p12), c);
-        lo = detail::addc64(lo, static_cast<uint64_t>(p21), c);
-        lo = detail::addc64(lo, static_cast<uint64_t>(p30), c);
-        // Compute and drop final high carry to keep consistent dataflow
-        uint64_t hi = carry_hi, hc = 0;
-        hi = detail::addc64(hi, static_cast<uint64_t>(p03 >> 64), hc);
-        hi = detail::addc64(hi, static_cast<uint64_t>(p12 >> 64), hc);
-        hi = detail::addc64(hi, static_cast<uint64_t>(p21 >> 64), hc);
-        hi = detail::addc64(hi, static_cast<uint64_t>(p30 >> 64), hc);
-        hi = detail::addc64(hi, c, hc);
-        (void)hi;
-        (void)hc;
-        res[3] = lo;
+        u128 lo_add = u128(static_cast<uint64_t>(p03)) + static_cast<uint64_t>(p12);
+        lo_add += static_cast<uint64_t>(p21);
+        lo_add += static_cast<uint64_t>(p30);
+        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
+        res[3] = static_cast<uint64_t>(lo_acc);
     }
 }
 
