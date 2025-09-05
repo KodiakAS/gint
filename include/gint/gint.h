@@ -295,108 +295,116 @@ inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
 template <>
 inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    // Robust Comba for 4 limbs with 128-bit carry accumulation that avoids
-    // intermediate overflow when summing multiple 128-bit products.
     using u128 = unsigned __int128;
+
+    // Fast path: if both operands fit within 128 bits we can reduce to the
+    // specialized 128-bit multiplication or even a single 64-bit multiply.
+    if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
+    {
+        if ((lhs[1] | rhs[1]) == 0)
+        {
+            u128 p = u128(lhs[0]) * rhs[0];
+            res[0] = static_cast<uint64_t>(p);
+            res[1] = static_cast<uint64_t>(p >> 64);
+            res[2] = 0;
+            res[3] = 0;
+        }
+        else
+        {
+            const u128 a0 = lhs[0];
+            const u128 a1 = lhs[1];
+            const u128 b0 = rhs[0];
+            const u128 b1 = rhs[1];
+
+            u128 p00 = a0 * b0;
+            u128 p01 = a0 * b1;
+            u128 p10 = a1 * b0;
+            u128 p11 = a1 * b1;
+
+            res[0] = static_cast<uint64_t>(p00);
+            u128 sum = (p00 >> 64) + static_cast<uint64_t>(p01) + static_cast<uint64_t>(p10);
+            res[1] = static_cast<uint64_t>(sum);
+            u128 carry = sum >> 64;
+
+            u128 high = p11;
+            uint64_t high_carry = 0;
+            u128 prev = high;
+            high += (p01 >> 64);
+            if (high < prev)
+                ++high_carry;
+            prev = high;
+            high += (p10 >> 64);
+            if (high < prev)
+                ++high_carry;
+            prev = high;
+            high += carry;
+            if (high < prev)
+                ++high_carry;
+
+            res[2] = static_cast<uint64_t>(high);
+            res[3] = static_cast<uint64_t>(high >> 64) + high_carry;
+        }
+        return;
+    }
+
+    // General 4-limb path: Comba-style but with batched accumulation per diagonal
+    // to reduce carry dependency chains. This keeps correctness (no 128-bit
+    // overflow in intermediates) while cutting a number of micro-ops.
+    const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
+    const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
 
     u128 carry = 0;
 
-    // k = 0
+    // k = 0: a0*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[0];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
+        u128 t00 = u128(a0) * b0;
+        // low accumulation
+        u128 lo_acc = static_cast<uint64_t>(carry) + static_cast<uint64_t>(t00);
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        // high accumulation: previous carry high + t00.high + overflow from low
+        u128 hi_acc = (carry >> 64) + (t00 >> 64) + (lo_acc >> 64);
         res[0] = lo;
+        carry = hi_acc; // next diagonal starts with this carry
     }
 
     // k = 1: a0*b1 + a1*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[1];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[1]) * rhs[0];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 t01 = u128(a0) * b1;
+        u128 t10 = u128(a1) * b0;
+        u128 lo_add = u128(static_cast<uint64_t>(t01)) + static_cast<uint64_t>(t10);
+        u128 lo_acc = static_cast<uint64_t>(carry) + lo_add;
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        u128 hi_acc = (carry >> 64) + (t01 >> 64) + (t10 >> 64) + (lo_acc >> 64);
         res[1] = lo;
+        carry = hi_acc;
     }
 
     // k = 2: a0*b2 + a1*b1 + a2*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[2];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[1]) * rhs[1];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[2]) * rhs[0];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 t02 = u128(a0) * b2;
+        u128 t11 = u128(a1) * b1;
+        u128 t20 = u128(a2) * b0;
+        u128 lo_add = u128(static_cast<uint64_t>(t02)) + static_cast<uint64_t>(t11);
+        lo_add += static_cast<uint64_t>(t20);
+        u128 lo_acc = static_cast<uint64_t>(carry) + lo_add;
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        u128 hi_acc = (carry >> 64) + (t02 >> 64) + (t11 >> 64) + (t20 >> 64) + (lo_acc >> 64);
         res[2] = lo;
+        carry = hi_acc;
     }
 
     // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[3];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[1]) * rhs[2];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[2]) * rhs[1];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[3]) * rhs[0];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        res[3] = lo;
-        // carry beyond limb 3 is discarded (fixed width semantics)
+        u128 t03 = u128(a0) * b3;
+        u128 t12 = u128(a1) * b2;
+        u128 t21 = u128(a2) * b1;
+        u128 t30 = u128(a3) * b0;
+        u128 lo_add = u128(static_cast<uint64_t>(t03)) + static_cast<uint64_t>(t12);
+        lo_add += static_cast<uint64_t>(t21);
+        lo_add += static_cast<uint64_t>(t30);
+        u128 lo_acc = static_cast<uint64_t>(carry) + lo_add;
+        res[3] = static_cast<uint64_t>(lo_acc);
+        // fixed-width semantics: discard carry beyond limb 3
     }
 }
 
