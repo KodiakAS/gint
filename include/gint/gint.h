@@ -40,6 +40,22 @@
 #    define GINT_CONSTEXPR14
 #endif
 
+// Mul (4 limbs) strategy tuning
+// Strategies:
+//   1 (SEQ):   sequential per-term add with carry flag style dependency chain
+//   2 (BATCH): batched diagonal accumulation with explicit hi/lo aggregation
+// Default AUTO: Clang -> SEQ, others -> BATCH. Can be overridden by defining
+// GINT_MUL4_STRATEGY to 1 or 2 at compile time.
+#define GINT_MUL4_SEQ 1
+#define GINT_MUL4_BATCH 2
+#ifndef GINT_MUL4_STRATEGY
+#    if defined(__clang__)
+#        define GINT_MUL4_STRATEGY GINT_MUL4_SEQ
+#    else
+#        define GINT_MUL4_STRATEGY GINT_MUL4_BATCH
+#    endif
+#endif
+
 namespace gint
 {
 
@@ -347,9 +363,110 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
         return;
     }
 
-    // General 4-limb path: Comba-style but with batched accumulation per diagonal
-    // to reduce carry dependency chains. This keeps correctness (no 128-bit
-    // overflow in intermediates) while cutting a number of micro-ops.
+    // General 4-limb path: choose strategy based on GINT_MUL4_STRATEGY
+#if GINT_MUL4_STRATEGY == GINT_MUL4_SEQ
+    // Sequential per-term accumulation (tends to map well to adds/adcs/umulh)
+    u128 carry = 0;
+
+    // k = 0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[0];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+        res[0] = lo;
+    }
+
+    // k = 1: a0*b1 + a1*b0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[1];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[1]) * rhs[0];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        res[1] = lo;
+    }
+
+    // k = 2: a0*b2 + a1*b1 + a2*b0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[2];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[1]) * rhs[1];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[2]) * rhs[0];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        res[2] = lo;
+    }
+
+    // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
+    {
+        uint64_t lo = static_cast<uint64_t>(carry);
+        carry >>= 64;
+        u128 t = u128(lhs[0]) * rhs[3];
+        uint64_t add = static_cast<uint64_t>(t);
+        uint64_t old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[1]) * rhs[2];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[2]) * rhs[1];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        t = u128(lhs[3]) * rhs[0];
+        add = static_cast<uint64_t>(t);
+        old = lo;
+        lo += add;
+        carry += (lo < old);
+        carry += (t >> 64);
+
+        res[3] = lo;
+        // carry beyond limb 3 is discarded (fixed width semantics)
+    }
+#else // GINT_MUL4_STRATEGY == GINT_MUL4_BATCH
+    // Batched diagonal accumulation (often fewer uops on GCC)
     const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
     const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
 
@@ -358,13 +475,11 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
     // k = 0: a0*b0
     {
         u128 t00 = u128(a0) * b0;
-        // low accumulation
         u128 lo_acc = static_cast<uint64_t>(carry) + static_cast<uint64_t>(t00);
         uint64_t lo = static_cast<uint64_t>(lo_acc);
-        // high accumulation: previous carry high + t00.high + overflow from low
         u128 hi_acc = (carry >> 64) + (t00 >> 64) + (lo_acc >> 64);
         res[0] = lo;
-        carry = hi_acc; // next diagonal starts with this carry
+        carry = hi_acc;
     }
 
     // k = 1: a0*b1 + a1*b0
@@ -406,6 +521,7 @@ inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
         res[3] = static_cast<uint64_t>(lo_acc);
         // fixed-width semantics: discard carry beyond limb 3
     }
+#endif
 }
 
 template <size_t L>
