@@ -94,28 +94,24 @@
 
 #### 除法（Division）
 
-**算法与实现（摘要）**
-- 小除数（单肢）：
-  - 32 位除数：采用 2^32 基数的“倒数乘法 + 单步修正”，按 64 位 word 拆成 hi/lo 两次 32 位估商并各自至多 +1 修正；无硬件除法，跨编译器表现稳定。
-  - 64 位除数：采用 128/64 的“倒数乘法 + 单步修正”（Barrett 风格），每步仅一次 mulhi 与一次乘回求余，统一用 `corr(q, rem)` 常数次修正；与 Boost 的 divide_qr_by_single_limb 思路一致。
-  - 2 的幂：直接移位得到商，掩码得到余数（pow2 快路径，较此前版本新增到小除数路径）。
-- 多肢除数：
-  - 两肢专用：常量长度内核，估商采用顶两 limb 形成的 128 位分子与最高 limb 倒数的乘法估计，校正最多两次；乘回复用（`qhat*v1 = numerator - rhat`）消除一处乘法；规范化左移用小工具函数复用，减少重复。
-  - 三肢专用：同样的常量长度实现与乘回复用（`qhat*v[2] = numerator - rhat`），保持 Knuth 算法 D 语义严格；
-  - 通用长除：仅一次 128/64 除法（取模改为乘回求余），规范化左移复用 `lshift_limbs_to()`，代码更紧凑。
-
-以上改动在 Docker 与本地均进行 Div 全量回归，无退化；Pow2Divisor 稳定小幅提升；LargeDivisor128/SimilarMagnitude2 明显提速且贴近/接近 Boost。
+**设计**
+- SmallDivisor32：被除数为随机 256 位，除数取 32 位范围，覆盖“基数 2^32 的小除数场景”。
+- SmallDivisor64：被除数为随机 256 位，除数取 64 位范围，覆盖“128/64 估商的小除数场景”。
+- Pow2Divisor：除数为 2 的幂，覆盖“移位等价”的极端快路径。
+- SimilarMagnitude：被除数与除数数量级相近，覆盖“Knuth D 多 limb 重路径”，考察规范化与估商修正。
+- LargeDivisor128：两 limb 除数，覆盖“多 limb 路径在 2‑limb 情况的热点”。
+- SimilarMagnitude2：与上述相似量级不同分布，用于验证分布差异对分支与规范化的影响。
 
 **代表性结果（ns/op，Docker 对比）**
 
 | 用例                       | gint | ClickHouse | Boost | 备注 |
 | -------------------------- | ---: | ---------: | ----: | ---- |
-| SmallDivisor32（32 位）    | 20.5 |       17.4 |  19.4 | 与基线持平，稳定 |
+| SmallDivisor32（32 位）    | 20.5 |       17.4 |  19.4 | 稳定 |
 | SmallDivisor64（64 位）    | 19.0 |       17.4 |  21.8 | 稳定 |
-| Pow2Divisor（2 的幂）      | 15.6 |        350 |  33.3 | 新增 pow2 快路径生效 |
-| SimilarMagnitude           | 19.9 |        352 |  21.5 | 持平/略优于既有 |
-| LargeDivisor128（两 limb） | 37.4 |        808 |  33.1 | 较最初基线明显提升，接近 Boost |
-| SimilarMagnitude2          | 20.6 |        389 |  18.3 | 较最初基线明显提升 |
+| Pow2Divisor（2 的幂）      | 15.6 |        350 |  33.3 | 快路径 |
+| SimilarMagnitude           | 19.9 |        352 |  21.5 | 稳定 |
+| LargeDivisor128（两 limb） | 37.4 |        808 |  33.1 | 接近 Boost |
+| SimilarMagnitude2          | 20.6 |        389 |  18.3 | 明显优于初始基线 |
 
 注：不同机器/工具链会有小幅抖动，上表用于说明量级与相对关系；请以 PR 中的 JSON 产物与同机对比为准。
 
