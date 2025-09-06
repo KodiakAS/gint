@@ -160,6 +160,70 @@ TEST(WideIntegerDivision, LargeDivisor256)
     EXPECT_EQ(q * divisor + r, lhs);
 }
 
+TEST(WideIntegerDivision, TwoLimbFastPathMatchesGeneric)
+{
+    using U256 = gint::integer<256, unsigned>;
+    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
+    {
+        U256 x = U256(w0);
+        x |= (U256(w1) << 64);
+        x |= (U256(w2) << 128);
+        x |= (U256(w3) << 192);
+        return x;
+    };
+
+    // Two-limb divisor with high limb close to 2^63 to stress qhat estimation
+    U256 divisor = (U256(1) << 127) | U256(0x4F5EAF123456789BULL);
+    ASSERT_NE(divisor, U256(0));
+
+    // A small set of diverse dividends
+    U256 dividends[] = {
+        make_u256(0x0123456789ABCDEFULL, 0x0FEDCBA987654321ULL, 0x0000000000000001ULL, 0xF00DFACE12345678ULL),
+        make_u256(0x8000000000000000ULL, 0x7FFFFFFFFFFFFFFFULL, 0xDEADBEEFDEADBEEFULL, 0x0000000000000003ULL),
+        make_u256(0x0000000000000000ULL, 0x0000000000000001ULL, 0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFEULL),
+        make_u256(0xAAAAAAAAAAAAAAAAULL, 0x5555555555555555ULL, 0x1337133713371337ULL, 0xBADC0FFEE0DDF00DULL),
+    };
+
+    for (const auto & lhs : dividends)
+    {
+        // Reference via generic Knuth D path with div_limbs=2
+        U256 q_generic = U256::div_large(lhs, divisor, 2);
+        // Fast path result via operator/ (which dispatches to div_large_2)
+        U256 q_fast = lhs / divisor;
+        // Also call the fast specialization directly
+        U256 q_direct = U256::div_large_2(lhs, divisor);
+
+        EXPECT_EQ(q_fast, q_generic);
+        EXPECT_EQ(q_direct, q_generic);
+    }
+}
+
+// Regression: borrow-high-bit (borrow == 2^64) corner case in two-limb fast path
+TEST(WideIntegerDivision, TwoLimbBorrowHighBitCritical)
+{
+    using U256 = gint::integer<256, unsigned>;
+    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
+    {
+        U256 x = U256(w0);
+        x |= (U256(w1) << 64);
+        x |= (U256(w2) << 128);
+        x |= (U256(w3) << 192);
+        return x;
+    };
+    // From P1: lhs / rhs where rhs is two limbs; fast path previously returned q-1
+    U256 lhs = make_u256(0x8981774138e1beaeULL, 0x7e526748118bbd43ULL, 0x13b42ddfe75113d8ULL, 0x48d352f272ea0f83ULL);
+    U256 rhs = make_u256(0x0000000000000000ULL, 0x0000000000000000ULL, 0xc78b9c3b4b3ccf86ULL, 0x336746e82c1b0b1bULL);
+
+    // Reference via generic path with div_limbs=2
+    U256 q_generic = U256::div_large(lhs, rhs, 2);
+    // Fast path result
+    U256 q_fast = lhs / rhs;
+    U256 q_direct = U256::div_large_2(lhs, rhs);
+
+    EXPECT_EQ(q_fast, q_generic);
+    EXPECT_EQ(q_direct, q_generic);
+}
+
 TEST(WideIntegerDivision, LargeShiftSubtract512)
 {
     using U512 = gint::integer<512, unsigned>;

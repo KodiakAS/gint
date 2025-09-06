@@ -60,9 +60,9 @@
 
 | 用例            | gint | ClickHouse | Boost |
 | --------------- | ---: | ---------: | ----: |
-| NoCarry         | 1.17 |       1.71 |  5.48 |
-| FullCarry       | 1.17 |       1.52 |  2.11 |
-| CarryChain64    | 1.18 |       1.67 |  5.55 |
+| NoCarry         | 1.14 |       1.81 |  5.23 |
+| FullCarry       | 1.14 |       1.50 |  1.87 |
+| CarryChain64    | 1.14 |       1.64 |  5.29 |
 
 #### 减法（Subtraction）
 
@@ -73,9 +73,9 @@
 
 | 用例            | gint | ClickHouse | Boost |
 | --------------- | ---: | ---------: | ----: |
-| NoBorrow        | 1.66 |       1.48 |  5.42 |
-| FullBorrow      | 1.67 |       1.58 |  2.36 |
-| BorrowChain64   | 1.67 |       1.67 |  5.34 |
+| NoBorrow        | 1.60 |       1.75 |  5.49 |
+| FullBorrow      | 1.62 |       1.56 |  2.35 |
+| BorrowChain64   | 1.65 |       1.51 |  5.35 |
 
 #### 乘法（Multiplication）
 
@@ -87,29 +87,30 @@
 
 | 用例        | gint | ClickHouse | Boost |
 | ----------- | ---: | ---------: | ----: |
-| U64xU64     | 1.78 |       2.61 |  2.23 |
-| HighxHigh   | 1.80 |       2.62 |  9.76 |
-| U32xWide    | 1.79 |       3.46 |  3.99 |
-| WideTimesU64| 0.86 |       3.12 |  2.40 |
+| U64xU64     | 1.70 |       2.59 |  2.17 |
+| HighxHigh   | 1.69 |       2.55 | 10.5  |
+| U32xWide    | 1.73 |       3.44 |  4.07 |
+| WideTimesU64| 0.90 |       3.20 |  2.22 |
 
 #### 除法（Division）
 
 **设计**
-- SmallDivisor32：触发 2^32 基数长除法快路径（gint 专门优化）。
-- SmallDivisor64：触发 128/64 的“倒数乘法 + 一次修正”路径（gint 专门优化）。
-- Pow2Divisor：除数为 2 的幂，对应移位路径（极端快路径）。
-- SimilarMagnitude：被除数与除数数量级相近，触发多 limb 重路径（对算法 D/规范化有代表性）。
-- LargeDivisor128：两 limb 除数，直击多 limb 除法的规范化与 qhat 修正质量。
-- SimilarMagnitude2：与 SimilarMagnitude 不同分布，用于验证分布对分支预测与规范化的影响。
+- SmallDivisor32：被除数为随机 256 位，除数取 32 位范围，覆盖“基数 2^32 的小除数场景”。
+- SmallDivisor64：被除数为随机 256 位，除数取 64 位范围，覆盖“128/64 估商的小除数场景”。
+- Pow2Divisor：除数为 2 的幂，覆盖“移位等价”的极端快路径。
+- SimilarMagnitude：被除数与除数数量级相近，覆盖“Knuth D 多 limb 重路径”，考察规范化与估商修正。
+- LargeDivisor128：两 limb 除数，覆盖“多 limb 路径在 2‑limb 情况的热点”。
+- SimilarMagnitude2：与上述相似量级不同分布，用于验证分布差异对分支与规范化的影响。
 
 | 用例                       | gint | ClickHouse | Boost |
 | -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 10.8 |       13.5 |  19.6 |
-| SmallDivisor64（64 位）    | 12.8 |       13.0 |  26.2 |
-| Pow2Divisor（2 的幂）      | 7.60 |        277 |  62.3 |
-| SimilarMagnitude           | 17.7 |        212 |  63.8 |
-| LargeDivisor128（两 limb） | 21.8 |        458 |  36.7 |
-| SimilarMagnitude2          | 15.6 |        237 |  20.1 |
+| SmallDivisor32（32 位）    | 10.5 |       13.3 |  19.3 |
+| SmallDivisor64（64 位）    | 12.9 |       12.8 |  25.8 |
+| Pow2Divisor（2 的幂）      | 6.29 |        395 |  61.5 |
+| SimilarMagnitude           | 14.9 |        204 |  61.9 |
+| LargeDivisor128（两 limb） | 21.0 |        459 |  36.3 |
+| SimilarMagnitude2          | 11.2 |        230 |  19.7 |
+
 
 #### 字符串转换（ToString）
 
@@ -118,4 +119,4 @@
 
 | 用例    | gint | ClickHouse | Boost |
 | ------- | ---: | ---------: | ----: |
-| Base10  | 600  |      2050  |   418 |
+| Base10  | 127  |       342  |   155 |
