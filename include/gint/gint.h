@@ -1908,10 +1908,8 @@ private:
         for (int j = static_cast<int>(n - 2); j >= 0; --j)
         {
             u128 numerator = (static_cast<u128>(u[j + 2]) << 64) | u[j + 1];
-            // Fast estimate via 128-bit reciprocal; corrected downward if needed
-            u128 qhat = detail::mulhi_u128(numerator, inv128);
-            if (qhat > static_cast<u128>(~uint64_t(0)))
-                qhat = static_cast<u128>(~uint64_t(0));
+            // Safe Knuth-style estimate via 128/64 division; only downward correction needed
+            u128 qhat = numerator / v1;
             u128 rhat = numerator - qhat * v1;
             while (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | u[j]))
             {
@@ -1953,54 +1951,29 @@ private:
                 }
             }
 
-            if (u[j + 2] < static_cast<limb_type>(borrow))
+            // borrow may exceed 2^64; only its high 64 bits propagate into u[j+2]
             {
-                // Add back divisor and adjust qhat
-                unsigned __int128 carry2 = 0;
-                unsigned __int128 t0 = static_cast<unsigned __int128>(u[j + 0]) + v0 + carry2;
-                u[j + 0] = static_cast<limb_type>(t0);
-                carry2 = t0 >> 64;
-                unsigned __int128 t1 = static_cast<unsigned __int128>(u[j + 1]) + v1 + carry2;
-                u[j + 1] = static_cast<limb_type>(t1);
-                carry2 = t1 >> 64;
-                u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) + carry2);
-                --qhat;
-            }
-            else
-            {
-                u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - borrow);
-                // Upward correction: if remainder >= v, subtract once more and ++qhat
-                // Check (u[j+2]:u[j+1]:u[j]) >= (0:v1:v0)
-                if (u[j + 2] != 0 || (u[j + 1] > v1) || (u[j + 1] == v1 && u[j] >= v0))
+                limb_type borrow_hi = static_cast<limb_type>(static_cast<unsigned __int128>(borrow) >> 64);
+                if (u[j + 2] < borrow_hi)
                 {
-                    // subtract v once more
-                    unsigned __int128 borrow2 = 0;
-                    unsigned __int128 p0 = static_cast<unsigned __int128>(v0) + borrow2;
-                    if (u[j + 0] < static_cast<limb_type>(p0))
-                    {
-                        u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p0);
-                        borrow2 = (p0 >> 64) + 1;
-                    }
-                    else
-                    {
-                        u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p0);
-                        borrow2 = p0 >> 64;
-                    }
-                    unsigned __int128 p1 = static_cast<unsigned __int128>(v1) + borrow2;
-                    if (u[j + 1] < static_cast<limb_type>(p1))
-                    {
-                        u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p1);
-                        borrow2 = (p1 >> 64) + 1;
-                    }
-                    else
-                    {
-                        u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p1);
-                        borrow2 = p1 >> 64;
-                    }
-                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - borrow2);
-                    ++qhat;
+                    // Add back divisor and adjust qhat
+                    unsigned __int128 carry2 = 0;
+                    unsigned __int128 t0 = static_cast<unsigned __int128>(u[j + 0]) + v0 + carry2;
+                    u[j + 0] = static_cast<limb_type>(t0);
+                    carry2 = t0 >> 64;
+                    unsigned __int128 t1 = static_cast<unsigned __int128>(u[j + 1]) + v1 + carry2;
+                    u[j + 1] = static_cast<limb_type>(t1);
+                    carry2 = t1 >> 64;
+                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) + carry2);
+                    --qhat;
+                }
+                else
+                {
+                    // Subtract only the high 64-bit borrow from the top limb
+                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - borrow_hi);
                 }
             }
+            // Store quotient limb for this position and continue loop
             quotient.data_[j] = static_cast<limb_type>(qhat);
         }
         return quotient;
