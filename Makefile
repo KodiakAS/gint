@@ -17,7 +17,7 @@ GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
 GCOVR ?= $(if $(GCOVR_BIN),$(GCOVR_BIN),python3 -m gcovr)
 LLVM_COV ?= $(shell xcrun -f llvm-cov 2>/dev/null || command -v llvm-cov 2>/dev/null)
 
-.PHONY: test bench bench-compare bench-compare-full coverage coverage-gcovr coverage-lcov clean clean-coverage image
+.PHONY: test bench bench-full bench-compare bench-compare-full coverage coverage-gcovr coverage-lcov clean clean-coverage image
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -41,7 +41,12 @@ BENCH_ARGS ?=
 bench: $(BENCH_BUILD_DIR)/Makefile
 	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
 	$(BENCH_BUILD_DIR)/perf_benchmark_int256 $(BENCH_ARGS)
-	$(BENCH_BUILD_DIR)/perf_compare_int256 $(BENCH_ARGS)
+
+# Build and run the full benchmark matrix (both solo and comparison)
+bench-full: $(BENCH_BUILD_DIR)/Makefile
+	cmake --build $(BENCH_BUILD_DIR) --parallel $(JOBS)
+	@echo "[full] Running gint-only full matrix ..."
+	$(BENCH_BUILD_DIR)/perf_benchmark_int256 --gint_full $(BENCH_ARGS)
 
 # Build and run only the comparison benchmark
 bench-compare: $(BENCH_BUILD_DIR)/Makefile

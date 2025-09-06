@@ -38,3 +38,6 @@
 .cache/
 .vscode/
 .devcontainer/
+
+# Local run artifacts
+/runs/
