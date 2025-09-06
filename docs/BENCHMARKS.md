@@ -104,12 +104,12 @@
 
 | 用例                       | gint | ClickHouse | Boost |
 | -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 10.4 |       13.2 |  19.5 |
-| SmallDivisor64（64 位）    | 12.8 |       12.7 |  25.6 |
-| Pow2Divisor（2 的幂）      | 6.25 |        390 |  60.8 |
-| SimilarMagnitude           | 14.6 |        210 |  62.0 |
-| LargeDivisor128（两 limb） | 15.6 |        454 |  35.8 |
-| SimilarMagnitude2          | 11.1 |        227 |  19.7 |
+| SmallDivisor32（32 位）    | 10.5 |       13.3 |  19.3 |
+| SmallDivisor64（64 位）    | 12.9 |       12.8 |  25.8 |
+| Pow2Divisor（2 的幂）      | 6.29 |        395 |  61.5 |
+| SimilarMagnitude           | 14.9 |        204 |  61.9 |
+| LargeDivisor128（两 limb） | 15.8 |        459 |  36.3 |
+| SimilarMagnitude2          | 11.2 |        230 |  19.7 |
 
 
 #### 字符串转换（ToString）
