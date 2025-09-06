@@ -163,7 +163,8 @@ TEST(WideIntegerDivision, LargeDivisor256)
 TEST(WideIntegerDivision, TwoLimbFastPathMatchesGeneric)
 {
     using U256 = gint::integer<256, unsigned>;
-    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0) {
+    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
+    {
         U256 x = U256(w0);
         x |= (U256(w1) << 64);
         x |= (U256(w2) << 128);
