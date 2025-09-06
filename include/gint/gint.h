@@ -1901,28 +1901,22 @@ private:
 
         limb_type v0 = (d0 << shift);
         limb_type v1 = (d1 << shift) | (shift ? static_cast<limb_type>(d0 >> (64 - shift)) : 0);
-        // 64-bit reciprocal of the top limb for fast estimate
-        const uint64_t inv1 = (v1 ? (static_cast<uint64_t>(~uint64_t(0)) / static_cast<uint64_t>(v1)) : 0);
 
         for (int j = static_cast<int>(n - 2); j >= 0; --j)
         {
             using u128 = unsigned __int128;
             u128 numerator = (static_cast<u128>(u[j + 2]) << 64) | u[j + 1];
-            // Reciprocal-multiply estimate to avoid DIV; clamp then correct (≤2 corrections).
-            u128 qhat = static_cast<u128>(u[j + 2]) * inv1 + ((static_cast<u128>(u[j + 1]) * inv1) >> 64);
-            if (qhat > static_cast<u128>(~uint64_t(0)))
-                qhat = static_cast<u128>(~uint64_t(0));
-            u128 rhat = numerator - (qhat * v1);
-
-            auto need_corr = [&](u128 q, u128 r) -> bool { return (q == (static_cast<u128>(1) << 64)) || (q * v0 > ((r << 64) | u[j])); };
-            if (need_corr(qhat, rhat))
+            // Safe Knuth-style estimate via 128/64 division (never underestimates)
+            u128 qhat = numerator / v1;
+            u128 rhat = numerator - qhat * v1;
+            if (true)
             {
-                --qhat;
-                rhat += v1;
-                if ((rhat >> 64) == 0 && need_corr(qhat, rhat))
+                while (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | u[j]))
                 {
                     --qhat;
                     rhat += v1;
+                    if (rhat >= (static_cast<u128>(1) << 64))
+                        break;
                 }
             }
 
