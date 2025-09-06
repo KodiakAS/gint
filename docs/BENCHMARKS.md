@@ -102,18 +102,15 @@
 - LargeDivisor128：两 limb 除数，覆盖“多 limb 路径在 2‑limb 情况的热点”。
 - SimilarMagnitude2：与上述相似量级不同分布，用于验证分布差异对分支与规范化的影响。
 
-**代表性结果（ns/op，Docker 对比）**
+| 用例                       | gint | ClickHouse | Boost |
+| -------------------------- | ---: | ---------: | ----: |
+| SmallDivisor32（32 位）    | 10.4 |       13.2 |  19.5 |
+| SmallDivisor64（64 位）    | 12.8 |       12.7 |  25.6 |
+| Pow2Divisor（2 的幂）      | 6.25 |        390 |  60.8 |
+| SimilarMagnitude           | 14.6 |        210 |  62.0 |
+| LargeDivisor128（两 limb） | 15.6 |        454 |  35.8 |
+| SimilarMagnitude2          | 11.1 |        227 |  19.7 |
 
-| 用例                       | gint | ClickHouse | Boost | 备注 |
-| -------------------------- | ---: | ---------: | ----: | ---- |
-| SmallDivisor32（32 位）    | 10.4 |       12.8 |  19.6 | 本地结果 |
-| SmallDivisor64（64 位）    | 12.7 |       12.7 |  25.4 | 本地结果 |
-| Pow2Divisor（2 的幂）      | 6.42 |        270 |  61.5 | 本地结果 |
-| SimilarMagnitude           | 14.7 |        201 |  61.5 | 本地结果 |
-| LargeDivisor128（两 limb） | 13.3 |        453 |  36.0 | 本地结果 |
-| SimilarMagnitude2          | 11.2 |        233 |  19.2 | 本地结果 |
-
-注：不同机器/工具链会有小幅抖动，上表用于说明量级与相对关系；请以 PR 中的 JSON 产物与同机对比为准。
 
 #### 字符串转换（ToString）
 
