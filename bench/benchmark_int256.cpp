@@ -90,6 +90,34 @@ static void Add_NoCarry(benchmark::State & state)
     }
 }
 
+// -------- Mixed-operand: wide * u64 (compare) --------
+// Use fully random 256-bit 'a' to avoid accidentally benchmarking a degenerate one-limb case.
+template <typename Int>
+static void Mul_WideTimesU64(benchmark::State & state)
+{
+    static std::array<std::pair<Int, uint64_t>, kDataN> data = []
+    {
+        std::array<std::pair<Int, uint64_t>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x13579BDF'2468'ACE0ull);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            // assemble fully random 256-bit value
+            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            uint64_t b = rng();
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        const Int & a = p.first;
+        uint64_t b = p.second;
+        benchmark::DoNotOptimize(a * b);
+    }
+}
+
 template <typename Int>
 static void Add_FullCarry(benchmark::State & state)
 {
@@ -504,6 +532,8 @@ int main(int argc, char ** argv)
     // Multiplication
     REG_CASE("Mul/U64xU64", Mul_U64xU64);
     REG_CASE("Mul/HighxHigh", Mul_HighxHigh);
+    // Compare wide * u64 across libraries
+    REG_CASE("Mul/WideTimesU64", Mul_WideTimesU64);
 
     // Division
     REG_CASE("Div/SmallDivisor32", Div_SmallDivisor32);

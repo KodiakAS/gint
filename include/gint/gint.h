@@ -17,8 +17,12 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #    define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#    define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
+#    define GINT_FORCE_INLINE inline __attribute__((always_inline))
 #else
 #    define GINT_UNLIKELY(x) (x)
+#    define GINT_LIKELY(x) (x)
+#    define GINT_FORCE_INLINE inline
 #endif
 
 #if defined(GINT_ENABLE_DIVZERO_CHECKS)
@@ -38,6 +42,26 @@
 #    define GINT_CONSTEXPR14 constexpr
 #else
 #    define GINT_CONSTEXPR14
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#    define GINT_RESTRICT __restrict
+#else
+#    define GINT_RESTRICT
+#endif
+
+// Fast-path policy for multiplication
+// Rationale:
+// - GCC (both x86_64 and AArch64) benefits from small-number fast paths
+//   (e.g., 64x64, operands <=128-bit, single-limb), often yielding fewer
+//   µops and shorter dependency chains.
+// - AppleClang on AArch64 tends to generate excellent straight-line code for
+//   the general path, and the extra branching/ICache footprint of fast paths
+//   can outweigh their savings. So we disable fast paths under Clang.
+#if defined(__clang__)
+#    define GINT_ENABLE_MUL_FASTPATH 0
+#else
+#    define GINT_ENABLE_MUL_FASTPATH 1
 #endif
 
 namespace gint
@@ -162,6 +186,14 @@ inline unsigned __int128 mulhi_u128(unsigned __int128 a, unsigned __int128 b) no
     const unsigned __int128 s = (t0 >> 64) + t1 + t2;
     return t3 + (s >> 64);
 }
+// Add two 64-bit unsigned values and accumulate carry count (0 or 1) into c.
+// Returns the 64-bit sum; c is incremented if overflow occurs.
+inline uint64_t addc64(uint64_t a, uint64_t b, uint64_t & c) noexcept
+{
+    uint64_t s = a + b;
+    c += (s < a);
+    return s;
+}
 
 
 template <size_t L>
@@ -252,7 +284,7 @@ GINT_CONSTEXPR14 inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) 
 // method. The operands are split into low/high 64-bit limbs and cross
 // multiplied with 128-bit intermediates to produce a 256-bit result.
 template <size_t L>
-inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_FORCE_INLINE void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     // Generic O(n^2) schoolbook multiplication.
     for (size_t i = 0; i < L; ++i)
@@ -270,7 +302,7 @@ inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs
 // Fast path for 128-bit (2-limb) multiplication: leverage the dedicated
 // 128x128->256 routine and keep the low 128 bits (fixed-width semantics).
 template <>
-inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_FORCE_INLINE void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     // 128-bit specialized schoolbook: decompose into 64-bit limbs and
     // accumulate cross products with 128-bit carries. Keep low 128 bits.
@@ -293,110 +325,143 @@ inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
 }
 
 template <>
-inline void mul_limbs<4>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_FORCE_INLINE void
+mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-    // Robust Comba for 4 limbs with 128-bit carry accumulation that avoids
-    // intermediate overflow when summing multiple 128-bit products.
     using u128 = unsigned __int128;
+#if GINT_ENABLE_MUL_FASTPATH
+    // Fast path: if both operands fit within 128 bits we can reduce to the
+    // specialized 128-bit multiplication or even a single 64-bit multiply.
+    if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
+    {
+        if ((lhs[1] | rhs[1]) == 0)
+        {
+            u128 p = u128(lhs[0]) * rhs[0];
+            res[0] = static_cast<uint64_t>(p);
+            res[1] = static_cast<uint64_t>(p >> 64);
+            res[2] = 0;
+            res[3] = 0;
+        }
+        else
+        {
+            const u128 a0 = lhs[0];
+            const u128 a1 = lhs[1];
+            const u128 b0 = rhs[0];
+            const u128 b1 = rhs[1];
 
-    u128 carry = 0;
+            u128 p00 = a0 * b0;
+            u128 p01 = a0 * b1;
+            u128 p10 = a1 * b0;
+            u128 p11 = a1 * b1;
+
+            res[0] = static_cast<uint64_t>(p00);
+            u128 sum = (p00 >> 64) + static_cast<uint64_t>(p01) + static_cast<uint64_t>(p10);
+            res[1] = static_cast<uint64_t>(sum);
+            u128 carry = sum >> 64;
+
+            u128 high = p11;
+            uint64_t high_carry = 0;
+            u128 prev = high;
+            high += (p01 >> 64);
+            if (high < prev)
+                ++high_carry;
+            prev = high;
+            high += (p10 >> 64);
+            if (high < prev)
+                ++high_carry;
+            prev = high;
+            high += carry;
+            if (high < prev)
+                ++high_carry;
+
+            res[2] = static_cast<uint64_t>(high);
+            res[3] = static_cast<uint64_t>(high >> 64) + high_carry;
+        }
+        return;
+    }
+
+    // One-operand single-limb fast paths
+    if ((rhs[1] | rhs[2] | rhs[3]) == 0)
+    {
+        // res = lhs * rhs[0]
+        u128 carry = 0;
+        uint64_t k = rhs[0];
+        for (size_t i = 0; i < 4; ++i)
+        {
+            u128 cur = u128(lhs[i]) * k + carry;
+            res[i] = static_cast<uint64_t>(cur);
+            carry = cur >> 64;
+        }
+        return;
+    }
+    if ((lhs[1] | lhs[2] | lhs[3]) == 0)
+    {
+        // res = rhs * lhs[0]
+        u128 carry = 0;
+        uint64_t k = lhs[0];
+        for (size_t i = 0; i < 4; ++i)
+        {
+            u128 cur = u128(rhs[i]) * k + carry;
+            res[i] = static_cast<uint64_t>(cur);
+            carry = cur >> 64;
+        }
+        return;
+    }
+#endif
+    // General 4-limb path: Batched diagonal accumulation with 128-bit
+    // intermediates for compact instruction sequences on GCC/Clang.
+    const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
+    const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
+
+    u128 carry = 0; // high 64 carries, low 64 is the starting low word
 
     // k = 0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[0];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
+        u128 p00 = u128(a0) * b0;
+        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + static_cast<uint64_t>(p00);
+        uint64_t lo = static_cast<uint64_t>(lo_acc);
+        u128 hi_acc = (carry >> 64) + (p00 >> 64) + (lo_acc >> 64);
         res[0] = lo;
+        carry = hi_acc;
     }
 
-    // k = 1: a0*b1 + a1*b0
+    // k = 1: a0*b1 + a1*b0 (hybrid low add chain)
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[1];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[1]) * rhs[0];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 p01 = u128(a0) * b1;
+        u128 p10 = u128(a1) * b0;
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p01), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p10), c);
+        u128 hi_acc = (carry >> 64) + (p01 >> 64) + (p10 >> 64) + c;
         res[1] = lo;
+        carry = hi_acc;
     }
 
-    // k = 2: a0*b2 + a1*b1 + a2*b0
+    // k = 2: a0*b2 + a1*b1 + a2*b0 (hybrid low add chain)
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[2];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[1]) * rhs[1];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[2]) * rhs[0];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
+        u128 p02 = u128(a0) * b2;
+        u128 p11 = u128(a1) * b1;
+        u128 p20 = u128(a2) * b0;
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p02), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p11), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p20), c);
+        u128 hi_acc = (carry >> 64) + (p02 >> 64) + (p11 >> 64) + (p20 >> 64) + c;
         res[2] = lo;
+        carry = hi_acc;
     }
 
     // k = 3: a0*b3 + a1*b2 + a2*b1 + a3*b0
     {
-        uint64_t lo = static_cast<uint64_t>(carry);
-        carry >>= 64;
-        u128 t = u128(lhs[0]) * rhs[3];
-        uint64_t add = static_cast<uint64_t>(t);
-        uint64_t old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[1]) * rhs[2];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[2]) * rhs[1];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        t = u128(lhs[3]) * rhs[0];
-        add = static_cast<uint64_t>(t);
-        old = lo;
-        lo += add;
-        carry += (lo < old);
-        carry += (t >> 64);
-
-        res[3] = lo;
-        // carry beyond limb 3 is discarded (fixed width semantics)
+        u128 p03 = u128(a0) * b3;
+        u128 p12 = u128(a1) * b2;
+        u128 p21 = u128(a2) * b1;
+        u128 p30 = u128(a3) * b0;
+        u128 lo_add = u128(static_cast<uint64_t>(p03)) + static_cast<uint64_t>(p12);
+        lo_add += static_cast<uint64_t>(p21);
+        lo_add += static_cast<uint64_t>(p30);
+        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
+        res[3] = static_cast<uint64_t>(lo_acc);
     }
 }
 
