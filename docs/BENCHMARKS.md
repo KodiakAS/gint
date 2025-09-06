@@ -108,7 +108,7 @@
 | SmallDivisor64（64 位）    | 12.9 |       12.8 |  25.8 |
 | Pow2Divisor（2 的幂）      | 6.29 |        395 |  61.5 |
 | SimilarMagnitude           | 14.9 |        204 |  61.9 |
-| LargeDivisor128（两 limb） | 15.8 |        459 |  36.3 |
+| LargeDivisor128（两 limb） | 21.0 |        459 |  36.3 |
 | SimilarMagnitude2          | 11.2 |        230 |  19.7 |
 
 
