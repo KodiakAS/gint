@@ -17,8 +17,12 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #    define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#    define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
+#    define GINT_FORCE_INLINE inline __attribute__((always_inline))
 #else
 #    define GINT_UNLIKELY(x) (x)
+#    define GINT_LIKELY(x) (x)
+#    define GINT_FORCE_INLINE inline
 #endif
 
 #if defined(GINT_ENABLE_DIVZERO_CHECKS)
@@ -46,9 +50,19 @@
 #    define GINT_RESTRICT
 #endif
 
-// No compiler-specific strategy: we use a single, batched diagonal
-// accumulation implementation for 4-limb multiplication, tuned for
-// both GCC and Clang.
+// Fast-path policy for multiplication
+// Rationale:
+// - GCC (both x86_64 and AArch64) benefits from small-number fast paths
+//   (e.g., 64x64, operands <=128-bit, single-limb), often yielding fewer
+//   µops and shorter dependency chains.
+// - AppleClang on AArch64 tends to generate excellent straight-line code for
+//   the general path, and the extra branching/ICache footprint of fast paths
+//   can outweigh their savings. So we disable fast paths under Clang.
+#if defined(__clang__)
+#    define GINT_ENABLE_MUL_FASTPATH 0
+#else
+#    define GINT_ENABLE_MUL_FASTPATH 1
+#endif
 
 namespace gint
 {
@@ -270,7 +284,7 @@ GINT_CONSTEXPR14 inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) 
 // method. The operands are split into low/high 64-bit limbs and cross
 // multiplied with 128-bit intermediates to produce a 256-bit result.
 template <size_t L>
-inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_FORCE_INLINE void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     // Generic O(n^2) schoolbook multiplication.
     for (size_t i = 0; i < L; ++i)
@@ -288,7 +302,7 @@ inline void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs
 // Fast path for 128-bit (2-limb) multiplication: leverage the dedicated
 // 128x128->256 routine and keep the low 128 bits (fixed-width semantics).
 template <>
-inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_FORCE_INLINE void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     // 128-bit specialized schoolbook: decompose into 64-bit limbs and
     // accumulate cross products with 128-bit carries. Keep low 128 bits.
@@ -311,10 +325,11 @@ inline void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * 
 }
 
 template <>
-inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+GINT_FORCE_INLINE void
+mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     using u128 = unsigned __int128;
-
+#if GINT_ENABLE_MUL_FASTPATH
     // Fast path: if both operands fit within 128 bits we can reduce to the
     // specialized 128-bit multiplication or even a single 64-bit multiply.
     if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
@@ -392,7 +407,7 @@ inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RES
         }
         return;
     }
-
+#endif
     // General 4-limb path: Batched diagonal accumulation with 128-bit
     // intermediates for compact instruction sequences on GCC/Clang.
     const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
@@ -410,28 +425,28 @@ inline void mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RES
         carry = hi_acc;
     }
 
-    // k = 1: a0*b1 + a1*b0
+    // k = 1: a0*b1 + a1*b0 (hybrid low add chain)
     {
         u128 p01 = u128(a0) * b1;
         u128 p10 = u128(a1) * b0;
-        u128 lo_add = u128(static_cast<uint64_t>(p01)) + static_cast<uint64_t>(p10);
-        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
-        uint64_t lo = static_cast<uint64_t>(lo_acc);
-        u128 hi_acc = (carry >> 64) + (p01 >> 64) + (p10 >> 64) + (lo_acc >> 64);
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p01), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p10), c);
+        u128 hi_acc = (carry >> 64) + (p01 >> 64) + (p10 >> 64) + c;
         res[1] = lo;
         carry = hi_acc;
     }
 
-    // k = 2: a0*b2 + a1*b1 + a2*b0
+    // k = 2: a0*b2 + a1*b1 + a2*b0 (hybrid low add chain)
     {
         u128 p02 = u128(a0) * b2;
         u128 p11 = u128(a1) * b1;
         u128 p20 = u128(a2) * b0;
-        u128 lo_add = u128(static_cast<uint64_t>(p02)) + static_cast<uint64_t>(p11);
-        lo_add += static_cast<uint64_t>(p20);
-        u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
-        uint64_t lo = static_cast<uint64_t>(lo_acc);
-        u128 hi_acc = (carry >> 64) + (p02 >> 64) + (p11 >> 64) + (p20 >> 64) + (lo_acc >> 64);
+        uint64_t c = 0;
+        uint64_t lo = detail::addc64(static_cast<uint64_t>(carry), static_cast<uint64_t>(p02), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p11), c);
+        lo = detail::addc64(lo, static_cast<uint64_t>(p20), c);
+        u128 hi_acc = (carry >> 64) + (p02 >> 64) + (p11 >> 64) + (p20 >> 64) + c;
         res[2] = lo;
         carry = hi_acc;
     }
