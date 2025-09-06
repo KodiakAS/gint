@@ -94,22 +94,30 @@
 
 #### 除法（Division）
 
-**设计**
-- SmallDivisor32：触发 2^32 基数长除法快路径（gint 专门优化）。
-- SmallDivisor64：触发 128/64 的“倒数乘法 + 一次修正”路径（gint 专门优化）。
-- Pow2Divisor：除数为 2 的幂，对应移位路径（极端快路径）。
-- SimilarMagnitude：被除数与除数数量级相近，触发多 limb 重路径（对算法 D/规范化有代表性）。
-- LargeDivisor128：两 limb 除数，直击多 limb 除法的规范化与 qhat 修正质量。
-- SimilarMagnitude2：与 SimilarMagnitude 不同分布，用于验证分布对分支预测与规范化的影响。
+**算法与实现（摘要）**
+- 小除数（单肢）：
+  - 32 位除数：采用 2^32 基数的“倒数乘法 + 单步修正”，按 64 位 word 拆成 hi/lo 两次 32 位估商并各自至多 +1 修正；无硬件除法，跨编译器表现稳定。
+  - 64 位除数：采用 128/64 的“倒数乘法 + 单步修正”（Barrett 风格），每步仅一次 mulhi 与一次乘回求余，统一用 `corr(q, rem)` 常数次修正；与 Boost 的 divide_qr_by_single_limb 思路一致。
+  - 2 的幂：直接移位得到商，掩码得到余数（pow2 快路径，较此前版本新增到小除数路径）。
+- 多肢除数：
+  - 两肢专用：常量长度内核，估商采用顶两 limb 形成的 128 位分子与最高 limb 倒数的乘法估计，校正最多两次；乘回复用（`qhat*v1 = numerator - rhat`）消除一处乘法；规范化左移用小工具函数复用，减少重复。
+  - 三肢专用：同样的常量长度实现与乘回复用（`qhat*v[2] = numerator - rhat`），保持 Knuth 算法 D 语义严格；
+  - 通用长除：仅一次 128/64 除法（取模改为乘回求余），规范化左移复用 `lshift_limbs_to()`，代码更紧凑。
 
-| 用例                       | gint | ClickHouse | Boost |
-| -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 10.8 |       13.5 |  19.6 |
-| SmallDivisor64（64 位）    | 12.8 |       13.0 |  26.2 |
-| Pow2Divisor（2 的幂）      | 7.60 |        277 |  62.3 |
-| SimilarMagnitude           | 17.7 |        212 |  63.8 |
-| LargeDivisor128（两 limb） | 21.8 |        458 |  36.7 |
-| SimilarMagnitude2          | 15.6 |        237 |  20.1 |
+以上改动在 Docker 与本地均进行 Div 全量回归，无退化；Pow2Divisor 稳定小幅提升；LargeDivisor128/SimilarMagnitude2 明显提速且贴近/接近 Boost。
+
+**代表性结果（ns/op，Docker 对比）**
+
+| 用例                       | gint | ClickHouse | Boost | 备注 |
+| -------------------------- | ---: | ---------: | ----: | ---- |
+| SmallDivisor32（32 位）    | 20.5 |       17.4 |  19.4 | 与基线持平，稳定 |
+| SmallDivisor64（64 位）    | 19.0 |       17.4 |  21.8 | 稳定 |
+| Pow2Divisor（2 的幂）      | 15.6 |        350 |  33.3 | 新增 pow2 快路径生效 |
+| SimilarMagnitude           | 19.9 |        352 |  21.5 | 持平/略优于既有 |
+| LargeDivisor128（两 limb） | 37.4 |        808 |  33.1 | 较最初基线明显提升，接近 Boost |
+| SimilarMagnitude2          | 20.6 |        389 |  18.3 | 较最初基线明显提升 |
+
+注：不同机器/工具链会有小幅抖动，上表用于说明量级与相对关系；请以 PR 中的 JSON 产物与同机对比为准。
 
 #### 字符串转换（ToString）
 

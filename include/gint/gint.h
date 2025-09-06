@@ -1017,6 +1017,16 @@ public:
                 // both operands are 128-bit wide
                 result = div_128(lhs, divisor);
             }
+            else if (divisor_limbs == 2)
+            {
+                // Specialized fast path: two-limb divisor
+                result = div_large_2(lhs, divisor);
+            }
+            else if (divisor_limbs == 3)
+            {
+                // Specialized fast path: three-limb divisor
+                result = div_large_3(lhs, divisor);
+            }
             else
             {
                 // Multi-limb divisor: use Knuth's Algorithm D (div_large)
@@ -1544,6 +1554,13 @@ private:
             --n;
         if (n == 0)
             return 0;
+        // Power-of-two divisor becomes a simple shift/modulo by mask.
+        if ((div & (div - 1)) == 0)
+        {
+            const int s = __builtin_ctzll(div);
+            quotient = *this >> s;
+            return static_cast<limb_type>(data_[0] & (div - 1));
+        }
         // Fast path: 32-bit divisor using reciprocal-multiply in base 2^32.
         // Compute rinv = floor((2^64-1)/d32). For each 64-bit chunk T
         // (formed by (rem<<32)|word32), q_est = high64(T * rinv); correct by
@@ -1593,7 +1610,7 @@ private:
         // divisions. After experimentation, we combine both ideas by using the
         // reciprocal path but keep the code structure tight and inlined.
         const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
-        // Single correction via branch tends to perform best on both GCC/Clang.
+        // Single correction (branch); empirically最稳定的实现。
         auto corr = [&](u128 & q, u128 & rem)
         {
             if (rem >= div)
@@ -1611,11 +1628,7 @@ private:
                     u128 num = data_[0];
                     u128 q = detail::mulhi_u128(num, inv);
                     u128 rem = num - q * div;
-                    if (rem >= div)
-                    {
-                        ++q;
-                        rem -= div;
-                    }
+                    corr(q, rem);
                     quotient.data_[0] = static_cast<limb_type>(q);
                     return static_cast<limb_type>(rem);
                 }
@@ -1623,11 +1636,7 @@ private:
                     u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
                     u128 q = detail::mulhi_u128(num, inv);
                     u128 rem = num - q * div;
-                    if (rem >= div)
-                    {
-                        ++q;
-                        rem -= div;
-                    }
+                    corr(q, rem);
                     quotient.data_[0] = static_cast<limb_type>(q);
                     quotient.data_[1] = static_cast<limb_type>(q >> 64);
                     return static_cast<limb_type>(rem);
@@ -1637,29 +1646,17 @@ private:
                     u128 num = (rem << 64) | data_[2];
                     u128 q2 = detail::mulhi_u128(num, inv);
                     rem = num - q2 * div;
-                    if (rem >= div)
-                    {
-                        ++q2;
-                        rem -= div;
-                    }
+                    corr(q2, rem);
                     quotient.data_[2] = static_cast<limb_type>(q2);
                     num = (rem << 64) | data_[1];
                     u128 q1 = detail::mulhi_u128(num, inv);
                     rem = num - q1 * div;
-                    if (rem >= div)
-                    {
-                        ++q1;
-                        rem -= div;
-                    }
+                    corr(q1, rem);
                     quotient.data_[1] = static_cast<limb_type>(q1);
                     num = (rem << 64) | data_[0];
                     u128 q0 = detail::mulhi_u128(num, inv);
                     rem = num - q0 * div;
-                    if (rem >= div)
-                    {
-                        ++q0;
-                        rem -= div;
-                    }
+                    corr(q0, rem);
                     quotient.data_[0] = static_cast<limb_type>(q0);
                     return static_cast<limb_type>(rem);
                 }
@@ -1669,38 +1666,22 @@ private:
                     u128 num = (rem << 64) | data_[3];
                     u128 q3 = detail::mulhi_u128(num, inv);
                     rem = num - q3 * div;
-                    if (rem >= div)
-                    {
-                        ++q3;
-                        rem -= div;
-                    }
+                    corr(q3, rem);
                     quotient.data_[3] = static_cast<limb_type>(q3);
                     num = (rem << 64) | data_[2];
                     u128 q2 = detail::mulhi_u128(num, inv);
                     rem = num - q2 * div;
-                    if (rem >= div)
-                    {
-                        ++q2;
-                        rem -= div;
-                    }
+                    corr(q2, rem);
                     quotient.data_[2] = static_cast<limb_type>(q2);
                     num = (rem << 64) | data_[1];
                     u128 q1 = detail::mulhi_u128(num, inv);
                     rem = num - q1 * div;
-                    if (rem >= div)
-                    {
-                        ++q1;
-                        rem -= div;
-                    }
+                    corr(q1, rem);
                     quotient.data_[1] = static_cast<limb_type>(q1);
                     num = (rem << 64) | data_[0];
                     u128 q0 = detail::mulhi_u128(num, inv);
                     rem = num - q0 * div;
-                    if (rem >= div)
-                    {
-                        ++q0;
-                        rem -= div;
-                    }
+                    corr(q0, rem);
                     quotient.data_[0] = static_cast<limb_type>(q0);
                     return static_cast<limb_type>(rem);
                 }
@@ -1759,6 +1740,29 @@ private:
         return found;
     }
 
+    // Left-shift an array of limbs by 'shift' bits (0..63) into dst, returning the carry-out limb.
+    // The source and destination may alias; the operation proceeds from low to high.
+    GINT_FORCE_INLINE static limb_type lshift_limbs_to(const limb_type * src, size_t n, limb_type * dst, int shift) noexcept
+    {
+        limb_type carry = 0;
+        if (shift)
+        {
+            for (size_t i = 0; i < n; ++i)
+            {
+                limb_type cur = src[i];
+                dst[i] = (cur << shift) | carry;
+                carry = static_cast<limb_type>(cur >> (64 - shift));
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < n; ++i)
+                dst[i] = src[i];
+            carry = 0;
+        }
+        return carry;
+    }
+
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
@@ -1815,28 +1819,17 @@ private:
         std::array<limb_type, limbs> v = {};
 
         int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
-        limb_type carry = 0;
-        for (size_t i = 0; i < n; ++i)
-        {
-            limb_type cur = lhs.data_[i];
-            u[i] = (cur << shift) | carry;
-            carry = shift ? static_cast<limb_type>(cur >> (64 - shift)) : 0;
-        }
+        limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
         u[n] = carry;
 
-        carry = 0;
-        for (size_t i = 0; i < div_limbs; ++i)
-        {
-            limb_type cur = divisor.data_[i];
-            v[i] = (cur << shift) | carry;
-            carry = shift ? static_cast<limb_type>(cur >> (64 - shift)) : 0;
-        }
+        carry = lshift_limbs_to(divisor.data_, div_limbs, v.data(), shift);
 
         for (int j = static_cast<int>(n - div_limbs); j >= 0; --j)
         {
             unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + div_limbs]) << 64) | u[j + div_limbs - 1];
+            // Single 128/64 division: compute quotient, derive remainder by multiply-back
             unsigned __int128 qhat = numerator / v[div_limbs - 1];
-            unsigned __int128 rhat = numerator % v[div_limbs - 1];
+            unsigned __int128 rhat = numerator - qhat * v[div_limbs - 1];
 
             if (div_limbs > 1)
             {
@@ -1883,6 +1876,231 @@ private:
             quotient.data_[j] = static_cast<limb_type>(qhat);
         }
         return quotient;
+    }
+
+    // Optimized specialization: two-limb divisor (divisor_limbs == 2)
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept
+    {
+        integer quotient;
+        size_t n = limbs;
+        while (n > 0 && lhs.data_[n - 1] == 0)
+            --n;
+        if (n < 2)
+            return quotient;
+
+        std::array<limb_type, limbs + 1> u = {};
+
+        // Normalize divisor so that the top limb has its MSB set.
+        const limb_type d0 = divisor.data_[0];
+        const limb_type d1 = divisor.data_[1];
+        int shift = __builtin_clzll(d1);
+
+        limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
+        u[n] = carry;
+
+        limb_type v0 = (d0 << shift);
+        limb_type v1 = (d1 << shift) | (shift ? static_cast<limb_type>(d0 >> (64 - shift)) : 0);
+        // 64-bit reciprocal of the top limb for fast estimate
+        const uint64_t inv1 = (v1 ? (static_cast<uint64_t>(~uint64_t(0)) / static_cast<uint64_t>(v1)) : 0);
+
+        for (int j = static_cast<int>(n - 2); j >= 0; --j)
+        {
+            using u128 = unsigned __int128;
+            u128 numerator = (static_cast<u128>(u[j + 2]) << 64) | u[j + 1];
+            // Reciprocal-multiply estimate to avoid DIV; clamp then correct (≤2 corrections).
+            u128 qhat = static_cast<u128>(u[j + 2]) * inv1 + ((static_cast<u128>(u[j + 1]) * inv1) >> 64);
+            if (qhat > static_cast<u128>(~uint64_t(0)))
+                qhat = static_cast<u128>(~uint64_t(0));
+            u128 rhat = numerator - (qhat * v1);
+
+            auto need_corr = [&](u128 q, u128 r) -> bool { return (q == (static_cast<u128>(1) << 64)) || (q * v0 > ((r << 64) | u[j])); };
+            if (need_corr(qhat, rhat))
+            {
+                --qhat;
+                rhat += v1;
+                if ((rhat >> 64) == 0 && need_corr(qhat, rhat))
+                {
+                    --qhat;
+                    rhat += v1;
+                }
+            }
+
+            // Reuse high-limb product: qhat*v1 = numerator - rhat
+            const u128 qhat_v1 = numerator - rhat;
+
+            // Multiply-subtract qhat * v from u[j..j+2]
+            unsigned __int128 borrow = 0;
+            {
+                unsigned __int128 p = qhat * v0 + borrow;
+                if (u[j + 0] < static_cast<limb_type>(p))
+                {
+                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            {
+                unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
+                if (u[j + 1] < static_cast<limb_type>(p))
+                {
+                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
+                    borrow = p >> 64;
+                }
+            }
+
+            if (u[j + 2] < static_cast<limb_type>(borrow))
+            {
+                // Add back divisor and adjust qhat
+                unsigned __int128 carry2 = 0;
+                unsigned __int128 t0 = static_cast<unsigned __int128>(u[j + 0]) + v0 + carry2;
+                u[j + 0] = static_cast<limb_type>(t0);
+                carry2 = t0 >> 64;
+                unsigned __int128 t1 = static_cast<unsigned __int128>(u[j + 1]) + v1 + carry2;
+                u[j + 1] = static_cast<limb_type>(t1);
+                carry2 = t1 >> 64;
+                u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) + carry2);
+                --qhat;
+            }
+            else
+            {
+                u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - borrow);
+            }
+            quotient.data_[j] = static_cast<limb_type>(qhat);
+        }
+        return quotient;
+    }
+
+    // Stub for small-limb types to avoid -Warray-bounds during template instantiation
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept
+    {
+        // Not reachable for L < 2 because divisor_limbs cannot be 2. Keep a safe fallback signature.
+        return div_large(lhs, divisor, 2);
+    }
+
+    // Optimized specialization: three-limb divisor (divisor_limbs == 3)
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 3), integer>::type div_large_3(integer lhs, const integer & divisor) noexcept
+    {
+        integer quotient;
+        size_t n = limbs;
+        while (n > 0 && lhs.data_[n - 1] == 0)
+            --n;
+        if (n < 3)
+            return quotient;
+
+        std::array<limb_type, limbs + 1> u = {};
+        std::array<limb_type, 3> v = {};
+
+        // Normalize divisor: ensure MSB of v[2] is set
+        int shift = __builtin_clzll(divisor.data_[2]);
+        limb_type carry = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            limb_type cur = lhs.data_[i];
+            u[i] = (cur << shift) | carry;
+            carry = shift ? static_cast<limb_type>(cur >> (64 - shift)) : 0;
+        }
+        u[n] = carry;
+
+        carry = lshift_limbs_to(divisor.data_, 3, v.data(), shift);
+
+        for (int j = static_cast<int>(n - 3); j >= 0; --j)
+        {
+            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + 3]) << 64) | u[j + 2];
+            // Single 128/64 division: compute quotient and derive remainder
+            unsigned __int128 qhat = numerator / v[2];
+            unsigned __int128 rhat = numerator - qhat * v[2];
+
+            while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[1] > ((rhat << 64) | u[j + 1]))
+            {
+                --qhat;
+                rhat += v[2];
+                if (rhat >= (static_cast<unsigned __int128>(1) << 64))
+                    break;
+            }
+
+            // Reuse high-limb product: qhat*v[2] = numerator - rhat
+            const unsigned __int128 qhat_v2 = numerator - rhat;
+
+            unsigned __int128 borrow = 0;
+            {
+                unsigned __int128 p = qhat * v[0] + borrow;
+                if (u[j + 0] < static_cast<limb_type>(p))
+                {
+                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            {
+                unsigned __int128 p = qhat * v[1] + borrow;
+                if (u[j + 1] < static_cast<limb_type>(p))
+                {
+                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            {
+                unsigned __int128 p = qhat_v2 + borrow;
+                if (u[j + 2] < static_cast<limb_type>(p))
+                {
+                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - p);
+                    borrow = p >> 64;
+                }
+            }
+
+            if (u[j + 3] < static_cast<limb_type>(borrow))
+            {
+                unsigned __int128 carry2 = 0;
+                for (size_t i = 0; i < 3; ++i)
+                {
+                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
+                    u[j + i] = static_cast<limb_type>(t2);
+                    carry2 = t2 >> 64;
+                }
+                u[j + 3] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 3]) + carry2);
+                --qhat;
+            }
+            else
+            {
+                u[j + 3] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 3]) - borrow);
+            }
+            quotient.data_[j] = static_cast<limb_type>(qhat);
+        }
+        return quotient;
+    }
+
+    // Stub for small-limb types to avoid -Warray-bounds during template instantiation
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 3), integer>::type div_large_3(integer lhs, const integer & divisor) noexcept
+    {
+        // Not reachable for L < 3 because divisor_limbs cannot be 3. Keep a safe fallback signature.
+        return div_large(lhs, divisor, 3);
     }
 
     limb_type data_[limbs] = {};
