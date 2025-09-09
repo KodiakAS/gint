@@ -48,6 +48,5 @@ TEST(WideIntegerStream, ToStringSignedMinValues)
     EXPECT_EQ(gint::to_string(s128_min), std::string("-170141183460469231731687303715884105728"));
 
     S256 s256_min = std::numeric_limits<S256>::min();
-    EXPECT_EQ(gint::to_string(s256_min),
-              std::string("-57896044618658097711785492504343953926634992332820282019728792003956564819968"));
+    EXPECT_EQ(gint::to_string(s256_min), std::string("-57896044618658097711785492504343953926634992332820282019728792003956564819968"));
 }

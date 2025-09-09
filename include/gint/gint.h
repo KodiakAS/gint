@@ -499,8 +499,7 @@ public:
     using limb_type = uint64_t;
     using signed_limb_type = int64_t;
     // Constrain Signed to be exactly 'signed' or 'unsigned' tag types.
-    static_assert(std::is_same<Signed, signed>::value || std::is_same<Signed, unsigned>::value,
-                  "Signed must be 'signed' or 'unsigned'.");
+    static_assert(std::is_same<Signed, signed>::value || std::is_same<Signed, unsigned>::value, "Signed must be 'signed' or 'unsigned'.");
     template <size_t>
     friend struct detail::limbs_equal;
     friend class std::numeric_limits<integer<Bits, Signed>>;
