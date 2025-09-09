@@ -160,6 +160,66 @@ TEST(WideIntegerDivision, LargeDivisor256)
     EXPECT_EQ(q * divisor + r, lhs);
 }
 
+// Additional coverage: 64-bit non power-of-two divisors using small-divisor path
+TEST(WideIntegerDivision, SmallDivisor64_NonPowerOfTwo)
+{
+    using U256 = gint::integer<256, unsigned>;
+    const uint64_t D = 0xF123456789ABCDEFULL; // > 2^32, non power-of-two
+
+    // n = 1 limb
+    {
+        U256 a = U256(0xFFFFFFFFFFFFFFFFULL);
+        U256 q = a / D;
+        U256 r = a % D;
+        uint64_t q_ref = 0xFFFFFFFFFFFFFFFFULL / D;
+        uint64_t r_ref = 0xFFFFFFFFFFFFFFFFULL % D;
+        EXPECT_EQ(q, U256(q_ref));
+        EXPECT_EQ(r, U256(r_ref));
+        EXPECT_LT(static_cast<uint64_t>(U256(r)), D);
+        EXPECT_EQ(q * U256(D) + r, a);
+    }
+
+    // n = 2 limbs (128-bit numerator)
+    {
+        const uint64_t hi = 0x0123456789ABCDEFULL;
+        const uint64_t lo = 0x0FEDCBA987654321ULL;
+        U256 a = (U256(hi) << 64) | U256(lo);
+        U256 q = a / D;
+        U256 r = a % D;
+        unsigned __int128 A = (static_cast<unsigned __int128>(hi) << 64) | lo;
+        unsigned __int128 q_ref = A / D;
+        unsigned __int128 r_ref = A - q_ref * D;
+        EXPECT_EQ(q, U256(q_ref));
+        EXPECT_EQ(r, U256(static_cast<uint64_t>(r_ref)));
+        EXPECT_EQ(q * U256(D) + r, a);
+    }
+
+    // n = 3 limbs (192-bit numerator)
+    {
+        const uint64_t w2 = 0xAAAAAAAAAAAAAAAAULL;
+        const uint64_t w1 = 0x1337133713371337ULL;
+        const uint64_t w0 = 0xBADC0FFEE0DDF00DULL;
+        U256 a = (U256(w2) << 128) | (U256(w1) << 64) | U256(w0);
+        U256 q = a / D;
+        U256 r = a % D;
+        EXPECT_EQ(q * U256(D) + r, a);
+        EXPECT_LT(static_cast<uint64_t>(U256(r)), D);
+    }
+
+    // n = 4 limbs (256-bit numerator)
+    {
+        const uint64_t w3 = 0x7FFFFFFFFFFFFFFFULL;
+        const uint64_t w2 = 0x0123456789ABCDEFULL;
+        const uint64_t w1 = 0x0FEDCBA987654321ULL;
+        const uint64_t w0 = 0x0000000000000003ULL;
+        U256 a = (U256(w3) << 192) | (U256(w2) << 128) | (U256(w1) << 64) | U256(w0);
+        U256 q = a / D;
+        U256 r = a % D;
+        EXPECT_EQ(q * U256(D) + r, a);
+        EXPECT_LT(static_cast<uint64_t>(U256(r)), D);
+    }
+}
+
 TEST(WideIntegerDivision, TwoLimbFastPathMatchesGeneric)
 {
     using U256 = gint::integer<256, unsigned>;

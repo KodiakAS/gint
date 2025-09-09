@@ -57,11 +57,14 @@
 //   µops and shorter dependency chains.
 // - AppleClang on AArch64 tends to generate excellent straight-line code for
 //   the general path, and the extra branching/ICache footprint of fast paths
-//   can outweigh their savings. So we disable fast paths under Clang.
-#if defined(__clang__)
-#    define GINT_ENABLE_MUL_FASTPATH 0
-#else
-#    define GINT_ENABLE_MUL_FASTPATH 1
+//   can outweigh their savings. Default: disable under Clang.
+// Allow users to override via -DGINT_ENABLE_MUL_FASTPATH=0/1.
+#ifndef GINT_ENABLE_MUL_FASTPATH
+#    if defined(__clang__)
+#        define GINT_ENABLE_MUL_FASTPATH 0
+#    else
+#        define GINT_ENABLE_MUL_FASTPATH 1
+#    endif
 #endif
 
 namespace gint
@@ -495,6 +498,9 @@ public:
     static constexpr size_t limbs = detail::storage_count<Bits>::value;
     using limb_type = uint64_t;
     using signed_limb_type = int64_t;
+    // Constrain Signed to be exactly 'signed' or 'unsigned' tag types.
+    static_assert(std::is_same<Signed, signed>::value || std::is_same<Signed, unsigned>::value,
+                  "Signed must be 'signed' or 'unsigned'.");
     template <size_t>
     friend struct detail::limbs_equal;
     friend class std::numeric_limits<integer<Bits, Signed>>;
@@ -2363,7 +2369,11 @@ struct formatter<gint::integer<Bits, Signed>>
 //=== Macro cleanup =============================================================
 
 #undef GINT_UNLIKELY
+#undef GINT_LIKELY
 #undef GINT_ZERO_CHECK
 #undef GINT_DIVZERO_CHECK
 #undef GINT_MODZERO_CHECK
 #undef GINT_CONSTEXPR14
+#undef GINT_FORCE_INLINE
+#undef GINT_RESTRICT
+#undef GINT_ENABLE_MUL_FASTPATH
