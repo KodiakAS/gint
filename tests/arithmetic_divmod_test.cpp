@@ -506,3 +506,72 @@ TEST(WideIntegerDivision, DivModSmall64GenericU192)
     U192 r = lhs % div;
     EXPECT_EQ(q * U192(div) + r, lhs);
 }
+
+// 32-bit boundary: div = 2^32-1 (32-bit path) vs div = 2^32 (64-bit path)
+TEST(WideIntegerDivision, DivModSmall_32bitBoundary)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = (U256(1) << 200) + (U256(1) << 120) + U256(0xDEADBEEFULL);
+
+    const uint64_t d32max = 0xFFFFFFFFULL;         // triggers 32-bit reciprocal branch
+    const uint64_t d32plus = 0x100000000ULL;       // triggers 64-bit reciprocal branch
+
+    // div = 2^32-1
+    U256 q1 = a / d32max;
+    U256 r1 = a % d32max;
+    EXPECT_EQ(q1 * d32max + r1, a);
+    EXPECT_LT(static_cast<uint64_t>(U256(r1)), d32max);
+
+    // div = 2^32
+    U256 q2 = a / d32plus;
+    U256 r2 = a % d32plus;
+    EXPECT_EQ(q2 * d32plus + r2, a);
+    EXPECT_LT(static_cast<uint64_t>(U256(r2)), d32plus);
+}
+
+// Div/mod by UINT64_MAX exercises 64-bit small-divisor reciprocal path
+TEST(WideIntegerDivision, DivModSmall_U64Max)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 a = (U256(1) << 240) + (U256(1) << 128) + (U256(1) << 64) + U256(123456789ULL);
+    const uint64_t d = 0xFFFFFFFFFFFFFFFFULL;
+    U256 q = a / d;
+    U256 r = a % d;
+    EXPECT_EQ(q * d + r, a);
+    EXPECT_LT(static_cast<uint64_t>(U256(r)), d);
+}
+
+// Three-limb divisor: specialized fast path must match generic Knuth-D path
+TEST(WideIntegerDivision, ThreeLimbFastPathMatchesGeneric)
+{
+    using U256 = gint::integer<256, unsigned>;
+
+    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
+    {
+        U256 x = U256(w0);
+        x |= (U256(w1) << 64);
+        x |= (U256(w2) << 128);
+        x |= (U256(w3) << 192);
+        return x;
+    };
+
+    // Three non-zero limbs in divisor (top limb has MSB set to ensure normalization path)
+    U256 divisor = (U256(0x8000000000000000ULL) << 128) | (U256(0x0123456789ABCDEFULL) << 64) | U256(0x0FEDCBA987654321ULL);
+    ASSERT_NE(divisor, U256(0));
+
+    U256 dividends[] = {
+        make_u256(0, 0xFFFFFFFFFFFFFFFFULL, 0x0000000000000001ULL, 0x123456789ABCDEF0ULL),
+        make_u256(0x7FFFFFFFFFFFFFFFULL, 0x0000000000000000ULL, 0xDEADBEEFDEADBEEFULL, 0xBADC0FFEE0DDF00DULL),
+        make_u256(0x0123456789ABCDEFULL, 0x0FEDCBA987654321ULL, 0xCAFEBABECAFED00DULL, 0x0000000000000007ULL),
+        make_u256(0x0000000000000001ULL, 0x8000000000000000ULL, 0x0000000000000000ULL, 0xFFFFFFFFFFFFFFFFULL),
+    };
+
+    for (const auto & lhs : dividends)
+    {
+        U256 q_generic = U256::div_large(lhs, divisor, 3);
+        U256 q_fast = lhs / divisor;               // dispatches to div_large_3
+        U256 q_direct = U256::div_large_3(lhs, divisor);
+        EXPECT_EQ(q_fast, q_generic);
+        EXPECT_EQ(q_direct, q_generic);
+    }
+}

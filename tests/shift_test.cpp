@@ -65,6 +65,41 @@ TEST(WideIntegerShift, LargeShiftAmounts)
     EXPECT_EQ(small, U128(0));
 }
 
+TEST(WideIntegerShift, ExactBoundaryBitCounts)
+{
+    using U128 = gint::integer<128, unsigned>;
+    using S128 = gint::integer<128, signed>;
+    using U256 = gint::integer<256, unsigned>;
+
+    // Left shift by 63 and 64 on 128-bit
+    U128 one = 1;
+    EXPECT_EQ(one << 63, U128(1) << 63);
+    EXPECT_EQ(one << 64, U128(1) << 64);
+
+    // Bridge across limbs: prepare value with lower and next limb bits
+    U256 val = U256(1);
+    U256 v63 = val << 63;
+    U256 v64 = val << 64;
+    EXPECT_NE(v63, U256(0));
+    EXPECT_NE(v64, U256(0));
+    // Shifting by 64 moves limb index by one
+    EXPECT_EQ(v64, (U256(1) << 64));
+
+    // Right shift by 63/64/127/128 on unsigned 128-bit
+    U128 top = U128(1) << 127;
+    EXPECT_EQ(top >> 63, U128(1) << 64);
+    EXPECT_EQ(top >> 64, U128(1) << 63);
+    EXPECT_EQ(top >> 127, U128(1));
+    EXPECT_EQ(top >> 128, U128(0));
+
+    // Signed arithmetic right shift should sign-extend at boundaries
+    S128 minus_one = S128(-1);
+    EXPECT_EQ(minus_one >> 63, S128(-1));
+    EXPECT_EQ(minus_one >> 64, S128(-1));
+    EXPECT_EQ(minus_one >> 127, S128(-1));
+    EXPECT_EQ(minus_one >> 128, S128(-1));
+}
+
 TEST(WideIntegerShift, SignedRightShiftWrapper)
 {
     using S128 = gint::integer<128, signed>;
