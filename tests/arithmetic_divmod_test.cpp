@@ -513,8 +513,8 @@ TEST(WideIntegerDivision, DivModSmall_32bitBoundary)
     using U256 = gint::integer<256, unsigned>;
     U256 a = (U256(1) << 200) + (U256(1) << 120) + U256(0xDEADBEEFULL);
 
-    const uint64_t d32max = 0xFFFFFFFFULL;         // triggers 32-bit reciprocal branch
-    const uint64_t d32plus = 0x100000000ULL;       // triggers 64-bit reciprocal branch
+    const uint64_t d32max = 0xFFFFFFFFULL; // triggers 32-bit reciprocal branch
+    const uint64_t d32plus = 0x100000000ULL; // triggers 64-bit reciprocal branch
 
     // div = 2^32-1
     U256 q1 = a / d32max;
@@ -569,7 +569,7 @@ TEST(WideIntegerDivision, ThreeLimbFastPathMatchesGeneric)
     for (const auto & lhs : dividends)
     {
         U256 q_generic = U256::div_large(lhs, divisor, 3);
-        U256 q_fast = lhs / divisor;               // dispatches to div_large_3
+        U256 q_fast = lhs / divisor; // dispatches to div_large_3
         U256 q_direct = U256::div_large_3(lhs, divisor);
         EXPECT_EQ(q_fast, q_generic);
         EXPECT_EQ(q_direct, q_generic);
