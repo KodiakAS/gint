@@ -219,18 +219,19 @@ TEST(FloatInteropEdges, CompareWithFloat_FloatPrecision)
 TEST(FloatInteropEdges, CompareWithLongDouble_PrecisionBoundary)
 {
     using U256 = gint::integer<256, unsigned>;
-    const int p = std::numeric_limits<long double>::digits;
-    ASSERT_GE(p, 64);
+    const int p = std::numeric_limits<long double>::digits; // precision bits
 
-    // shift > 0, exact representable as long double: 2^(p-1)
-    U256 a = U256(1) << (p - 1);
-    long double d = std::ldexp(static_cast<long double>(1.0L), p - 1);
+    // Use the integer precision boundary value 2^p:
+    // - 2^p is exactly representable as long double
+    // - 2^p + 1 is not representable
+    U256 a = U256(1) << p;
+    long double d = std::ldexp(static_cast<long double>(1.0L), p);
+
     EXPECT_TRUE(a == d);
     EXPECT_FALSE(a != d);
     EXPECT_TRUE(a <= d);
     EXPECT_TRUE(a >= d);
 
-    // a + 1 is not representable; integer should compare greater than d
     U256 a2 = a + U256(1);
     EXPECT_TRUE(a2 > d);
     EXPECT_FALSE(a2 == d);
