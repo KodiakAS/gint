@@ -1879,7 +1879,7 @@ private:
                     borrow = p >> 64;
                 }
             }
-            if (u[j + div_limbs] < static_cast<limb_type>(borrow))
+            if (static_cast<unsigned __int128>(u[j + div_limbs]) < borrow)
             {
                 unsigned __int128 carry2 = 0;
                 for (size_t i = 0; i < div_limbs; ++i)
@@ -1990,8 +1990,7 @@ private:
                         borrow = p >> 64;
                     }
                 }
-                limb_type borrow_hi = static_cast<limb_type>(static_cast<unsigned __int128>(borrow) >> 64);
-                if (uj2 < borrow_hi)
+                if (static_cast<unsigned __int128>(uj2) < borrow)
                 {
                     unsigned __int128 carry2 = 0;
                     unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
@@ -2005,7 +2004,7 @@ private:
                 }
                 else
                 {
-                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow_hi);
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
                 }
                 quotient.data_[j] = static_cast<limb_type>(qhat);
             };
@@ -2075,8 +2074,7 @@ private:
                         borrow = p >> 64;
                     }
                 }
-                limb_type borrow_hi = static_cast<limb_type>(static_cast<unsigned __int128>(borrow) >> 64);
-                if (uj2 < borrow_hi)
+                if (static_cast<unsigned __int128>(uj2) < borrow)
                 {
                     unsigned __int128 carry2 = 0;
                     unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
@@ -2090,7 +2088,7 @@ private:
                 }
                 else
                 {
-                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow_hi);
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
                 }
                 quotient.data_[j] = static_cast<limb_type>(qhat);
             }
@@ -2192,7 +2190,7 @@ private:
                 }
             }
 
-            if (u[j + 3] < static_cast<limb_type>(borrow))
+            if (static_cast<unsigned __int128>(u[j + 3]) < borrow)
             {
                 unsigned __int128 carry2 = 0;
                 for (size_t i = 0; i < 3; ++i)

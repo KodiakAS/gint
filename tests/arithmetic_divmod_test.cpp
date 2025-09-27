@@ -328,6 +328,33 @@ TEST(WideIntegerDivision, TwoLimbBorrowHighBitCritical)
     EXPECT_EQ(q_direct, q_generic);
 }
 
+TEST(WideIntegerDivision, TwoLimbBorrowLowPartCritical)
+{
+    using U256 = gint::integer<256, unsigned>;
+    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
+    {
+        U256 x = U256(w0);
+        x |= (U256(w1) << 64);
+        x |= (U256(w2) << 128);
+        x |= (U256(w3) << 192);
+        return x;
+    };
+
+    // Regression: borrow fits in 64 bits but exceeds the next limb, requiring add-back
+    U256 lhs = make_u256(0xfefc33e114ad27f3ULL, 0xfcd67a5601f5602aULL, 0x48742c5441466274ULL, 0xf6153b4fa7293ff0ULL);
+    U256 rhs = make_u256(0x0000000000000000ULL, 0x0000000000000000ULL, 0x885c52cdadfc8ea0ULL, 0xc1f885eafdfcb690ULL);
+
+    U256 q_generic = U256::div_large(lhs, rhs, 2);
+    U256 q_fast = lhs / rhs;
+    U256 q_direct = U256::div_large_2(lhs, rhs);
+    U256 r_generic = lhs - q_generic * rhs;
+    U256 r_fast = lhs - q_fast * rhs;
+
+    EXPECT_EQ(q_fast, q_generic);
+    EXPECT_EQ(q_direct, q_generic);
+    EXPECT_EQ(r_fast, r_generic);
+}
+
 TEST(WideIntegerDivision, LargeShiftSubtract512)
 {
     using U512 = gint::integer<512, unsigned>;
