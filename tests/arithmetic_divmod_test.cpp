@@ -126,6 +126,50 @@ TEST(WideIntegerDivision, PowerOfTwoSigned)
     EXPECT_EQ(q, S256(1) << 70);
 }
 
+TEST(WideIntegerDivision, SignedPowerOfTwoMinValue)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min = std::numeric_limits<S128>::min();
+
+    const S128 expected_half = -(S128(1) << 126);
+    EXPECT_EQ(min / 2, expected_half);
+    EXPECT_EQ(min % 2, S128(0));
+
+    const S128 expected_shift = -(S128(1) << 120);
+    const uint64_t divisor = 1ULL << 7; // 128
+    EXPECT_EQ(min / static_cast<long long>(divisor), expected_shift);
+    EXPECT_EQ(min % static_cast<long long>(divisor), S128(0));
+
+    const S128 expected_large = S128(1) << 64;
+    const long long min_divisor = std::numeric_limits<long long>::min();
+    EXPECT_EQ(min / min_divisor, expected_large);
+    EXPECT_EQ(min % min_divisor, S128(0));
+}
+
+TEST(WideIntegerDivision, SignedSmallDivisorInt64Min)
+{
+    using S256 = gint::integer<256, signed>;
+    const long long divisor = std::numeric_limits<long long>::min();
+
+    {
+        S256 lhs = S256(1) << 130;
+        S256 q = lhs / divisor;
+        S256 r = lhs % divisor;
+        EXPECT_EQ(q, -(S256(1) << 67));
+        EXPECT_EQ(r, S256(0));
+        EXPECT_EQ(q * S256(divisor) + r, lhs);
+    }
+
+    {
+        S256 lhs = (S256(1) << 130) + S256(12345);
+        S256 q = lhs / divisor;
+        S256 r = lhs % divisor;
+        EXPECT_EQ(q, -(S256(1) << 67));
+        EXPECT_EQ(r, S256(12345));
+        EXPECT_EQ(q * S256(divisor) + r, lhs);
+    }
+}
+
 TEST(WideIntegerDivision, UInt128Operands)
 {
     using U128 = gint::integer<128, unsigned>;

@@ -1562,8 +1562,23 @@ private:
         // Power-of-two divisor becomes a simple shift/modulo by mask.
         if ((div & (div - 1)) == 0)
         {
-            const int s = __builtin_ctzll(div);
-            quotient = *this >> s;
+            const unsigned s = static_cast<unsigned>(__builtin_ctzll(div));
+            if (s == 0)
+            {
+                quotient = *this;
+            }
+            else
+            {
+                quotient = integer();
+                const limb_type mask = (limb_type(1) << s) - 1;
+                limb_type carry = 0;
+                for (size_t i = limbs; i-- > 0;)
+                {
+                    const limb_type cur = data_[i];
+                    quotient.data_[i] = (cur >> s) | (carry << (64 - s));
+                    carry = cur & mask;
+                }
+            }
             return static_cast<limb_type>(data_[0] & (div - 1));
         }
         // Fast path: 32-bit divisor using reciprocal-multiply in base 2^32.
@@ -1716,7 +1731,9 @@ private:
             lhs_neg = true;
         }
         bool div_neg = div < 0;
-        limb_type abs_div = div_neg ? static_cast<limb_type>(-div) : static_cast<limb_type>(div);
+        limb_type abs_div = static_cast<limb_type>(div);
+        if (div_neg)
+            abs_div = limb_type(0) - abs_div;
         signed_limb_type rem = static_cast<signed_limb_type>(tmp.div_mod_small(abs_div, quotient));
         if (lhs_neg)
             rem = -rem;
