@@ -146,6 +146,16 @@ TEST(WideIntegerDivision, SignedPowerOfTwoMinValue)
     EXPECT_EQ(min % min_divisor, S128(0));
 }
 
+TEST(WideIntegerDivision, SignedMinDividedByItself)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min = std::numeric_limits<S128>::min();
+
+    // 回归覆盖：在修复前，此处会返回 -1，确保测试能够捕捉该缺陷。
+    EXPECT_EQ(min / min, S128(1));
+    EXPECT_EQ(min % min, S128(0));
+}
+
 TEST(WideIntegerDivision, SignedSmallDivisorInt64Min)
 {
     using S256 = gint::integer<256, signed>;

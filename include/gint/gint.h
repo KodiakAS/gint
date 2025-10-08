@@ -502,6 +502,8 @@ public:
     static_assert(std::is_same<Signed, signed>::value || std::is_same<Signed, unsigned>::value, "Signed must be 'signed' or 'unsigned'.");
     template <size_t>
     friend struct detail::limbs_equal;
+    template <size_t, typename>
+    friend class integer;
     friend class std::numeric_limits<integer<Bits, Signed>>;
 
     // Constructors
@@ -988,15 +990,27 @@ public:
     {
         bool lhs_neg = false;
         bool rhs_neg = false;
+        bool lhs_is_min = false;
+        bool rhs_is_min = false;
         integer divisor = rhs;
         if (std::is_same<Signed, signed>::value)
         {
             lhs_neg = lhs.data_[limbs - 1] >> 63;
             rhs_neg = divisor.data_[limbs - 1] >> 63;
             if (lhs_neg)
-                lhs = -lhs;
+            {
+                lhs_is_min = is_min_value(lhs);
+                if (!lhs_is_min)
+                    lhs = -lhs;
+            }
             if (rhs_neg)
-                divisor = -divisor;
+            {
+                rhs_is_min = is_min_value(divisor);
+                if (!rhs_is_min)
+                    divisor = -divisor;
+            }
+            if (GINT_UNLIKELY(lhs_is_min || rhs_is_min))
+                return div_unsigned_path(lhs, divisor, lhs_neg, rhs_neg, lhs_is_min, rhs_is_min);
         }
         integer result;
         size_t divisor_limbs = limbs;
@@ -1740,6 +1754,92 @@ private:
         if (lhs_neg != div_neg)
             quotient = -quotient;
         return rem;
+    }
+
+    static integer
+    div_unsigned_path(const integer & lhs_value, const integer & rhs_value, bool lhs_neg, bool rhs_neg, bool lhs_is_min, bool rhs_is_min)
+    {
+        using Unsigned = integer<Bits, unsigned>;
+        Unsigned lhs_mag;
+        Unsigned divisor_mag;
+
+        if (lhs_is_min)
+        {
+            for (size_t i = 0; i + 1 < limbs; ++i)
+                lhs_mag.data_[i] = 0;
+            lhs_mag.data_[limbs - 1] = static_cast<limb_type>(1ULL << 63);
+        }
+        else
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                lhs_mag.data_[i] = lhs_value.data_[i];
+        }
+
+        if (rhs_is_min)
+        {
+            for (size_t i = 0; i + 1 < limbs; ++i)
+                divisor_mag.data_[i] = 0;
+            divisor_mag.data_[limbs - 1] = static_cast<limb_type>(1ULL << 63);
+        }
+        else
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                divisor_mag.data_[i] = rhs_value.data_[i];
+        }
+
+        Unsigned quotient_mag;
+        size_t divisor_limbs = limbs;
+        while (divisor_limbs > 0 && divisor_mag.data_[divisor_limbs - 1] == 0)
+            --divisor_limbs;
+        GINT_DIVZERO_CHECK(divisor_limbs == 0);
+        if (divisor_limbs == 1)
+        {
+            lhs_mag.div_mod_small(divisor_mag.data_[0], quotient_mag);
+        }
+        else
+        {
+            int pow_bit;
+            if (Unsigned::is_power_of_two(divisor_mag, pow_bit))
+            {
+                quotient_mag = lhs_mag >> pow_bit;
+            }
+            else if (limbs == 2)
+            {
+                quotient_mag = Unsigned::div_128(lhs_mag, divisor_mag);
+            }
+            else if (divisor_limbs == 2)
+            {
+                quotient_mag = Unsigned::div_large_2(lhs_mag, divisor_mag);
+            }
+            else if (divisor_limbs == 3)
+            {
+                quotient_mag = Unsigned::div_large_3(lhs_mag, divisor_mag);
+            }
+            else
+            {
+                quotient_mag = Unsigned::div_large(lhs_mag, divisor_mag, divisor_limbs);
+            }
+        }
+
+        integer result;
+        for (size_t i = 0; i < limbs; ++i)
+            result.data_[i] = quotient_mag.data_[i];
+
+        if (lhs_neg != rhs_neg)
+            result = -result;
+        return result;
+    }
+
+    static bool is_min_value(const integer & v) noexcept
+    {
+        if (!std::is_same<Signed, signed>::value)
+            return false;
+        for (size_t i = 0; i + 1 < limbs; ++i)
+        {
+            if (v.data_[i] != 0)
+                return false;
+        }
+        return v.data_[limbs - 1] == (static_cast<limb_type>(1ULL << 63));
     }
 
     static bool is_power_of_two(const integer & v, int & bit_index) noexcept
