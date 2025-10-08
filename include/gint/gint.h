@@ -997,16 +997,19 @@ public:
         {
             lhs_neg = lhs.data_[limbs - 1] >> 63;
             rhs_neg = divisor.data_[limbs - 1] >> 63;
+            const limb_type min_magnitude = static_cast<limb_type>(1ULL << 63);
             if (lhs_neg)
             {
-                lhs_is_min = is_min_value(lhs);
-                if (!lhs_is_min)
+                if (GINT_UNLIKELY(lhs.data_[limbs - 1] == min_magnitude && is_min_value(lhs)))
+                    lhs_is_min = true;
+                else
                     lhs = -lhs;
             }
             if (rhs_neg)
             {
-                rhs_is_min = is_min_value(divisor);
-                if (!rhs_is_min)
+                if (GINT_UNLIKELY(divisor.data_[limbs - 1] == min_magnitude && is_min_value(divisor)))
+                    rhs_is_min = true;
+                else
                     divisor = -divisor;
             }
             if (GINT_UNLIKELY(lhs_is_min || rhs_is_min))
@@ -1765,6 +1768,7 @@ private:
 
         if (lhs_is_min)
         {
+            // 直接构造绝对值幅度，避免对补码最小值执行求反导致符号保持为负。
             for (size_t i = 0; i + 1 < limbs; ++i)
                 lhs_mag.data_[i] = 0;
             lhs_mag.data_[limbs - 1] = static_cast<limb_type>(1ULL << 63);
@@ -1777,6 +1781,7 @@ private:
 
         if (rhs_is_min)
         {
+            // 同理：除数为最小值时仅复制其幅度以复用无符号除法实现。
             for (size_t i = 0; i + 1 < limbs; ++i)
                 divisor_mag.data_[i] = 0;
             divisor_mag.data_[limbs - 1] = static_cast<limb_type>(1ULL << 63);
@@ -1834,12 +1839,14 @@ private:
     {
         if (!std::is_same<Signed, signed>::value)
             return false;
+        if (v.data_[limbs - 1] != static_cast<limb_type>(1ULL << 63))
+            return false;
         for (size_t i = 0; i + 1 < limbs; ++i)
         {
             if (v.data_[i] != 0)
                 return false;
         }
-        return v.data_[limbs - 1] == (static_cast<limb_type>(1ULL << 63));
+        return true;
     }
 
     static bool is_power_of_two(const integer & v, int & bit_index) noexcept
