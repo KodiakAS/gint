@@ -279,8 +279,10 @@ GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noe
         add_limbs_scalar<L>(lhs, rhs);
         return;
     }
-#endif
     add_limbs_runtime<L>(lhs, rhs);
+#else
+    add_limbs_scalar<L>(lhs, rhs);
+#endif
 }
 
 template <size_t L>
@@ -346,8 +348,10 @@ GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noe
         sub_limbs_scalar<L>(lhs, rhs);
         return;
     }
-#endif
     sub_limbs_runtime<L>(lhs, rhs);
+#else
+    sub_limbs_scalar<L>(lhs, rhs);
+#endif
 }
 
 template <size_t L>
@@ -412,8 +416,10 @@ GINT_CONSTEXPR14 inline void add_limbs_copy(uint64_t * dst, const uint64_t * lhs
         add_limbs_copy_scalar<L>(dst, lhs, rhs);
         return;
     }
-#endif
     add_limbs_copy_runtime<L>(dst, lhs, rhs);
+#else
+    add_limbs_copy_scalar<L>(dst, lhs, rhs);
+#endif
 }
 
 template <size_t L>
@@ -479,8 +485,10 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs
         sub_limbs_copy_scalar<L>(dst, lhs, rhs);
         return;
     }
-#endif
     sub_limbs_copy_runtime<L>(dst, lhs, rhs);
+#else
+    sub_limbs_copy_scalar<L>(dst, lhs, rhs);
+#endif
 }
 
 // Perform 128-bit multiplication using a straightforward schoolbook
