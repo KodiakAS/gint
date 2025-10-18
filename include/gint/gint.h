@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <ostream>
 #include <stdexcept>
@@ -48,6 +49,24 @@
 #    define GINT_RESTRICT __restrict
 #else
 #    define GINT_RESTRICT
+#endif
+
+#ifndef __has_builtin
+#    define __has_builtin(x) 0
+#endif
+
+#if __has_builtin(__builtin_is_constant_evaluated)
+#    define GINT_HAS_IS_CONSTANT_EVALUATED 1
+#else
+#    define GINT_HAS_IS_CONSTANT_EVALUATED 0
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_LIMB_ASM
+#    if defined(__aarch64__)
+#        define GINT_ENABLE_AARCH64_LIMB_ASM 1
+#    else
+#        define GINT_ENABLE_AARCH64_LIMB_ASM 0
+#    endif
 #endif
 
 // Fast-path policy for multiplication
@@ -198,9 +217,8 @@ inline uint64_t addc64(uint64_t a, uint64_t b, uint64_t & c) noexcept
     return s;
 }
 
-
 template <size_t L>
-GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 inline void add_limbs_scalar(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 carry = 0;
     for (size_t i = 0; i < L; ++i)
@@ -211,22 +229,62 @@ GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noe
     }
 }
 
-template <>
-GINT_CONSTEXPR14 inline void add_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
+template <size_t L>
+GINT_FORCE_INLINE void add_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    unsigned __int128 sum = 0;
-    sum = static_cast<unsigned __int128>(lhs[0]) + rhs[0];
-    lhs[0] = static_cast<uint64_t>(sum);
-    sum = static_cast<unsigned __int128>(lhs[1]) + rhs[1] + (sum >> 64);
-    lhs[1] = static_cast<uint64_t>(sum);
-    sum = static_cast<unsigned __int128>(lhs[2]) + rhs[2] + (sum >> 64);
-    lhs[2] = static_cast<uint64_t>(sum);
-    sum = static_cast<unsigned __int128>(lhs[3]) + rhs[3] + (sum >> 64);
-    lhs[3] = static_cast<uint64_t>(sum);
+    add_limbs_scalar<L>(lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void add_limbs_runtime<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    using u128 = unsigned __int128;
+#if defined(__aarch64__) && GINT_ENABLE_AARCH64_LIMB_ASM
+    asm volatile("ldp x8, x9, [%[lhs]]\n\t"
+                 "ldp x10, x11, [%[lhs], #16]\n\t"
+                 "ldp x12, x13, [%[rhs]]\n\t"
+                 "ldp x14, x15, [%[rhs], #16]\n\t"
+                 "adds x8, x8, x12\n\t"
+                 "adcs x9, x9, x13\n\t"
+                 "adcs x10, x10, x14\n\t"
+                 "adc  x11, x11, x15\n\t"
+                 "stp x8, x9, [%[lhs]]\n\t"
+                 "stp x10, x11, [%[lhs], #16]"
+                 :
+                 : [lhs] "r"(lhs), [rhs] "r"(rhs)
+                 : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "cc", "memory");
+    return;
+#endif
+    const u128 lo_a = (u128(lhs[1]) << 64) | lhs[0];
+    const u128 lo_b = (u128(rhs[1]) << 64) | rhs[0];
+    const u128 hi_a = (u128(lhs[3]) << 64) | lhs[2];
+    const u128 hi_b = (u128(rhs[3]) << 64) | rhs[2];
+
+    const u128 lo_sum = lo_a + lo_b;
+    const u128 carry = lo_sum < lo_a;
+    const u128 hi_sum = hi_a + hi_b + carry;
+
+    lhs[0] = static_cast<uint64_t>(lo_sum);
+    lhs[1] = static_cast<uint64_t>(lo_sum >> 64);
+    lhs[2] = static_cast<uint64_t>(hi_sum);
+    lhs[3] = static_cast<uint64_t>(hi_sum >> 64);
 }
 
 template <size_t L>
-GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED
+    if (__builtin_is_constant_evaluated())
+    {
+        add_limbs_scalar<L>(lhs, rhs);
+        return;
+    }
+#endif
+    add_limbs_runtime<L>(lhs, rhs);
+}
+
+template <size_t L>
+GINT_CONSTEXPR14 inline void sub_limbs_scalar(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 borrow = 0;
     for (size_t i = 0; i < L; ++i)
@@ -238,49 +296,191 @@ GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noe
     }
 }
 
-template <>
-GINT_CONSTEXPR14 inline void sub_limbs<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
+template <size_t L>
+GINT_FORCE_INLINE void sub_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-    uint64_t r0 = lhs[0] - rhs[0];
-    bool b0 = lhs[0] < rhs[0];
+    sub_limbs_scalar<L>(lhs, rhs);
+}
 
-    uint64_t r1 = lhs[1] - rhs[1];
-    bool b1 = lhs[1] < rhs[1];
+template <>
+GINT_FORCE_INLINE void sub_limbs_runtime<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    using u128 = unsigned __int128;
+#if defined(__aarch64__) && GINT_ENABLE_AARCH64_LIMB_ASM
+    asm volatile("ldp x8, x9, [%[lhs]]\n\t"
+                 "ldp x10, x11, [%[lhs], #16]\n\t"
+                 "ldp x12, x13, [%[rhs]]\n\t"
+                 "ldp x14, x15, [%[rhs], #16]\n\t"
+                 "subs x8, x8, x12\n\t"
+                 "sbcs x9, x9, x13\n\t"
+                 "sbcs x10, x10, x14\n\t"
+                 "sbc  x11, x11, x15\n\t"
+                 "stp x8, x9, [%[lhs]]\n\t"
+                 "stp x10, x11, [%[lhs], #16]"
+                 :
+                 : [lhs] "r"(lhs), [rhs] "r"(rhs)
+                 : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "cc", "memory");
+    return;
+#endif
+    const u128 lo_a = (u128(lhs[1]) << 64) | lhs[0];
+    const u128 lo_b = (u128(rhs[1]) << 64) | rhs[0];
+    const u128 hi_a = (u128(lhs[3]) << 64) | lhs[2];
+    const u128 hi_b = (u128(rhs[3]) << 64) | rhs[2];
 
-    uint64_t r2 = lhs[2] - rhs[2];
-    bool b2 = lhs[2] < rhs[2];
+    const u128 lo_diff = lo_a - lo_b;
+    const u128 borrow = lo_a < lo_b;
+    const u128 hi_diff = hi_a - hi_b - borrow;
 
-    uint64_t r3 = lhs[3] - rhs[3];
+    lhs[0] = static_cast<uint64_t>(lo_diff);
+    lhs[1] = static_cast<uint64_t>(lo_diff >> 64);
+    lhs[2] = static_cast<uint64_t>(hi_diff);
+    lhs[3] = static_cast<uint64_t>(hi_diff >> 64);
+}
 
-    if (b0)
+template <size_t L>
+GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED
+    if (__builtin_is_constant_evaluated())
     {
-        if (r1 == 0)
-        {
-            b1 = true;
-            r1 = UINT64_MAX;
-        }
-        else
-            --r1;
+        sub_limbs_scalar<L>(lhs, rhs);
+        return;
     }
+#endif
+    sub_limbs_runtime<L>(lhs, rhs);
+}
 
-    if (b1)
+template <size_t L>
+GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    unsigned __int128 carry = 0;
+    for (size_t i = 0; i < L; ++i)
     {
-        if (r2 == 0)
-        {
-            b2 = true;
-            r2 = UINT64_MAX;
-        }
-        else
-            --r2;
+        unsigned __int128 sum = static_cast<unsigned __int128>(lhs[i]) + rhs[i] + carry;
+        dst[i] = static_cast<uint64_t>(sum);
+        carry = sum >> 64;
     }
+}
 
-    if (b2)
-        --r3;
+template <size_t L>
+GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    add_limbs_copy_scalar<L>(dst, lhs, rhs);
+}
 
-    lhs[0] = r0;
-    lhs[1] = r1;
-    lhs[2] = r2;
-    lhs[3] = r3;
+template <>
+GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if defined(__aarch64__) && GINT_ENABLE_AARCH64_LIMB_ASM
+    asm volatile("ldp x8, x9, [%[lhs]]\n\t"
+                 "ldp x10, x11, [%[lhs], #16]\n\t"
+                 "ldp x12, x13, [%[rhs]]\n\t"
+                 "ldp x14, x15, [%[rhs], #16]\n\t"
+                 "adds x8, x8, x12\n\t"
+                 "adcs x9, x9, x13\n\t"
+                 "adcs x10, x10, x14\n\t"
+                 "adc  x11, x11, x15\n\t"
+                 "stp x8, x9, [%[dst]]\n\t"
+                 "stp x10, x11, [%[dst], #16]"
+                 :
+                 : [dst] "r"(dst), [lhs] "r"(lhs), [rhs] "r"(rhs)
+                 : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "cc", "memory");
+    return;
+#endif
+    using u128 = unsigned __int128;
+    const u128 lo_a = (u128(lhs[1]) << 64) | lhs[0];
+    const u128 lo_b = (u128(rhs[1]) << 64) | rhs[0];
+    const u128 hi_a = (u128(lhs[3]) << 64) | lhs[2];
+    const u128 hi_b = (u128(rhs[3]) << 64) | rhs[2];
+
+    const u128 lo_sum = lo_a + lo_b;
+    const u128 carry = lo_sum < lo_a;
+    const u128 hi_sum = hi_a + hi_b + carry;
+
+    dst[0] = static_cast<uint64_t>(lo_sum);
+    dst[1] = static_cast<uint64_t>(lo_sum >> 64);
+    dst[2] = static_cast<uint64_t>(hi_sum);
+    dst[3] = static_cast<uint64_t>(hi_sum >> 64);
+}
+
+template <size_t L>
+GINT_CONSTEXPR14 inline void add_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED
+    if (__builtin_is_constant_evaluated())
+    {
+        add_limbs_copy_scalar<L>(dst, lhs, rhs);
+        return;
+    }
+#endif
+    add_limbs_copy_runtime<L>(dst, lhs, rhs);
+}
+
+template <size_t L>
+GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    unsigned __int128 borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned __int128 lhs_i = lhs[i];
+        unsigned __int128 subtrahend = static_cast<unsigned __int128>(rhs[i]) + borrow;
+        dst[i] = static_cast<uint64_t>(lhs_i - subtrahend);
+        borrow = lhs_i < subtrahend;
+    }
+}
+
+template <size_t L>
+GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    sub_limbs_copy_scalar<L>(dst, lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if defined(__aarch64__) && GINT_ENABLE_AARCH64_LIMB_ASM
+    asm volatile("ldp x8, x9, [%[lhs]]\n\t"
+                 "ldp x10, x11, [%[lhs], #16]\n\t"
+                 "ldp x12, x13, [%[rhs]]\n\t"
+                 "ldp x14, x15, [%[rhs], #16]\n\t"
+                 "subs x8, x8, x12\n\t"
+                 "sbcs x9, x9, x13\n\t"
+                 "sbcs x10, x10, x14\n\t"
+                 "sbc  x11, x11, x15\n\t"
+                 "stp x8, x9, [%[dst]]\n\t"
+                 "stp x10, x11, [%[dst], #16]"
+                 :
+                 : [dst] "r"(dst), [lhs] "r"(lhs), [rhs] "r"(rhs)
+                 : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "cc", "memory");
+    return;
+#endif
+    using u128 = unsigned __int128;
+    const u128 lo_a = (u128(lhs[1]) << 64) | lhs[0];
+    const u128 lo_b = (u128(rhs[1]) << 64) | rhs[0];
+    const u128 hi_a = (u128(lhs[3]) << 64) | lhs[2];
+    const u128 hi_b = (u128(rhs[3]) << 64) | rhs[2];
+
+    const u128 lo_diff = lo_a - lo_b;
+    const u128 borrow = lo_a < lo_b;
+    const u128 hi_diff = hi_a - hi_b - borrow;
+
+    dst[0] = static_cast<uint64_t>(lo_diff);
+    dst[1] = static_cast<uint64_t>(lo_diff >> 64);
+    dst[2] = static_cast<uint64_t>(hi_diff);
+    dst[3] = static_cast<uint64_t>(hi_diff >> 64);
+}
+
+template <size_t L>
+GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED
+    if (__builtin_is_constant_evaluated())
+    {
+        sub_limbs_copy_scalar<L>(dst, lhs, rhs);
+        return;
+    }
+#endif
+    sub_limbs_copy_runtime<L>(dst, lhs, rhs);
 }
 
 // Perform 128-bit multiplication using a straightforward schoolbook
@@ -802,70 +1002,90 @@ public:
     }
 
     // Friend operators
-    GINT_CONSTEXPR14 friend integer operator+(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator+(const integer & lhs, const integer & rhs) noexcept
     {
-        lhs += rhs;
-        return lhs;
+        integer result;
+        detail::add_limbs_copy<limbs>(result.data_, lhs.data_, rhs.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend GINT_CONSTEXPR14 integer operator+(integer lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator+(const integer & lhs, T rhs) noexcept
     {
-        lhs += integer(rhs);
-        return lhs;
+        integer rhs_int(rhs);
+        integer result;
+        detail::add_limbs_copy<limbs>(result.data_, lhs.data_, rhs_int.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend GINT_CONSTEXPR14 integer operator+(T lhs, integer rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator+(T lhs, const integer & rhs) noexcept
     {
-        rhs += integer(lhs);
-        return rhs;
+        integer lhs_int(lhs);
+        integer result;
+        detail::add_limbs_copy<limbs>(result.data_, lhs_int.data_, rhs.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator+(integer lhs, T rhs) noexcept
+    friend integer operator+(const integer & lhs, T rhs) noexcept
     {
-        lhs += integer(rhs);
-        return lhs;
+        integer rhs_int(rhs);
+        integer result;
+        detail::add_limbs_copy<limbs>(result.data_, lhs.data_, rhs_int.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator+(T lhs, integer rhs) noexcept
+    friend integer operator+(T lhs, const integer & rhs) noexcept
     {
-        rhs += integer(lhs);
-        return rhs;
+        integer lhs_int(lhs);
+        integer result;
+        detail::add_limbs_copy<limbs>(result.data_, lhs_int.data_, rhs.data_);
+        return result;
     }
 
-    GINT_CONSTEXPR14 friend integer operator-(integer lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend integer operator-(const integer & lhs, const integer & rhs) noexcept
     {
-        lhs -= rhs;
-        return lhs;
+        integer result;
+        detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend GINT_CONSTEXPR14 integer operator-(integer lhs, T rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator-(const integer & lhs, T rhs) noexcept
     {
-        lhs -= integer(rhs);
-        return lhs;
+        integer rhs_int(rhs);
+        integer result;
+        detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs_int.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend GINT_CONSTEXPR14 integer operator-(T lhs, integer rhs) noexcept
+    friend GINT_CONSTEXPR14 integer operator-(T lhs, const integer & rhs) noexcept
     {
-        return integer(lhs) - rhs;
+        integer lhs_int(lhs);
+        integer result;
+        detail::sub_limbs_copy<limbs>(result.data_, lhs_int.data_, rhs.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator-(integer lhs, T rhs) noexcept
+    friend integer operator-(const integer & lhs, T rhs) noexcept
     {
-        lhs -= integer(rhs);
-        return lhs;
+        integer rhs_int(rhs);
+        integer result;
+        detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs_int.data_);
+        return result;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator-(T lhs, integer rhs) noexcept
+    friend integer operator-(T lhs, const integer & rhs) noexcept
     {
-        return integer(lhs) - rhs;
+        integer lhs_int(lhs);
+        integer result;
+        detail::sub_limbs_copy<limbs>(result.data_, lhs_int.data_, rhs.data_);
+        return result;
     }
 
     GINT_CONSTEXPR14 friend integer operator&(integer lhs, const integer & rhs) noexcept
@@ -2219,7 +2439,7 @@ private:
         return div_large(lhs, divisor, 3);
     }
 
-    limb_type data_[limbs] = {};
+    alignas(16) limb_type data_[limbs] = {};
 };
 
 } // namespace gint
