@@ -998,6 +998,7 @@ public:
             lhs_neg = lhs.data_[limbs - 1] >> 63;
             rhs_neg = divisor.data_[limbs - 1] >> 63;
             const limb_type min_magnitude = static_cast<limb_type>(1ULL << 63);
+            // 快路径：仅当最高 limb 匹配补码最小值时再调用 is_min_value，避免普通负数走慢分支。
             if (lhs_neg)
             {
                 if (GINT_UNLIKELY(lhs.data_[limbs - 1] == min_magnitude && is_min_value(lhs)))
@@ -1005,6 +1006,7 @@ public:
                 else
                     lhs = -lhs;
             }
+            // 同理对除数执行一次最高 limb 检查，保持正负号拆分与检测逻辑一致。
             if (rhs_neg)
             {
                 if (GINT_UNLIKELY(divisor.data_[limbs - 1] == min_magnitude && is_min_value(divisor)))
