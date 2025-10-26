@@ -237,6 +237,41 @@ TEST(FloatInteropEdges, CompareWithLongDouble_PrecisionBoundary)
     EXPECT_FALSE(a2 == d);
 }
 
+TEST(FloatInteropEdges, ConstructFromNonFiniteValues)
+{
+    using S256 = gint::integer<256, signed>;
+    using U256 = gint::integer<256, unsigned>;
+    const double pinf = std::numeric_limits<double>::infinity();
+    const double ninf = -std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+
+    // NaN maps to zero
+    EXPECT_EQ(S256(nan), S256(0));
+    EXPECT_EQ(U256(nan), U256(0));
+
+    // Positive infinity saturates to the maximum representable value
+    EXPECT_EQ(S256(pinf), std::numeric_limits<S256>::max());
+    EXPECT_EQ(U256(pinf), std::numeric_limits<U256>::max());
+
+    S256 s;
+    s = pinf;
+    EXPECT_EQ(s, std::numeric_limits<S256>::max());
+
+    U256 u;
+    u = pinf;
+    EXPECT_EQ(u, std::numeric_limits<U256>::max());
+
+    // Negative infinity saturates to minimum (signed) or zero (unsigned)
+    EXPECT_EQ(S256(ninf), std::numeric_limits<S256>::min());
+    EXPECT_EQ(U256(ninf), U256(0));
+
+    s = ninf;
+    EXPECT_EQ(s, std::numeric_limits<S256>::min());
+
+    u = ninf;
+    EXPECT_EQ(u, U256(0));
+}
+
 TEST(FloatInteropEdges, CompareWithLongDouble_FractionalTail)
 {
     using U256 = gint::integer<256, unsigned>;

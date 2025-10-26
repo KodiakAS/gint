@@ -51,8 +51,8 @@ TEST(WideIntegerNumericLimits, Basic)
     static_assert(std::numeric_limits<S>::max_exponent == 0, "max_exponent S");
     static_assert(std::numeric_limits<U>::max_exponent10 == 0, "max_exponent10 U");
     static_assert(std::numeric_limits<S>::max_exponent10 == 0, "max_exponent10 S");
-    static_assert(std::numeric_limits<U>::traps, "traps U");
-    static_assert(std::numeric_limits<S>::traps, "traps S");
+    static_assert(!std::numeric_limits<U>::traps, "traps U");
+    static_assert(!std::numeric_limits<S>::traps, "traps S");
     static_assert(!std::numeric_limits<U>::tinyness_before, "tinyness_before U");
     static_assert(!std::numeric_limits<S>::tinyness_before, "tinyness_before S");
     EXPECT_EQ(std::numeric_limits<U>::min(), U(0));

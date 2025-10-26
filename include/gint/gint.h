@@ -1725,8 +1725,35 @@ private:
     {
         for (size_t i = 0; i < limbs; ++i)
             data_[i] = 0;
-        if (v == 0)
+        if (v == 0 || std::isnan(v))
             return;
+        if (std::isinf(v))
+        {
+            if (v > 0)
+            {
+                if (std::is_same<Signed, unsigned>::value)
+                {
+                    for (size_t i = 0; i < limbs; ++i)
+                        data_[i] = ~limb_type(0);
+                }
+                else
+                {
+                    if (limbs > 1)
+                    {
+                        for (size_t i = 0; i < limbs - 1; ++i)
+                            data_[i] = ~limb_type(0);
+                    }
+                    data_[limbs - 1] = (~limb_type(0)) >> 1;
+                }
+            }
+            else // -inf
+            {
+                if (std::is_same<Signed, signed>::value)
+                    data_[limbs - 1] = limb_type(1) << 63;
+                // Unsigned negative infinity saturates to zero (already zeroed above)
+            }
+            return;
+        }
         bool neg = v < 0;
         if (neg)
             v = -v;
@@ -2478,7 +2505,7 @@ public:
     static const int min_exponent10 = 0;
     static const int max_exponent = 0;
     static const int max_exponent10 = 0;
-    static const bool traps = true;
+    static const bool traps = false;
     static const bool tinyness_before = false;
 
     static gint::integer<Bits, Signed> min() noexcept
