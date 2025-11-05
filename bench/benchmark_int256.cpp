@@ -122,23 +122,27 @@ template <typename Int>
 static void Add_FullCarry(benchmark::State & state)
 {
     // Worst-case: all bits set + 1 causes ripple across all limbs
-    // Use a static dataset to ensure loads from memory (avoid const-fold).
+    // Use varied data to prevent constant folding while maintaining worst-case semantics
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xFCA12345678ULL);
         for (size_t i = 0; i < kDataN; ++i)
-            d[i] = {Int{-1}, Int{1}};
+        {
+            // All 1s with occasional random high bits to prevent optimization
+            Int a = Int{-1};
+            if (i % 8 == 0)
+                a ^= (Int{rng()} << 192);
+            d[i] = {a, Int{1}};
+        }
         return d;
     }();
     size_t i = 0;
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        const Int & a = p.first;
-        const Int & b = p.second;
-        benchmark::DoNotOptimize(const_cast<Int &>(a));
-        benchmark::DoNotOptimize(const_cast<Int &>(b));
-        benchmark::DoNotOptimize(a + b);
+        Int result = p.first + p.second;
+        benchmark::DoNotOptimize(result);
     }
 }
 
@@ -175,22 +179,27 @@ template <typename Int>
 static void Sub_FullBorrow(benchmark::State & state)
 {
     // Worst-case: 0 - 1 borrows across all limbs
+    // Use varied data to prevent constant folding while maintaining worst-case semantics
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xFB98765432ULL);
         for (size_t i = 0; i < kDataN; ++i)
-            d[i] = {Int{0}, Int{1}};
+        {
+            // Zero with occasional random high bits to prevent optimization
+            Int a = Int{0};
+            if (i % 8 == 0)
+                a ^= (Int{rng()} << 192);
+            d[i] = {a, Int{1}};
+        }
         return d;
     }();
     size_t i = 0;
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        const Int & a = p.first;
-        const Int & b = p.second;
-        benchmark::DoNotOptimize(const_cast<Int &>(a));
-        benchmark::DoNotOptimize(const_cast<Int &>(b));
-        benchmark::DoNotOptimize(a - b);
+        Int result = p.first - p.second;
+        benchmark::DoNotOptimize(result);
     }
 }
 
@@ -361,12 +370,27 @@ static void Div_SimilarMagnitude(benchmark::State & state)
 template <typename Int>
 static void ToString(benchmark::State & state)
 {
-    Int a = (Int{1} << 255) + Int{123456789};
+    // Use a static dataset with varied magnitudes to prevent constant folding
+    // and ensure reproducibility across iterations
+    static std::array<Int, kDataN> data = []
+    {
+        std::array<Int, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xABCDEF123456ULL);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            // Generate numbers of different magnitudes (128-255 bits)
+            int shift = 128 + static_cast<int>(rng() % 128);
+            d[i] = (Int{1} << shift) + Int{rng()};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
     for (auto _ : state)
     {
+        const Int & a = data[i++ & (kDataN - 1)];
         auto s = to_string_convert(a);
         benchmark::DoNotOptimize(s);
-        a += Int{1};
     }
 }
 
@@ -492,14 +516,26 @@ static void Mul_U32xWide(benchmark::State & state)
 template <typename Int>
 static void Div_LargeDivisor128(benchmark::State & state)
 {
-    using U = Int;
-    U a = (U{1} << 255) + U{123456789};
-    U b = (U{1} << 127) + U{12345};
+    // Use a dataset to prevent constant folding
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xD128ABCDEF01ULL);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = (Int{1} << 255) + Int{rng()};
+            Int b = (Int{1} << 127) + Int{rng() % 1000000};
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
     for (auto _ : state)
     {
-        benchmark::DoNotOptimize(const_cast<U &>(a));
-        benchmark::DoNotOptimize(const_cast<U &>(b));
-        benchmark::DoNotOptimize(a / b);
+        const auto & p = data[i++ & (kDataN - 1)];
+        Int result = p.first / p.second;
+        benchmark::DoNotOptimize(result);
     }
 }
 
@@ -507,14 +543,27 @@ static void Div_LargeDivisor128(benchmark::State & state)
 template <typename Int>
 static void Div_SimilarMagnitude2(benchmark::State & state)
 {
-    using U = Int;
-    U a = (U{1} << 255) - U{7777777};
-    U b = (U{1} << 191) + U{314159265};
+    // Use a dataset to prevent constant folding
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xFEDCBA987654ULL);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = (Int{1} << 255) - Int{rng() % 10000000};
+            int s = 191 + static_cast<int>(rng() % 30); // 191-220
+            Int b = (Int{1} << s) + Int{rng() % 1000000000};
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
     for (auto _ : state)
     {
-        benchmark::DoNotOptimize(const_cast<U &>(a));
-        benchmark::DoNotOptimize(const_cast<U &>(b));
-        benchmark::DoNotOptimize(a / b);
+        const auto & p = data[i++ & (kDataN - 1)];
+        Int result = p.first / p.second;
+        benchmark::DoNotOptimize(result);
     }
 }
 
