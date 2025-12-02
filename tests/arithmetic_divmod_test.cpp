@@ -53,6 +53,16 @@ TEST(WideIntegerDivision, SignedSmallDivMod)
     EXPECT_EQ(b % -5, Int256(-3));
 }
 
+TEST(WideIntegerDivision, SignedSmallDivMod_NegativeDivisorRegression)
+{
+    using Int256 = gint::integer<256, signed>;
+    Int256 lhs = -7;
+    Int256 rhs = -3;
+    EXPECT_EQ(lhs / rhs, Int256(2));
+    EXPECT_EQ(lhs % rhs, Int256(-1));
+    EXPECT_EQ((lhs / rhs) * rhs + (lhs % rhs), lhs);
+}
+
 TEST(WideIntegerDivision, SignedInt128DivMod)
 {
     using Int256 = gint::integer<256, signed>;

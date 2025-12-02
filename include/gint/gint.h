@@ -948,28 +948,61 @@ public:
             return *this;
         }
         size_t limb_shift = shift / 64;
-        int bit_shift = shift % 64;
+        unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+        if (limbs == 4)
+        {
+            const uint64_t src[4] = {
+                static_cast<uint64_t>(data_[0]),
+                static_cast<uint64_t>(data_[1]),
+                static_cast<uint64_t>(data_[2]),
+                static_cast<uint64_t>(data_[3]),
+            };
+            auto fetch = [&src, fill](size_t idx) -> uint64_t { return idx < 4 ? src[idx] : static_cast<uint64_t>(fill); };
+            uint64_t out0 = 0;
+            uint64_t out1 = 0;
+            uint64_t out2 = 0;
+            uint64_t out3 = 0;
+            if (bit_shift)
+            {
+                const unsigned inv_shift = 64U - bit_shift;
+                out0 = (fetch(limb_shift + 0) >> bit_shift) | (fetch(limb_shift + 1) << inv_shift);
+                out1 = (fetch(limb_shift + 1) >> bit_shift) | (fetch(limb_shift + 2) << inv_shift);
+                out2 = (fetch(limb_shift + 2) >> bit_shift) | (fetch(limb_shift + 3) << inv_shift);
+                out3 = (fetch(limb_shift + 3) >> bit_shift) | (fetch(limb_shift + 4) << inv_shift);
+            }
+            else
+            {
+                out0 = fetch(limb_shift + 0);
+                out1 = fetch(limb_shift + 1);
+                out2 = fetch(limb_shift + 2);
+                out3 = fetch(limb_shift + 3);
+            }
+            data_[0] = static_cast<limb_type>(out0);
+            data_[1] = static_cast<limb_type>(out1);
+            data_[2] = static_cast<limb_type>(out2);
+            data_[3] = static_cast<limb_type>(out3);
+            return *this;
+        }
         if (limb_shift)
         {
             for (size_t i = 0; i < limbs - limb_shift; ++i)
                 data_[i] = data_[i + limb_shift];
             for (size_t i = limbs - limb_shift; i < limbs; ++i)
-                data_[i] = neg ? ~limb_type(0) : limb_type(0);
+                data_[i] = fill;
         }
         if (bit_shift)
         {
-            for (size_t i = 0; i < limbs; ++i)
+            const unsigned inv_shift = 64U - bit_shift;
+            const limb_type top = data_[limbs - 1];
+            limb_type prev = top;
+            for (size_t i = limbs - 1; i > 0; --i)
             {
-                unsigned __int128 part = static_cast<unsigned __int128>(data_[i]) >> bit_shift;
-                if (i + 1 < limbs)
-                    part |= static_cast<unsigned __int128>(data_[i + 1]) << (64 - bit_shift);
-                data_[i] = static_cast<limb_type>(part);
+                limb_type cur = data_[i - 1];
+                data_[i - 1] = (cur >> bit_shift) | (prev << inv_shift);
+                prev = cur;
             }
-            // Sign-extend vacated high bits for negative signed values.
-            if (neg)
-            {
-                data_[limbs - 1] |= (~limb_type(0)) << (64 - bit_shift);
-            }
+            data_[limbs - 1] = (top >> bit_shift) | (fill << inv_shift);
         }
         return *this;
     }

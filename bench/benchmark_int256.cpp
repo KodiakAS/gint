@@ -56,6 +56,16 @@ inline Int assemble_u256(uint64_t w0, uint64_t w1, uint64_t w2, uint64_t w3)
     return x;
 }
 
+template <typename Int>
+inline Int random_u256_clear_msb(std::mt19937_64 & rng)
+{
+    uint64_t w0 = rng();
+    uint64_t w1 = rng();
+    uint64_t w2 = rng();
+    uint64_t w3 = rng() & 0x7FFF'FFFF'FFFF'FFFFull; // mask out the top bit to keep the value in a tighter range
+    return assemble_u256<Int>(w0, w1, w2, w3);
+}
+
 } // namespace
 
 // -------- Addition --------
@@ -394,6 +404,161 @@ static void ToString(benchmark::State & state)
     }
 }
 
+// -------- Bitwise --------
+template <typename Int>
+static void Bitwise_And(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xC0FFEE1234567890ull);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int b = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first & p.second);
+    }
+}
+
+template <typename Int>
+static void Bitwise_Xor(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xBAD5EEDBADC0FFEEull);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int b = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first ^ p.second);
+    }
+}
+
+// -------- Shift --------
+template <typename Int>
+static void Shift_LeftVariable(benchmark::State & state)
+{
+    static std::array<std::pair<Int, unsigned>, kDataN> data = []
+    {
+        std::array<std::pair<Int, unsigned>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x12345678ABCDEF01ull);
+        std::uniform_int_distribution<unsigned> dist(1, 255);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            unsigned shift = dist(rng);
+            d[i] = {a, shift};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first << p.second);
+    }
+}
+
+template <typename Int>
+static void Shift_RightVariable(benchmark::State & state)
+{
+    static std::array<std::pair<Int, unsigned>, kDataN> data = []
+    {
+        std::array<std::pair<Int, unsigned>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x0FEDCBA987654321ull);
+        std::uniform_int_distribution<unsigned> dist(1, 255);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            unsigned shift = dist(rng);
+            d[i] = {a, shift};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first >> p.second);
+    }
+}
+
+// -------- Modulo --------
+template <typename Int>
+static void Mod_SmallDivisor64(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x55AA3311CCDD8899ull);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = random_u256_clear_msb<Int>(rng);
+            uint64_t dv = rng() | (1ull << 32);
+            dv |= 1ull; // keep it odd to avoid repeated powers of two
+            Int b = Int{dv};
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first % p.second);
+    }
+}
+
+template <typename Int>
+static void Mod_SimilarMagnitude(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x0F1E2D3C4B5A6978ull);
+        std::uniform_int_distribution<int> dist_shift(180, 220);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            Int a = (Int{1} << 255) - Int{uint32_t(rng())};
+            int s = dist_shift(rng);
+            Int b = (Int{1} << s) + Int{uint32_t(rng())};
+            if (b == Int{0})
+                b = Int{1};
+            d[i] = {a, b};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first % p.second);
+    }
+}
+
 static bool parse_full_matrix_flag(int & argc, char **& argv)
 {
     bool full = false;
@@ -589,6 +754,18 @@ int main(int argc, char ** argv)
     REG_CASE("Div/SmallDivisor64", Div_SmallDivisor64);
     REG_CASE("Div/Pow2Divisor", Div_Pow2Divisor);
     REG_CASE("Div/SimilarMagnitude", Div_SimilarMagnitude);
+
+    // Modulo
+    REG_CASE("Mod/SmallDivisor64", Mod_SmallDivisor64);
+    REG_CASE("Mod/SimilarMagnitude", Mod_SimilarMagnitude);
+
+    // Bitwise
+    REG_CASE("Bitwise/And", Bitwise_And);
+    REG_CASE("Bitwise/Xor", Bitwise_Xor);
+
+    // Shift
+    REG_CASE("Shift/LeftVariable", Shift_LeftVariable);
+    REG_CASE("Shift/RightVariable", Shift_RightVariable);
 
     // ToString
     REG_CASE("ToString/Base10", ToString);
