@@ -57,12 +57,12 @@ inline Int assemble_u256(uint64_t w0, uint64_t w1, uint64_t w2, uint64_t w3)
 }
 
 template <typename Int>
-inline Int random_positive_u256(std::mt19937_64 & rng)
+inline Int random_u256_clear_msb(std::mt19937_64 & rng)
 {
     uint64_t w0 = rng();
     uint64_t w1 = rng();
     uint64_t w2 = rng();
-    uint64_t w3 = rng() & 0x7FFF'FFFF'FFFF'FFFFull; // clear the sign bit to keep it positive
+    uint64_t w3 = rng() & 0x7FFF'FFFF'FFFF'FFFFull; // mask out the top bit to keep the value in a tighter range
     return assemble_u256<Int>(w0, w1, w2, w3);
 }
 
@@ -514,7 +514,7 @@ static void Mod_SmallDivisor64(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0x55AA3311CCDD8899ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = random_positive_u256<Int>(rng);
+            Int a = random_u256_clear_msb<Int>(rng);
             uint64_t dv = rng() | (1ull << 32);
             dv |= 1ull; // keep it odd to avoid repeated powers of two
             Int b = Int{dv};

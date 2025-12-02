@@ -956,7 +956,7 @@ public:
                 static_cast<uint64_t>(data_[2]),
                 static_cast<uint64_t>(data_[3]),
             };
-            auto fetch = [&](size_t idx) -> uint64_t { return idx < 4 ? src[idx] : static_cast<uint64_t>(fill); };
+            auto fetch = [&src, fill](size_t idx) -> uint64_t { return idx < 4 ? src[idx] : static_cast<uint64_t>(fill); };
             uint64_t out0 = 0;
             uint64_t out1 = 0;
             uint64_t out2 = 0;
@@ -992,8 +992,8 @@ public:
         if (bit_shift)
         {
             const unsigned inv_shift = 64U - bit_shift;
-            limb_type prev = data_[limbs - 1];
-            const limb_type top = prev;
+            const limb_type top = data_[limbs - 1];
+            limb_type prev = top;
             for (size_t i = limbs - 1; i > 0; --i)
             {
                 limb_type cur = data_[i - 1];
