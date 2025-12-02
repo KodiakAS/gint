@@ -394,6 +394,24 @@ TEST(WideIntegerDivision, UnsignedNegativeDivisorReinterpreted)
     EXPECT_EQ(small % neg_two, small);
 }
 
+TEST(WideIntegerDivision, UnsignedNegativeDivisorSmallBuiltin)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 small = 5;
+    int8_t neg_byte = -1;
+    int16_t neg_word = -7;
+
+    EXPECT_EQ(small / neg_byte, U256(0));
+    EXPECT_EQ(small % neg_byte, small);
+
+    EXPECT_EQ(small / neg_word, U256(0));
+    EXPECT_EQ(small % neg_word, small);
+
+    U256 all_ones = ~U256(0);
+    EXPECT_EQ(all_ones / neg_byte, U256(1));
+    EXPECT_EQ(all_ones % neg_byte, U256(0));
+}
+
 TEST(WideIntegerDivision, LargeShiftSubtract512)
 {
     using U512 = gint::integer<512, unsigned>;
