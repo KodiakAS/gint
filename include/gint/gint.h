@@ -1416,6 +1416,8 @@ public:
     friend integer operator%(integer lhs, T rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
+        if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && rhs < 0)
+            return lhs % integer(rhs);
         if (sizeof(T) <= sizeof(limb_type)
             && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
         {
