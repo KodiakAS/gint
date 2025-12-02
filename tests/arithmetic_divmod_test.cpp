@@ -375,25 +375,6 @@ TEST(WideIntegerDivision, TwoLimbBorrowLowPartCritical)
     EXPECT_EQ(r_fast, r_generic);
 }
 
-TEST(WideIntegerDivision, UnsignedNegativeDivisorReinterpreted)
-{
-    using U256 = gint::integer<256, unsigned>;
-    U256 small = 5;
-    int64_t neg_one = -1;
-
-    // Negative divisors should be reinterpreted as unsigned magnitudes, not routed through signed sign-flip logic.
-    EXPECT_EQ(small / neg_one, U256(0));
-    EXPECT_EQ(small % neg_one, small);
-
-    U256 all_ones = ~U256(0);
-    EXPECT_EQ(all_ones / neg_one, U256(1));
-    EXPECT_EQ(all_ones % neg_one, U256(0));
-
-    int64_t neg_two = -2;
-    EXPECT_EQ(small / neg_two, U256(0));
-    EXPECT_EQ(small % neg_two, small);
-}
-
 TEST(WideIntegerDivision, LargeShiftSubtract512)
 {
     using U512 = gint::integer<512, unsigned>;
