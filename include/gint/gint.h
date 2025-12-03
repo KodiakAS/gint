@@ -1334,6 +1334,9 @@ public:
     friend integer operator/(integer lhs, signed_limb_type rhs)
     {
         GINT_DIVZERO_CHECK(rhs == 0);
+        // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
+        if (std::is_same<Signed, unsigned>::value && rhs < 0)
+            return lhs / integer(rhs);
         integer q;
         lhs.div_mod_small(rhs, q);
         return q;
@@ -1361,6 +1364,9 @@ public:
     friend integer operator%(integer lhs, signed_limb_type rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
+        // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
+        if (std::is_same<Signed, unsigned>::value && rhs < 0)
+            return lhs % integer(rhs);
         integer q;
         signed_limb_type r = lhs.div_mod_small(rhs, q);
         return integer(r);
@@ -1411,6 +1417,9 @@ public:
     friend integer operator%(integer lhs, T rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
+        // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
+        if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && rhs < 0)
+            return lhs % integer(rhs);
         if (sizeof(T) <= sizeof(limb_type)
             && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
         {
