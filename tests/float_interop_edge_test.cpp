@@ -1,6 +1,8 @@
 #include <cmath>
 #include <limits>
+#define private public
 #include <gint/gint.h>
+#undef private
 #include <gtest/gtest.h>
 
 TEST(FloatInteropEdges, NaNComparisons)
@@ -176,6 +178,64 @@ TEST(FloatInteropEdges, ArithmeticWithInfAndNaN)
     EXPECT_THROW((void)(pinf % d), std::domain_error);
     EXPECT_THROW((void)(ninf % d), std::domain_error);
     EXPECT_THROW((void)(nan % d), std::domain_error);
+}
+
+TEST(FloatInteropEdges, CompareWithFloatZeroAndSign)
+{
+    using S256 = gint::integer<256, signed>;
+    using U256 = gint::integer<256, unsigned>;
+
+    U256 zero = 0;
+    U256 one = 1;
+    EXPECT_TRUE(zero == 0.0);
+    EXPECT_TRUE(0.0 == zero);
+    EXPECT_FALSE(one == 0.0);
+    EXPECT_TRUE(one != 0.0);
+
+    S256 neg = -5;
+    EXPECT_TRUE(neg < 0.0);
+    EXPECT_FALSE(neg > 0.0);
+    EXPECT_FALSE(neg == 0.0);
+    EXPECT_TRUE(neg != 0.0);
+
+    double positive = 2.5;
+    EXPECT_TRUE(neg < positive);
+    EXPECT_FALSE(neg > positive);
+}
+
+TEST(FloatInteropEdges, FloatLeftDivisionAndModulo)
+{
+    using U64 = gint::integer<64, unsigned>;
+    U64 rhs = 3;
+
+    EXPECT_EQ(12.0 / rhs, U64(4));
+    EXPECT_EQ(14.0 % rhs, U64(2));
+}
+
+TEST(FloatInteropEdges, FloatLeftDivisionAndModuloNegative)
+{
+    using S128 = gint::integer<128, signed>;
+    S128 rhs = 4;
+
+    EXPECT_EQ(-9.0 / rhs, S128(-2));
+    EXPECT_EQ(-9.0 % rhs, S128(-1));
+}
+
+TEST(FloatInteropEdges, CompareWithFloatAbsInternal)
+{
+    using U256 = gint::integer<256, unsigned>;
+    // rhs_abs == 0 path returns lhs_abs > 0
+    EXPECT_EQ(U256::compare_with_float_abs(U256(5), 0.0), 1);
+    // sigA > sigB branch
+    EXPECT_EQ(U256::compare_with_float_abs(U256(3), 2.0), 1);
+}
+
+TEST(FloatInteropEdges, EqualitySignMismatch)
+{
+    using S256 = gint::integer<256, signed>;
+    S256 neg = -7;
+    EXPECT_FALSE(neg == 7.0);
+    EXPECT_TRUE(neg != 7.0);
 }
 
 TEST(FloatInteropEdges, CompareWithFloat_ShiftPositive_ExactAndExtra)
