@@ -703,3 +703,207 @@ TEST(WideIntegerDivision, ThreeLimbFastPathMatchesGeneric)
         EXPECT_EQ(q_direct, q_generic);
     }
 }
+
+TEST(WideIntegerDivision, DivModSmallDivisorOne)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 value = (U256(1) << 192) | (U256(1) << 64) | U256(123456789ULL);
+    EXPECT_EQ(value / 1, value);
+    EXPECT_EQ(value % 1, U256(0));
+}
+
+TEST(WideIntegerDivision, DivModSmall32BitEstimateCorrection)
+{
+    using U128 = gint::integer<128, unsigned>;
+    const uint64_t w1 = 0x9e5c9016ebf47b17ULL;
+    const uint64_t w0 = 0xa3624895ddc28cd1ULL;
+    const uint64_t d32 = 0xe3f5574bULL;
+
+    U128 lhs = (U128(w1) << 64) | U128(w0);
+    U128 q = lhs / d32;
+    U128 r = lhs % d32;
+
+    unsigned __int128 num = (static_cast<unsigned __int128>(w1) << 64) | w0;
+    unsigned __int128 expected_q = num / d32;
+    unsigned __int128 expected_r = num % d32;
+
+    EXPECT_EQ(q, U128(expected_q));
+    EXPECT_EQ(static_cast<uint64_t>(r), static_cast<uint64_t>(expected_r));
+    EXPECT_EQ(q * d32 + r, lhs);
+}
+
+TEST(WideIntegerDivision, HighestBitZeroReturnsMinusOne)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 zero = 0;
+    EXPECT_EQ(zero.highest_bit(), -1);
+}
+
+TEST(WideIntegerDivision, UnsignedDivision_MinValueBranches)
+{
+    using S256 = gint::integer<256, signed>;
+    const S256 min = std::numeric_limits<S256>::min();
+
+    EXPECT_TRUE(S256::is_min_value(min));
+    EXPECT_FALSE(S256::is_min_value(-(S256(1) << 200)));
+
+    // divisor_limbs == 1
+    S256 q_one = S256::div_unsigned_path(min, S256(1), true, false, true, false);
+    EXPECT_EQ(q_one, min);
+
+    // power-of-two divisor
+    S256 pow_div = S256(1) << 120;
+    S256 q_pow = S256::div_unsigned_path(min, pow_div, true, false, true, false);
+    EXPECT_EQ(q_pow, -(S256(1) << 135));
+
+    // rhs_is_min handling
+    S256 rhs_min = min;
+    S256 small = 123;
+    S256 q_rhs_min = S256::div_unsigned_path(small, rhs_min, false, true, false, true);
+    EXPECT_EQ(q_rhs_min, S256(0));
+
+    // divisor_limbs == 2
+    S256 two_limb = (S256(1) << 96) + S256(7);
+    EXPECT_EQ(S256::div_unsigned_path(min, two_limb, true, false, true, false), min / two_limb);
+
+    // divisor_limbs == 3
+    S256 three_limb = (S256(1) << 180) + (S256(1) << 100) + S256(9);
+    EXPECT_EQ(S256::div_unsigned_path(min, three_limb, true, false, true, false), min / three_limb);
+
+    // generic div_large path (divisor_limbs == 4)
+    S256 four_limb = (S256(1) << 240) + (S256(1) << 128) + (S256(1) << 64) + S256(11);
+    EXPECT_EQ(S256::div_unsigned_path(min, four_limb, true, false, true, false), min / four_limb);
+}
+
+TEST(WideIntegerDivision, UnsignedDivision_MinValueSmallType)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min = std::numeric_limits<S128>::min();
+    S128 divisor = (S128(1) << 80) + S128(5);
+    EXPECT_EQ(S128::div_unsigned_path(min, divisor, true, false, true, false), min / divisor);
+}
+
+TEST(WideIntegerDivision, IsMinValueRejectsNonZeroLowLimbs)
+{
+    using S256 = gint::integer<256, signed>;
+    S256 candidate;
+    candidate.data_[3] = static_cast<uint64_t>(1ULL << 63);
+    candidate.data_[0] = 1;
+    EXPECT_FALSE(S256::is_min_value(candidate));
+}
+
+TEST(WideIntegerDivision, DivLarge2EarlyReturnForShortDividend)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = 5;
+    U256 divisor = (U256(1) << 70) + (U256(1) << 5); // two-limb divisor
+    U256 q = U256::div_large_2(lhs, divisor);
+    EXPECT_EQ(q, U256(0));
+}
+
+TEST(WideIntegerDivision, DivLarge2StubSingleLimbType)
+{
+    using U64 = gint::integer<64, unsigned>;
+    U64 lhs = 9;
+    U64 divisor = 2;
+    EXPECT_EQ(U64::div_large_2(lhs, divisor), U64::div_large(lhs, divisor, 2));
+}
+
+TEST(WideIntegerDivision, DivLarge3StubTwoLimbType)
+{
+    using U128 = gint::integer<128, unsigned>;
+    U128 lhs = (U128(1) << 96) + U128(5);
+    U128 divisor = (U128(1) << 64) + U128(3);
+    EXPECT_EQ(U128::div_large_3(lhs, divisor), U128::div_large(lhs, divisor, 3));
+}
+
+TEST(WideIntegerDivision, DivLargeGeneric_AddbackBranch)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs;
+    lhs.data_[0] = 15319920140141428228ULL;
+    lhs.data_[1] = 6844823494456829948ULL;
+    lhs.data_[2] = 8650597808387393596ULL;
+    lhs.data_[3] = 16347772628613761532ULL;
+
+    U256 divisor;
+    divisor.data_[0] = 2642655789404796171ULL;
+    divisor.data_[1] = 12954822196855299360ULL;
+    divisor.data_[2] = 10810217670908235955ULL;
+
+    U256 q = U256::div_large(lhs, divisor, 3);
+    U256 expected = lhs / divisor;
+    EXPECT_EQ(q, expected);
+    U256 r = lhs - q * divisor;
+    EXPECT_LT(r, divisor);
+}
+
+TEST(WideIntegerDivision, DivLarge3EarlyReturnWhenDividendShorter)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = 5;
+    U256 divisor;
+    divisor.data_[0] = 1;
+    divisor.data_[1] = 2;
+    divisor.data_[2] = static_cast<uint64_t>(1ULL << 63); // keep three-limb divisor
+
+    EXPECT_EQ(U256::div_large_3(lhs, divisor), U256(0));
+}
+
+TEST(WideIntegerDivision, DivLarge2Generic_AddbackBranch)
+{
+    using U320 = gint::integer<320, unsigned>;
+    U320 lhs;
+    lhs.data_[0] = 14627284802991019572ULL;
+    lhs.data_[1] = 10210465436952577038ULL;
+    lhs.data_[2] = 4609778614729378691ULL;
+    lhs.data_[3] = 7741901622370343826ULL;
+    lhs.data_[4] = 10933104939142465497ULL;
+
+    U320 divisor;
+    divisor.data_[0] = 13705805734369151841ULL;
+    divisor.data_[1] = 12445310395029312220ULL;
+
+    U320 q = U320::div_large_2(lhs, divisor);
+    U320 expected = lhs / divisor;
+    EXPECT_EQ(q, expected);
+    U320 r = lhs - q * divisor;
+    EXPECT_LT(r, divisor);
+}
+
+TEST(WideIntegerDivision, IntegerModIntegerMultiLimb)
+{
+    using U256 = gint::integer<256, unsigned>;
+    U256 lhs = (U256(1) << 200) + (U256(1) << 128) + U256(987654321ULL);
+    U256 rhs = (U256(1) << 150) + U256(12345);
+    U256 q = lhs / rhs;
+    U256 r = lhs % rhs;
+    EXPECT_EQ(q * rhs + r, lhs);
+    EXPECT_LT(r, rhs);
+
+    using S256 = gint::integer<256, signed>;
+    S256 s_lhs = -S256(123456789012345ULL);
+    S256 s_rhs = S256(98765);
+    S256 s_q = s_lhs / s_rhs;
+    S256 s_r = s_lhs % s_rhs;
+    EXPECT_EQ(s_q * s_rhs + s_r, s_lhs);
+    EXPECT_LT(s_r, s_rhs);
+}
+
+TEST(WideIntegerDivision, MinValueUnsignedPathSignCorrection)
+{
+    using S256 = gint::integer<256, signed>;
+    const S256 min = std::numeric_limits<S256>::min();
+    S256 divisor = S256(7);
+
+    S256 q = min / divisor;
+    S256 r = min % divisor;
+    EXPECT_TRUE(static_cast<int64_t>(q.data_[S256::limbs - 1] >> 63)); // quotient should be negative
+    EXPECT_EQ(q * divisor + r, min);
+
+    S256 neg_divisor = -divisor;
+    S256 q2 = min / neg_divisor;
+    S256 r2 = min % neg_divisor;
+    EXPECT_FALSE(static_cast<int64_t>(q2.data_[S256::limbs - 1] >> 63)); // quotient should be non-negative
+    EXPECT_EQ(q2 * neg_divisor + r2, min);
+}
