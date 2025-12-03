@@ -1364,6 +1364,7 @@ public:
     friend integer operator%(integer lhs, signed_limb_type rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
+        // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
         if (std::is_same<Signed, unsigned>::value && rhs < 0)
             return lhs % integer(rhs);
         integer q;
