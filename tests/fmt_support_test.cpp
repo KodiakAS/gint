@@ -30,3 +30,9 @@ TEST(fmt_support, format_array_of_gint)
     std::array<gint::integer<128, unsigned>, 2> arr{1, 2};
     EXPECT_EQ(fmt::format("{}", arr), "[1, 2]");
 }
+
+TEST(fmt_support, format_signed_gint)
+{
+    gint::integer<128, signed> value{-42};
+    EXPECT_EQ(fmt::format("{}", value), "-42");
+}
