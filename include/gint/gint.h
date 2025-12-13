@@ -2796,4 +2796,6 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_CONSTEXPR14
 #undef GINT_FORCE_INLINE
 #undef GINT_RESTRICT
+#undef GINT_HAS_IS_CONSTANT_EVALUATED
+#undef GINT_ENABLE_AARCH64_LIMB_ASM
 #undef GINT_ENABLE_MUL_FASTPATH
