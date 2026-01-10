@@ -1283,6 +1283,8 @@ public:
         while (divisor_limbs > 0 && divisor.data_[divisor_limbs - 1] == 0)
             --divisor_limbs;
         GINT_DIVZERO_CHECK(divisor_limbs == 0);
+        if (GINT_UNLIKELY(divisor_limbs == 0))
+            return integer();
         bool small_divisor = divisor_limbs == 1;
         if (small_divisor)
         {
@@ -2096,6 +2098,8 @@ private:
         while (divisor_limbs > 0 && divisor_mag.data_[divisor_limbs - 1] == 0)
             --divisor_limbs;
         GINT_DIVZERO_CHECK(divisor_limbs == 0);
+        if (GINT_UNLIKELY(divisor_limbs == 0))
+            return integer();
         if (divisor_limbs == 1)
         {
             lhs_mag.div_mod_small(divisor_mag.data_[0], quotient_mag);

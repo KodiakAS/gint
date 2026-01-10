@@ -169,3 +169,12 @@ TEST(WideIntegerArithmetic, SubBorrowChain256)
     expected += U256(0xffffffffffffffffULL) << 128;
     EXPECT_EQ(diff, expected);
 }
+
+TEST(WideIntegerArithmetic, DivZeroWithoutChecks)
+{
+    using U384 = gint::integer<384, unsigned>;
+    U384 value = (U384(1) << 300) + 123;
+    U384 zero = 0;
+    EXPECT_EQ(value / zero, U384(0));
+    EXPECT_EQ(value % zero, value);
+}

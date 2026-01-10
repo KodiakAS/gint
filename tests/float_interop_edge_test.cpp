@@ -140,6 +140,20 @@ TEST(FloatInteropEdges, NegativeNegativeOrdering)
     EXPECT_FALSE(m3 != f3);
 }
 
+TEST(FloatInteropEdges, CompareWithDouble_MinSigned)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min = std::numeric_limits<S128>::min();
+    const double d = -std::ldexp(1.0, 127);
+    EXPECT_TRUE(min == d);
+    EXPECT_TRUE(d == min);
+    EXPECT_FALSE(min != d);
+    EXPECT_TRUE(min <= d);
+    EXPECT_TRUE(min >= d);
+    EXPECT_FALSE(min < d);
+    EXPECT_FALSE(min > d);
+}
+
 TEST(FloatInteropEdges, ArithmeticWithInfAndNaN)
 {
     using U256 = gint::integer<256, unsigned>;
