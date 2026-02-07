@@ -26,16 +26,12 @@
 #    define GINT_FORCE_INLINE inline
 #endif
 
-#if defined(GINT_ENABLE_DIVZERO_CHECKS)
-#    define GINT_ZERO_CHECK(cond, msg) \
-        do \
-        { \
-            if (GINT_UNLIKELY(cond)) \
-                throw std::domain_error(msg); \
-        } while (false)
-#else
-#    define GINT_ZERO_CHECK(cond, msg) ((void)0)
-#endif
+#define GINT_ZERO_CHECK(cond, msg) \
+    do \
+    { \
+        if (GINT_UNLIKELY(cond) && ::gint::detail::divzero_checks_enabled()) \
+            throw std::domain_error(msg); \
+    } while (false)
 #define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
 #define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
 
@@ -101,6 +97,34 @@ using UInt256 = integer<256, unsigned>;
 //=== Internal helper utilities ==============================================
 namespace detail
 {
+GINT_FORCE_INLINE bool & divzero_checks_flag() noexcept
+{
+    static bool enabled = false;
+    return enabled;
+}
+
+GINT_FORCE_INLINE bool divzero_checks_enabled() noexcept
+{
+    return divzero_checks_flag();
+}
+
+#if defined(GINT_ENABLE_DIVZERO_CHECKS)
+struct divzero_checks_registrar
+{
+    divzero_checks_registrar() noexcept { divzero_checks_flag() = true; }
+};
+
+namespace
+{
+static const divzero_checks_registrar k_divzero_checks_registrar;
+}
+#endif
+
+#ifdef GINT_TEST_ACCESS
+template <size_t Bits, typename Signed>
+struct integer_test_access;
+#endif
+
 template <size_t Bits>
 struct storage_count
 {
@@ -703,9 +727,11 @@ template <size_t Bits, typename Signed>
 class integer
 {
 public:
+    static constexpr size_t bits = Bits;
     static constexpr size_t limbs = detail::storage_count<Bits>::value;
     using limb_type = uint64_t;
     using signed_limb_type = int64_t;
+    using signed_tag = Signed;
     // Constrain Signed to be exactly 'signed' or 'unsigned' tag types.
     static_assert(std::is_same<Signed, signed>::value || std::is_same<Signed, unsigned>::value, "Signed must be 'signed' or 'unsigned'.");
     template <size_t>
@@ -713,6 +739,9 @@ public:
     template <size_t, typename>
     friend class integer;
     friend class std::numeric_limits<integer<Bits, Signed>>;
+#ifdef GINT_TEST_ACCESS
+    friend struct detail::integer_test_access<Bits, Signed>;
+#endif
 
     // Constructors
     constexpr integer() noexcept = default;
@@ -1772,13 +1801,21 @@ private:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     void assign(T v) noexcept
     {
-        using wide = typename std::conditional<detail::is_signed<T>::value, __int128, unsigned __int128>::type;
-        wide val = static_cast<wide>(v);
-        for (size_t i = 0; i < limbs; ++i)
+        typedef __int128 wide_signed;
+        typedef unsigned __int128 wide_unsigned;
+        const bool sign_fill = detail::is_signed<T>::value && v < 0;
+        const limb_type fill = sign_fill ? ~limb_type(0) : limb_type(0);
+        wide_unsigned val = sign_fill ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v);
+
+        if (limbs > 0)
         {
-            data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(val));
+            data_[0] = static_cast<limb_type>(val);
             val >>= 64;
         }
+        if (limbs > 1)
+            data_[1] = static_cast<limb_type>(val);
+        for (size_t i = 2; i < limbs; ++i)
+            data_[i] = fill;
     }
 
     template <typename T>
@@ -2627,6 +2664,45 @@ private:
 
     alignas(16) limb_type data_[limbs] = {};
 };
+
+#ifdef GINT_TEST_ACCESS
+namespace detail
+{
+template <size_t Bits, typename Signed>
+struct integer_test_access
+{
+    using Int = integer<Bits, Signed>;
+    using limb_type = typename Int::limb_type;
+
+    static limb_type & limb(Int & value, size_t index) noexcept { return value.data_[index]; }
+
+    static const limb_type & limb(const Int & value, size_t index) noexcept { return value.data_[index]; }
+
+    static int highest_bit(const Int & value) noexcept { return value.highest_bit(); }
+
+    static bool is_min_value(const Int & value) noexcept { return Int::is_min_value(value); }
+
+    static Int div_unsigned_path(const Int & lhs, const Int & rhs, bool lhs_neg, bool rhs_neg, bool lhs_is_min, bool rhs_is_min)
+    {
+        return Int::div_unsigned_path(lhs, rhs, lhs_neg, rhs_neg, lhs_is_min, rhs_is_min);
+    }
+
+    static Int div_128(const Int & lhs, const Int & rhs) noexcept { return Int::div_128(lhs, rhs); }
+
+    static Int div_large(Int lhs, const Int & rhs, size_t div_limbs) noexcept { return Int::div_large(lhs, rhs, div_limbs); }
+
+    static Int div_large_2(Int lhs, const Int & rhs) noexcept { return Int::div_large_2(lhs, rhs); }
+
+    static Int div_large_3(Int lhs, const Int & rhs) noexcept { return Int::div_large_3(lhs, rhs); }
+
+    template <typename T>
+    static int compare_with_float_abs(const Int & lhs_abs, T rhs_abs) noexcept
+    {
+        return Int::template compare_with_float_abs<T>(lhs_abs, rhs_abs);
+    }
+};
+} // namespace detail
+#endif
 
 } // namespace gint
 

@@ -64,7 +64,7 @@ if(GINT_BUILD_TESTS)
         target_link_options(gint_tests PRIVATE ${GINT_TEST_LINK_OPTIONS})
     endif()
     # fmt support is required by some tests; enable globally for the test target
-    target_compile_definitions(gint_tests PRIVATE GINT_ENABLE_FMT)
+    target_compile_definitions(gint_tests PRIVATE GINT_ENABLE_FMT GINT_TEST_ACCESS)
     target_link_libraries(gint_tests PRIVATE GTest::gtest_main fmt::fmt)
 
     # Increase discovery timeout to avoid flaky timeouts when listing tests
@@ -84,7 +84,7 @@ if(GINT_BUILD_TESTS)
             if(GINT_TEST_LINK_OPTIONS)
                 target_link_options(gint_tests_cxx17 PRIVATE ${GINT_TEST_LINK_OPTIONS})
             endif()
-            target_compile_definitions(gint_tests_cxx17 PRIVATE GINT_ENABLE_FMT)
+            target_compile_definitions(gint_tests_cxx17 PRIVATE GINT_ENABLE_FMT GINT_TEST_ACCESS)
             target_link_libraries(gint_tests_cxx17 PRIVATE GTest::gtest_main fmt::fmt)
             gtest_discover_tests(gint_tests_cxx17 NO_PRETTY_VALUES DISCOVERY_TIMEOUT 60)
         endif()

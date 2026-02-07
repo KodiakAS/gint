@@ -1,9 +1,10 @@
 #include <cmath>
 #include <limits>
-#define private public
 #include <gint/gint.h>
-#undef private
 #include <gtest/gtest.h>
+
+template <typename Int>
+using TestAccess = gint::detail::integer_test_access<Int::bits, typename Int::signed_tag>;
 
 TEST(FloatInteropEdges, NaNComparisons)
 {
@@ -225,9 +226,9 @@ TEST(FloatInteropEdges, CompareWithFloatAbsInternal)
 {
     using U256 = gint::integer<256, unsigned>;
     // rhs_abs == 0 path returns lhs_abs > 0
-    EXPECT_EQ(U256::compare_with_float_abs(U256(5), 0.0), 1);
+    EXPECT_EQ(TestAccess<U256>::compare_with_float_abs(U256(5), 0.0), 1);
     // sigA > sigB branch
-    EXPECT_EQ(U256::compare_with_float_abs(U256(3), 2.0), 1);
+    EXPECT_EQ(TestAccess<U256>::compare_with_float_abs(U256(3), 2.0), 1);
 }
 
 TEST(FloatInteropEdges, EqualitySignMismatch)
