@@ -14,6 +14,11 @@ static_assert(gint_constexpr_assignment_check() == gint::UInt256(42), "assignmen
 
 static_assert(gint::integer<256, unsigned>() == 0, "default unsigned integer should be zero");
 static_assert(gint::integer<256, signed>() == 0, "default signed integer should be zero");
+static_assert(sizeof(gint::integer<64, unsigned>) == 8, "integer<64> must occupy exactly 64 bits");
+static_assert(sizeof(gint::integer<128, unsigned>) == 16, "integer<128> must occupy exactly 128 bits");
+static_assert(sizeof(gint::integer<256, unsigned>) == 32, "integer<256> must occupy exactly 256 bits");
+static_assert(sizeof(gint::integer<512, unsigned>) == 64, "integer<512> must occupy exactly 512 bits");
+static_assert(sizeof(gint::integer<1024, unsigned>) == 128, "integer<1024> must occupy exactly 1024 bits");
 
 TEST(WideIntegerConstruction, ConstexprConstruction)
 {

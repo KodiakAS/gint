@@ -582,11 +582,11 @@ TEST(WideIntegerDivision, UInt256Division)
 
 TEST(WideIntegerDivision, ShiftSubtractLarge)
 {
-    using U320 = gint::integer<320, unsigned>;
-    U320 lhs = (U320(1) << 256) + (U320(1) << 128) + U320(12345);
-    U320 divisor = (U320(1) << 64) + U320(3);
-    U320 q = lhs / divisor;
-    U320 r = lhs % divisor;
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs = (U512(1) << 384) + (U512(1) << 128) + U512(12345);
+    U512 divisor = (U512(1) << 64) + U512(3);
+    U512 q = lhs / divisor;
+    U512 r = lhs % divisor;
     EXPECT_EQ(q * divisor + r, lhs);
 }
 
@@ -611,29 +611,29 @@ TEST(WideIntegerDivision, Div128SingleLimbPath)
 
 TEST(WideIntegerDivision, DivLargeBreak)
 {
-    using U192 = gint::integer<192, unsigned>;
-    U192 lhs;
-    TestAccess<U192>::limb(lhs, 0) = 0;
-    TestAccess<U192>::limb(lhs, 1) = 0xffffffffffffffffULL;
-    TestAccess<U192>::limb(lhs, 2) = 1;
-    U192 divisor;
-    TestAccess<U192>::limb(divisor, 0) = 0xffffffffffffffffULL;
-    TestAccess<U192>::limb(divisor, 1) = 0xffffffffffffffffULL;
-    TestAccess<U192>::limb(divisor, 2) = 0;
-    U192 q = TestAccess<U192>::div_large(lhs, divisor, 2);
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs;
+    TestAccess<U512>::limb(lhs, 0) = 0;
+    TestAccess<U512>::limb(lhs, 1) = 0xffffffffffffffffULL;
+    TestAccess<U512>::limb(lhs, 2) = 1;
+    U512 divisor;
+    TestAccess<U512>::limb(divisor, 0) = 0xffffffffffffffffULL;
+    TestAccess<U512>::limb(divisor, 1) = 0xffffffffffffffffULL;
+    TestAccess<U512>::limb(divisor, 2) = 0;
+    U512 q = TestAccess<U512>::div_large(lhs, divisor, 2);
     EXPECT_EQ(static_cast<uint64_t>(q), 1ULL);
 }
 
-// Exercise div_mod_small 64-bit divisor generic path for limbs != 4 (here: 192-bit)
-TEST(WideIntegerDivision, DivModSmall64GenericU192)
+// Exercise div_mod_small 64-bit divisor generic path for limbs != 4 (here: 512-bit)
+TEST(WideIntegerDivision, DivModSmall64GenericU512)
 {
-    using U192 = gint::integer<192, unsigned>;
-    U192 lhs = (U192(1) << 190) + (U192(1) << 128) + U192(123456789ULL);
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs = (U512(1) << 510) + (U512(1) << 384) + U512(123456789ULL);
     uint64_t div = (1ULL << 63) + 123ULL; // > 32-bit -> 64-bit reciprocal branch
 
-    U192 q = lhs / div; // goes through integer(rhs) -> small divisor -> div_mod_small generic
-    U192 r = lhs % div;
-    EXPECT_EQ(q * U192(div) + r, lhs);
+    U512 q = lhs / div; // goes through integer(rhs) -> small divisor -> div_mod_small generic
+    U512 r = lhs % div;
+    EXPECT_EQ(q * U512(div) + r, lhs);
 }
 
 // 32-bit boundary: div = 2^32-1 (32-bit path) vs div = 2^32 (64-bit path)
@@ -853,22 +853,22 @@ TEST(WideIntegerDivision, DivLarge3EarlyReturnWhenDividendShorter)
 
 TEST(WideIntegerDivision, DivLarge2Generic_AddbackBranch)
 {
-    using U320 = gint::integer<320, unsigned>;
-    U320 lhs;
-    TestAccess<U320>::limb(lhs, 0) = 14627284802991019572ULL;
-    TestAccess<U320>::limb(lhs, 1) = 10210465436952577038ULL;
-    TestAccess<U320>::limb(lhs, 2) = 4609778614729378691ULL;
-    TestAccess<U320>::limb(lhs, 3) = 7741901622370343826ULL;
-    TestAccess<U320>::limb(lhs, 4) = 10933104939142465497ULL;
+    using U512 = gint::integer<512, unsigned>;
+    U512 lhs;
+    TestAccess<U512>::limb(lhs, 0) = 14627284802991019572ULL;
+    TestAccess<U512>::limb(lhs, 1) = 10210465436952577038ULL;
+    TestAccess<U512>::limb(lhs, 2) = 4609778614729378691ULL;
+    TestAccess<U512>::limb(lhs, 3) = 7741901622370343826ULL;
+    TestAccess<U512>::limb(lhs, 4) = 10933104939142465497ULL;
 
-    U320 divisor;
-    TestAccess<U320>::limb(divisor, 0) = 13705805734369151841ULL;
-    TestAccess<U320>::limb(divisor, 1) = 12445310395029312220ULL;
+    U512 divisor;
+    TestAccess<U512>::limb(divisor, 0) = 13705805734369151841ULL;
+    TestAccess<U512>::limb(divisor, 1) = 12445310395029312220ULL;
 
-    U320 q = TestAccess<U320>::div_large_2(lhs, divisor);
-    U320 expected = lhs / divisor;
+    U512 q = TestAccess<U512>::div_large_2(lhs, divisor);
+    U512 expected = lhs / divisor;
     EXPECT_EQ(q, expected);
-    U320 r = lhs - q * divisor;
+    U512 r = lhs - q * divisor;
     EXPECT_LT(r, divisor);
 }
 
