@@ -26,6 +26,12 @@
 #    define GINT_FORCE_INLINE inline
 #endif
 
+#if defined(__clang__)
+#    define GINT_CLANG_NOINLINE __attribute__((noinline))
+#else
+#    define GINT_CLANG_NOINLINE
+#endif
+
 #define GINT_ZERO_CHECK(cond, msg) \
     do \
     { \
@@ -79,6 +85,22 @@
 #        define GINT_ENABLE_MUL_FASTPATH 0
 #    else
 #        define GINT_ENABLE_MUL_FASTPATH 1
+#    endif
+#endif
+
+#ifndef GINT_ENABLE_DIRECT_LARGE_MOD
+#    if defined(__clang__)
+#        define GINT_ENABLE_DIRECT_LARGE_MOD 0
+#    else
+#        define GINT_ENABLE_DIRECT_LARGE_MOD 1
+#    endif
+#endif
+
+#ifndef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
+#    if defined(__clang__)
+#        define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH 0
+#    else
+#        define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH 1
 #    endif
 #endif
 
@@ -1278,6 +1300,15 @@ public:
 
     friend integer operator/(integer lhs, const integer & rhs)
     {
+#if GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
+        limb_type positive_limb_divisor;
+        if (positive_single_limb_value(rhs, positive_limb_divisor))
+        {
+            GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+            return div_by_positive_limb(lhs, positive_limb_divisor);
+        }
+#endif
+
         bool lhs_neg = false;
         bool rhs_neg = false;
         bool lhs_is_min = false;
@@ -1376,6 +1407,18 @@ public:
     friend integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
+#if GINT_ENABLE_DIRECT_LARGE_MOD
+        if (std::is_same<Signed, signed>::value)
+        {
+            const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
+            return rem_signed_magnitude(lhs, rhs, rhs_neg);
+        }
+        else
+        {
+            return rem_unsigned_magnitude(lhs, rhs);
+        }
+#endif
+
         integer q = lhs / rhs;
         q *= rhs;
         lhs -= q;
@@ -1901,6 +1944,12 @@ private:
     }
 
     template <size_t L = limbs>
+    typename std::enable_if<(L == 1), limb_type>::type mod_small(limb_type div) const noexcept
+    {
+        return static_cast<limb_type>(data_[0] % div);
+    }
+
+    template <size_t L = limbs>
     typename std::enable_if<(L > 1), limb_type>::type div_mod_small(limb_type div, integer & quotient) const noexcept
     {
         using u128 = unsigned __int128;
@@ -2073,6 +2122,68 @@ private:
         return static_cast<limb_type>(rem);
     }
 
+    template <size_t L = limbs>
+    typename std::enable_if<(L > 1), limb_type>::type mod_small(limb_type div) const noexcept
+    {
+        using u128 = unsigned __int128;
+        size_t n = limbs;
+        while (n > 0 && data_[n - 1] == 0)
+            --n;
+        if (n == 0)
+            return 0;
+
+        if ((div & (div - 1)) == 0)
+            return static_cast<limb_type>(data_[0] & (div - 1));
+
+        if (div <= 0xFFFFFFFFULL)
+        {
+            using u128x = unsigned __int128;
+            const uint32_t d32 = static_cast<uint32_t>(div);
+            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
+            uint64_t rem = 0;
+            for (size_t i = n; i-- > 0;)
+            {
+                const uint64_t cur = data_[i];
+                const uint32_t hi = static_cast<uint32_t>(cur >> 32);
+                const uint32_t lo = static_cast<uint32_t>(cur);
+
+                uint64_t t = (rem << 32) | hi;
+                uint64_t q = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
+                uint64_t r = t - q * d32;
+                if (r >= d32)
+                    r -= d32;
+
+                t = (r << 32) | lo;
+                q = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
+                r = t - q * d32;
+                if (r >= d32)
+                    r -= d32;
+                rem = r;
+            }
+            return static_cast<limb_type>(rem);
+        }
+
+        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
+        auto corr = [&](u128 & q, u128 & rem)
+        {
+            if (rem >= div)
+            {
+                ++q;
+                rem -= div;
+            }
+        };
+
+        u128 rem = 0;
+        for (size_t i = n; i-- > 0;)
+        {
+            u128 num = (rem << 64) | data_[i];
+            u128 q = detail::mulhi_u128(num, inv);
+            rem = num - q * div;
+            corr(q, rem);
+        }
+        return static_cast<limb_type>(rem);
+    }
+
 
     signed_limb_type div_mod_small(signed_limb_type div, integer & quotient) const noexcept
     {
@@ -2168,6 +2279,111 @@ private:
 
         if (lhs_neg != rhs_neg)
             result = -result;
+        return result;
+    }
+
+    static size_t used_limbs(const integer & v) noexcept
+    {
+        size_t n = limbs;
+        while (n > 0 && v.data_[n - 1] == 0)
+            --n;
+        return n;
+    }
+
+    static bool positive_single_limb_value(const integer & v, limb_type & value) noexcept
+    {
+        value = v.data_[0];
+        if (std::is_same<Signed, signed>::value && limbs == 1 && (value >> 63))
+            return false;
+
+        limb_type high_or = 0;
+        for (size_t i = 1; i < limbs; ++i)
+            high_or |= v.data_[i];
+        return high_or == 0;
+    }
+
+    static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
+    {
+        integer result;
+        if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
+        {
+            lhs = -lhs;
+            lhs.div_mod_small(divisor, result);
+            result = -result;
+            return result;
+        }
+
+        lhs.div_mod_small(divisor, result);
+        return result;
+    }
+
+    template <typename SrcInt>
+    static void copy_abs_magnitude(integer<Bits, unsigned> & dst, const SrcInt & src, bool neg) noexcept
+    {
+        if (!neg)
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                dst.data_[i] = src.data_[i];
+            return;
+        }
+
+        limb_type carry = 1;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            const limb_type inv = ~src.data_[i];
+            const limb_type sum = inv + carry;
+            dst.data_[i] = sum;
+            carry = carry && (sum == 0);
+        }
+    }
+
+    static GINT_FORCE_INLINE integer rem_signed_magnitude(const integer & lhs, const integer & rhs, bool rhs_neg) noexcept
+    {
+        using Unsigned = integer<Bits, unsigned>;
+        const bool lhs_neg = lhs.data_[limbs - 1] >> 63;
+        Unsigned lhs_mag;
+        Unsigned rhs_mag;
+        copy_abs_magnitude(lhs_mag, lhs, lhs_neg);
+        copy_abs_magnitude(rhs_mag, rhs, rhs_neg);
+
+        Unsigned rem_mag = Unsigned::rem_unsigned_magnitude(lhs_mag, rhs_mag);
+        integer result;
+        for (size_t i = 0; i < limbs; ++i)
+            result.data_[i] = rem_mag.data_[i];
+        return lhs_neg ? -result : result;
+    }
+
+    static integer rem_unsigned_magnitude(const integer & lhs, const integer & divisor) noexcept
+    {
+        integer result;
+        size_t divisor_limbs = used_limbs(divisor);
+
+        if (divisor_limbs == 1)
+        {
+            result.data_[0] = lhs.mod_small(divisor.data_[0]);
+            return result;
+        }
+
+        int pow_bit;
+        if (is_power_of_two(divisor, pow_bit))
+        {
+            result = lhs & (divisor - integer(1));
+            return result;
+        }
+
+        integer quotient;
+        if (limbs == 2)
+            quotient = div_128(lhs, divisor);
+        else if (divisor_limbs == 2)
+            quotient = div_large_2(lhs, divisor);
+        else if (divisor_limbs == 3)
+            quotient = div_large_3(lhs, divisor);
+        else
+            quotient = div_large(lhs, divisor, divisor_limbs);
+
+        result = lhs;
+        quotient *= divisor;
+        result -= quotient;
         return result;
     }
 
@@ -2345,7 +2561,7 @@ private:
 
     // Optimized specialization: two-limb divisor (divisor_limbs == 2)
     template <size_t L = limbs>
-    static typename std::enable_if<(L >= 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept
+    static typename std::enable_if<(L >= 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept GINT_CLANG_NOINLINE
     {
         integer quotient;
         size_t n = limbs;
@@ -2369,6 +2585,7 @@ private:
         using u128 = unsigned __int128;
         // Precompute 128-bit reciprocal for v1 and use it to form an exact qhat
         const u128 inv128 = v1 ? (static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(v1)) : 0;
+        const bool v1_is_half_base = v1 == (limb_type(1) << 63);
 
         if (n == 4)
         {
@@ -2379,11 +2596,11 @@ private:
                 limb_type & uj2 = u[j + 2];
                 u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
                 // 1) Initial estimate via reciprocal multiply
-                u128 qhat = detail::mulhi_u128(numerator, inv128);
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128(numerator, inv128);
                 const u128 QMAX = (static_cast<u128>(1) << 64) - 1;
                 if (qhat > QMAX)
                     qhat = QMAX;
-                u128 qhat_v1 = qhat * v1;
+                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
                 // Downward correction to ensure qhat <= floor(numerator / v1)
                 if (qhat_v1 > numerator)
                 {
@@ -2464,11 +2681,11 @@ private:
                 limb_type & uj2 = u[j + 2];
                 u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
                 // 1) Initial estimate via reciprocal multiply
-                u128 qhat = detail::mulhi_u128(numerator, inv128);
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128(numerator, inv128);
                 const u128 QMAX = (static_cast<u128>(1) << 64) - 1;
                 if (qhat > QMAX)
                     qhat = QMAX;
-                u128 qhat_v1 = qhat * v1;
+                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
                 // Downward correction
                 if (qhat_v1 > numerator)
                 {
@@ -2871,7 +3088,10 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_MODZERO_CHECK
 #undef GINT_CONSTEXPR14
 #undef GINT_FORCE_INLINE
+#undef GINT_CLANG_NOINLINE
 #undef GINT_RESTRICT
 #undef GINT_HAS_IS_CONSTANT_EVALUATED
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
 #undef GINT_ENABLE_MUL_FASTPATH
+#undef GINT_ENABLE_DIRECT_LARGE_MOD
+#undef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
