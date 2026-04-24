@@ -118,6 +118,7 @@ jobs:
           fi
 
   benchmark:
+    name: benchmark smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,10 +127,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential libfmt-dev libbenchmark-dev libboost-dev
       - name: Configure
-        run: cmake -S . -B build -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON
+        run: cmake -S . -B runs/ci/build-benchmark-smoke -DCMAKE_BUILD_TYPE=Release -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON
       - name: Build
-        run: cmake --build build --config Release --parallel
-      - name: Run benchmarks
+        run: cmake --build runs/ci/build-benchmark-smoke --parallel
+      - name: Run benchmark smoke tests
         run: |
-          build/perf_benchmark_int256 --benchmark_min_time=0.01s
-          build/perf_compare_int256 --benchmark_min_time=0.01s
+          # Smoke only: keep this short. Use local runs or a dedicated perf workflow for performance conclusions.
+          runs/ci/build-benchmark-smoke/perf_benchmark_int256 --benchmark_min_time=0.01s
+          runs/ci/build-benchmark-smoke/perf_compare_int256 --benchmark_min_time=0.01s
