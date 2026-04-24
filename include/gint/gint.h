@@ -150,8 +150,9 @@ struct integer_test_access;
 template <size_t Bits>
 struct storage_count
 {
-    static_assert(Bits > 0, "Bits must be > 0");
-    static_assert(Bits % 64 == 0, "Bits must be multiple of 64");
+    static_assert(Bits >= 64, "Bits must be at least 64");
+    static_assert(Bits <= 1024, "Bits must be at most 1024");
+    static_assert((Bits & (Bits - 1)) == 0, "Bits must be a power of two");
     static constexpr size_t value = Bits / 64;
 };
 
@@ -319,15 +320,17 @@ GINT_FORCE_INLINE void add_limbs_runtime<4>(uint64_t * lhs, const uint64_t * rhs
 template <size_t L>
 GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         add_limbs_scalar<L>(lhs, rhs);
         return;
     }
     add_limbs_runtime<L>(lhs, rhs);
-#else
+#elif __cplusplus >= 201402L
     add_limbs_scalar<L>(lhs, rhs);
+#else
+    add_limbs_runtime<L>(lhs, rhs);
 #endif
 }
 
@@ -388,15 +391,17 @@ GINT_FORCE_INLINE void sub_limbs_runtime<4>(uint64_t * lhs, const uint64_t * rhs
 template <size_t L>
 GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         sub_limbs_scalar<L>(lhs, rhs);
         return;
     }
     sub_limbs_runtime<L>(lhs, rhs);
-#else
+#elif __cplusplus >= 201402L
     sub_limbs_scalar<L>(lhs, rhs);
+#else
+    sub_limbs_runtime<L>(lhs, rhs);
 #endif
 }
 
@@ -456,15 +461,17 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
 template <size_t L>
 GINT_CONSTEXPR14 inline void add_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         add_limbs_copy_scalar<L>(dst, lhs, rhs);
         return;
     }
     add_limbs_copy_runtime<L>(dst, lhs, rhs);
-#else
+#elif __cplusplus >= 201402L
     add_limbs_copy_scalar<L>(dst, lhs, rhs);
+#else
+    add_limbs_copy_runtime<L>(dst, lhs, rhs);
 #endif
 }
 
@@ -525,15 +532,17 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
 template <size_t L>
 GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         sub_limbs_copy_scalar<L>(dst, lhs, rhs);
         return;
     }
     sub_limbs_copy_runtime<L>(dst, lhs, rhs);
-#else
+#elif __cplusplus >= 201402L
     sub_limbs_copy_scalar<L>(dst, lhs, rhs);
+#else
+    sub_limbs_copy_runtime<L>(dst, lhs, rhs);
 #endif
 }
 
@@ -1009,7 +1018,7 @@ public:
                 static_cast<uint64_t>(data_[2]),
                 static_cast<uint64_t>(data_[3]),
             };
-            auto fetch = [&src, fill](size_t idx) -> uint64_t { return idx < 4 ? src[idx] : static_cast<uint64_t>(fill); };
+            auto fetch = [&src](size_t idx, uint64_t fill_word) -> uint64_t { return idx < 4 ? src[idx] : fill_word; };
             uint64_t out0 = 0;
             uint64_t out1 = 0;
             uint64_t out2 = 0;
@@ -1017,17 +1026,19 @@ public:
             if (bit_shift)
             {
                 const unsigned inv_shift = 64U - bit_shift;
-                out0 = (fetch(limb_shift + 0) >> bit_shift) | (fetch(limb_shift + 1) << inv_shift);
-                out1 = (fetch(limb_shift + 1) >> bit_shift) | (fetch(limb_shift + 2) << inv_shift);
-                out2 = (fetch(limb_shift + 2) >> bit_shift) | (fetch(limb_shift + 3) << inv_shift);
-                out3 = (fetch(limb_shift + 3) >> bit_shift) | (fetch(limb_shift + 4) << inv_shift);
+                const uint64_t fill_word = static_cast<uint64_t>(fill);
+                out0 = (fetch(limb_shift + 0, fill_word) >> bit_shift) | (fetch(limb_shift + 1, fill_word) << inv_shift);
+                out1 = (fetch(limb_shift + 1, fill_word) >> bit_shift) | (fetch(limb_shift + 2, fill_word) << inv_shift);
+                out2 = (fetch(limb_shift + 2, fill_word) >> bit_shift) | (fetch(limb_shift + 3, fill_word) << inv_shift);
+                out3 = (fetch(limb_shift + 3, fill_word) >> bit_shift) | (fetch(limb_shift + 4, fill_word) << inv_shift);
             }
             else
             {
-                out0 = fetch(limb_shift + 0);
-                out1 = fetch(limb_shift + 1);
-                out2 = fetch(limb_shift + 2);
-                out3 = fetch(limb_shift + 3);
+                const uint64_t fill_word = static_cast<uint64_t>(fill);
+                out0 = fetch(limb_shift + 0, fill_word);
+                out1 = fetch(limb_shift + 1, fill_word);
+                out2 = fetch(limb_shift + 2, fill_word);
+                out3 = fetch(limb_shift + 3, fill_word);
             }
             data_[0] = static_cast<limb_type>(out0);
             data_[1] = static_cast<limb_type>(out1);
@@ -2879,7 +2890,7 @@ private:
         return div_large(lhs, divisor, 3);
     }
 
-    alignas(16) limb_type data_[limbs] = {};
+    alignas(Bits == 64 ? alignof(limb_type) : 16) limb_type data_[limbs] = {};
 };
 
 #ifdef GINT_TEST_ACCESS

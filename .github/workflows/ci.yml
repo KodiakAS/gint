@@ -52,6 +52,17 @@ jobs:
         run: |
           cd build
           ctest -j 2 --output-on-failure
+      - name: Header warning smoke
+        run: |
+          cat > /tmp/gint_header_warning_smoke.cpp <<'CPP'
+          #include <gint/gint.h>
+          int main() {
+              gint::integer<256, unsigned> x = 1;
+              auto y = x >> 1;
+              return static_cast<int>(static_cast<unsigned long long>(y));
+          }
+          CPP
+          c++ -std=c++11 -Wall -Wextra -Werror -Iinclude /tmp/gint_header_warning_smoke.cpp -c -o /tmp/gint_header_warning_smoke.o
 
   build-cxx17:
     name: build (ubuntu-latest-cxx17)

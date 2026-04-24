@@ -7,8 +7,10 @@ option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
 option(GINT_BUILD_TESTS "Build test suite" ON)
 option(GINT_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
+option(GINT_BUILD_TESTS_RELEASE "Build Release/O3 test suite (gint_tests_release)" ON)
 
 set(GINT_TEST_OPTIONS -O0 -g)
+set(GINT_TEST_RELEASE_OPTIONS -O3 -DNDEBUG)
 set(GINT_TEST_LINK_OPTIONS "")
 
 if(ENABLE_COVERAGE)
@@ -72,6 +74,23 @@ if(GINT_BUILD_TESTS)
         NO_PRETTY_VALUES
         DISCOVERY_TIMEOUT 60
     )
+
+    # Run the same C++11 unit tests under Release/O3 by default. This catches
+    # optimization-sensitive issues in the header-only fast paths while keeping
+    # the primary test target debuggable.
+    if(GINT_BUILD_TESTS_RELEASE AND NOT ENABLE_COVERAGE)
+        add_executable(gint_tests_release ${GINT_TEST_SOURCES})
+        target_include_directories(gint_tests_release PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        set_target_properties(gint_tests_release PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        target_compile_options(gint_tests_release PRIVATE ${GINT_TEST_RELEASE_OPTIONS})
+        target_compile_definitions(gint_tests_release PRIVATE GINT_ENABLE_FMT GINT_TEST_ACCESS)
+        target_link_libraries(gint_tests_release PRIVATE GTest::gtest_main fmt::fmt)
+        gtest_discover_tests(gint_tests_release
+            NO_PRETTY_VALUES
+            TEST_PREFIX release.
+            DISCOVERY_TIMEOUT 60
+        )
+    endif()
 
     # Optionally compile the full unit test suite under C++17 when explicitly enabled
     if(GINT_BUILD_TESTS_CXX17)

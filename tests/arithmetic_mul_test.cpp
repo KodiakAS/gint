@@ -61,59 +61,61 @@ TEST(WideIntegerMultiplication, UInt256_WideTimesWide_Comba)
     EXPECT_EQ(prod, sum);
 }
 
-// 192-bit wide×wide multiplication (generic mul_limbs path)
-TEST(WideIntegerMultiplication, UInt192_WideTimesWide_Generic)
+// 512-bit wide×wide multiplication (generic mul_limbs path)
+TEST(WideIntegerMultiplication, UInt512_WideTimesWide_Generic)
 {
-    using U192 = gint::integer<192, unsigned>;
-    U192 a = 0;
-    a += U192(0xCAFEBABE8BADF00DULL);
-    a += U192(0x0011223344556677ULL) << 64;
-    a += U192(0x0102030405060708ULL) << 128;
+    using U512 = gint::integer<512, unsigned>;
+    U512 a = 0;
+    a += U512(0xCAFEBABE8BADF00DULL);
+    a += U512(0x0011223344556677ULL) << 64;
+    a += U512(0x0102030405060708ULL) << 128;
+    a += U512(0xA0B0C0D0E0F00123ULL) << 384;
 
-    U192 five = U192(5);
-    U192 prod = a * five;
-    U192 sum = a + a + a + a + a;
+    U512 five = U512(5);
+    U512 prod = a * five;
+    U512 sum = a + a + a + a + a;
     EXPECT_EQ(prod, sum);
 }
 
-// 192-bit multiply-by-1 to exercise generic mul path without carry
-TEST(WideIntegerMultiplication, UInt192_TimesOne_NoCarry)
+// 512-bit multiply-by-1 to exercise generic mul path without carry
+TEST(WideIntegerMultiplication, UInt512_TimesOne_NoCarry)
 {
-    using U192 = gint::integer<192, unsigned>;
-    U192 a = 0;
-    a += U192(0x1111222233334444ULL);
-    a += U192(0x5555666677778888ULL) << 64;
-    a += U192(0x9999AAAABBBBCCCCULL) << 128;
-    U192 one = U192(1);
-    U192 prod = a * one;
+    using U512 = gint::integer<512, unsigned>;
+    U512 a = 0;
+    a += U512(0x1111222233334444ULL);
+    a += U512(0x5555666677778888ULL) << 64;
+    a += U512(0x9999AAAABBBBCCCCULL) << 128;
+    a += U512(0xDDDD111122223333ULL) << 448;
+    U512 one = U512(1);
+    U512 prod = a * one;
     EXPECT_EQ(prod, a);
 }
 
-// 192-bit multiply-by-2 to force carries through generic mul
-TEST(WideIntegerMultiplication, UInt192_TimesTwo_WithCarry)
+// 512-bit multiply-by-2 to force carries through generic mul
+TEST(WideIntegerMultiplication, UInt512_TimesTwo_WithCarry)
 {
-    using U192 = gint::integer<192, unsigned>;
-    U192 a = ~U192(0); // all ones
-    U192 prod = a * U192(2);
-    U192 expected = a;
+    using U512 = gint::integer<512, unsigned>;
+    U512 a = ~U512(0); // all ones
+    U512 prod = a * U512(2);
+    U512 expected = a;
     expected <<= 1; // fixed-width semantics
     EXPECT_EQ(prod, expected);
 }
 
-// 320-bit wide×wide multiplication (generic mul_limbs path)
-TEST(WideIntegerMultiplication, UInt320_WideTimesWide_Generic)
+// 1024-bit wide×wide multiplication (generic mul_limbs path)
+TEST(WideIntegerMultiplication, UInt1024_WideTimesWide_Generic)
 {
-    using U320 = gint::integer<320, unsigned>;
-    U320 a = 0;
-    a += U320(0xDEADBEEFDEADBEEFULL);
-    a += U320(0xC001D00DC001D00DULL) << 64;
-    a += U320(0x0123456789ABCDEFULL) << 128;
-    a += U320(0x0) << 192;
-    a += U320(0x2222222211111111ULL) << 256;
+    using U1024 = gint::integer<1024, unsigned>;
+    U1024 a = 0;
+    a += U1024(0xDEADBEEFDEADBEEFULL);
+    a += U1024(0xC001D00DC001D00DULL) << 64;
+    a += U1024(0x0123456789ABCDEFULL) << 128;
+    a += U1024(0x2222222211111111ULL) << 512;
+    a += U1024(0x3333333344444444ULL) << 960;
 
-    U320 two = U320(2);
-    U320 prod = a * two;
-    U320 sum = a + a;
+    U1024 two = U1024(2);
+    U1024 prod = a * two;
+    U1024 sum = a + a;
     EXPECT_EQ(prod, sum);
 }
 
