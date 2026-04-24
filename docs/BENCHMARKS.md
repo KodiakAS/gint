@@ -4,19 +4,26 @@
 - **基准测试（Benchmark）**：仅编译并运行 gint 的用例，用于观察绝对性能。
 - **对比测试（Comparison）**：在同一套用例上，对比 ClickHouse 宽整数与 Boost.Multiprecision 的 256 位算术。
 
-测试平台
-- Apple Silicon（macOS）
-  - 基准报告的核心数：12
-  - 工具链：AppleClang 17.x，Google Benchmark
-  - 编译：Release（`-O3 -DNDEBUG`）
-  - 备注：macOS 上可能无法设置线程亲和性，Google Benchmark 的警告不影响相对对比。
-- x86_64 Linux（预留）
-  - CPU/OS/工具链：TBD
-  - 结果：TBD
+## 环境口径
+
+- 本机（local）：指宿主机 macOS + AppleClang 工具链，构建与输出目录使用 `runs/local/`。
+- Docker/GCC：指 `gint:centos8` 容器内的 CentOS 8 + GCC/g++ 工具链，构建与输出目录使用 `runs/docker/`。Dockerfile 也安装 `clang`/`clangd` 作为开发辅助工具，但未显式设置 `CC`/`CXX` 时，CMake 默认使用 GCC/g++。
+- 两套结果用于验证不同 OS/编译器组合；性能报告应分别呈现，不直接混合横向比较。
+
+## 当前本机 AppleClang 样本
+- 平台：Apple M4 Pro，macOS 26.4.1，arm64
+- 核心数：12
+- 工具链：AppleClang 21.0.0，Google Benchmark v1.9.5
+- 编译：Release（`-O3 -DNDEBUG`）
+- 参数：`--benchmark_min_time=0.2s`
+- 备注：macOS 上可能无法设置线程亲和性，Google Benchmark 的警告不影响相对对比。
 
 ## 通用提示
+- 本机 AppleClang 口径下，Makefile 默认构建目录位于 `runs/local/`：测试 `runs/local/build`，基准 `runs/local/build-bench`，覆盖率 `runs/local/build-coverage`。
+- Docker/GCC 验证需显式通过 `docker run ... gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench ...` 执行，产物放在 `runs/docker/`。
 - 最短运行时间：建议加入 `--benchmark_min_time=0.2s`（单位必须为秒）。
 - 过滤子集：可用 `--benchmark_filter`（示例：`--benchmark_filter=^Div/SmallDivisor64/`）。
+- 完整矩阵：使用 `bench-full` 或 `bench-compare-full`，等价于给可执行传入 `--gint_full`。
 
 ## 基准测试（Benchmark）
 
@@ -24,8 +31,10 @@
 - 仅运行 gint 自身的用例，评估绝对性能。
 
 ### 用法
-- 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 直接运行：`build-bench/perf_benchmark_int256 --benchmark_min_time=0.2s`
+- 本机 AppleClang 标准矩阵：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 本机 AppleClang 完整矩阵：`make bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- Docker/GCC 完整矩阵：`docker run --rm -t -v "$PWD":/work -w /work gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 本机直接运行：`runs/local/build-bench/perf_benchmark_int256 --benchmark_min_time=0.2s`
 
 ### 常用参数
 - `--benchmark_min_time=0.2s`：设置最短运行时间以降低抖动。
@@ -37,10 +46,10 @@
 - 在代表性细分场景下，对比 256 位算术在不同实现（gint/ClickHouse/Boost）间的性能差异。
 
 ### 用法
-- 构建并执行：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 对比测试标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
-- 对比测试完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
-  - 或 `build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
+- 本机 AppleClang 标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 本机 AppleClang 完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- Docker/GCC 完整矩阵：`docker run --rm -t -v "$PWD":/work -w /work gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 本机直接运行：`runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
 
 ### 方法学
 - 每个用例 256 对确定性样本（固定种子），循环中轮询；
@@ -48,8 +57,11 @@
 - 预生成数据集，循环内仅取引用与计算，不做拷贝/构造；
 - 对循环不变操作数与表达式使用 `benchmark::DoNotOptimize`，防止常量折叠或被外提；
 - 倾向覆盖常见“快/慢”路径与真实工作负载热点。
+- 当前结果是热数据、独立操作的 microbenchmark 吞吐；数据集很小，通常驻留在 L1/L2 cache 中，不代表冷数据访问、依赖链延迟或端到端业务性能。跨工具链或跨机器比较应重新采集并单独报告。
 
-### 结果（完整矩阵，ns/op）
+### 结果（完整矩阵，real_time ns/op）
+
+数值越低越好。以下数据来自 `bench-compare-full` 的本机 AppleClang 样本。
 
 #### 加法（Addition）
 
@@ -58,39 +70,39 @@
 - FullCarry：-1 + 1，覆盖“全链条进位”最坏路径。
 - CarryChain64：仅低 64 位形成进位链，隔离低层 carry 传播。
 
-| 用例            | gint | ClickHouse | Boost |
-| --------------- | ---: | ---------: | ----: |
-| NoCarry         | 1.14 |       1.81 |  5.23 |
-| FullCarry       | 1.14 |       1.50 |  1.87 |
-| CarryChain64    | 1.14 |       1.64 |  5.29 |
+| 用例         | gint  | ClickHouse | Boost |
+| ------------ | ----: | ---------: | ----: |
+| NoCarry      | 0.664 |       1.78 |  4.80 |
+| FullCarry    | 0.669 |       1.78 |  2.30 |
+| CarryChain64 | 0.697 |       1.77 |  4.81 |
 
 #### 减法（Subtraction）
 
 **设计**
 - NoBorrow：避免跨 limb 借位，覆盖最快路径。
-- FullBorrow：0 − 1，覆盖“全链条借位”最坏路径。
+- FullBorrow：0 - 1，覆盖“全链条借位”最坏路径。
 - BorrowChain64：仅低 64 位形成借位链，隔离低层 borrow 传播。
 
-| 用例            | gint | ClickHouse | Boost |
-| --------------- | ---: | ---------: | ----: |
-| NoBorrow        | 1.60 |       1.75 |  5.49 |
-| FullBorrow      | 1.62 |       1.56 |  2.35 |
-| BorrowChain64   | 1.65 |       1.51 |  5.35 |
+| 用例          | gint  | ClickHouse | Boost |
+| ------------- | ----: | ---------: | ----: |
+| NoBorrow      | 0.680 |       1.79 |  4.88 |
+| FullBorrow    | 0.669 |       1.83 |  2.56 |
+| BorrowChain64 | 0.669 |       1.59 |  4.57 |
 
 #### 乘法（Multiplication）
 
 **设计**
-- U64xU64：小×小，验证单 limb 快路径。
+- U64xU64：小 x 小，验证单 limb 快路径。
 - HighxHigh：高位有值，多 limb 学校乘法路径，评估对角线累加与进位管理。
-- U32xWide：32 位 × 宽整数，覆盖“标量×宽整数”的常见热点。
-- WideTimesU64：完整 256 位 × 64 位的混合乘法，对三方实现进行公平对比（被乘数由四个 64 位随机 limb 组成，避免单肢退化）。
+- WideTimesU64：完整 256 位 x 64 位的混合乘法，对三方实现进行公平对比（被乘数由四个 64 位随机 limb 组成，避免单肢退化）。
+- U32xWide：32 位 x 宽整数，覆盖“标量 x 宽整数”的常见热点。
 
-| 用例        | gint | ClickHouse | Boost |
-| ----------- | ---: | ---------: | ----: |
-| U64xU64     | 1.70 |       2.59 |  2.17 |
-| HighxHigh   | 1.69 |       2.55 | 10.5  |
-| U32xWide    | 1.73 |       3.44 |  4.07 |
-| WideTimesU64| 0.90 |       3.20 |  2.22 |
+| 用例         | gint  | ClickHouse | Boost |
+| ------------ | ----: | ---------: | ----: |
+| U64xU64      |  1.79 |       2.54 |  2.28 |
+| HighxHigh    |  1.83 |       2.55 |  10.9 |
+| WideTimesU64 | 0.920 |       3.13 |  2.32 |
+| U32xWide     |  1.81 |       3.49 |  4.08 |
 
 #### 除法（Division）
 
@@ -99,24 +111,56 @@
 - SmallDivisor64：被除数为随机 256 位，除数取 64 位范围，覆盖“128/64 估商的小除数场景”。
 - Pow2Divisor：除数为 2 的幂，覆盖“移位等价”的极端快路径。
 - SimilarMagnitude：被除数与除数数量级相近，覆盖“Knuth D 多 limb 重路径”，考察规范化与估商修正。
-- LargeDivisor128：两 limb 除数，覆盖“多 limb 路径在 2‑limb 情况的热点”。
+- LargeDivisor128：两 limb 除数，覆盖“多 limb 路径在 2-limb 情况的热点”。
 - SimilarMagnitude2：与上述相似量级不同分布，用于验证分布差异对分支与规范化的影响。
 
 | 用例                       | gint | ClickHouse | Boost |
 | -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 10.5 |       13.3 |  19.3 |
-| SmallDivisor64（64 位）    | 12.9 |       12.8 |  25.8 |
-| Pow2Divisor（2 的幂）      | 6.29 |        395 |  61.5 |
-| SimilarMagnitude           | 14.9 |        204 |  61.9 |
-| LargeDivisor128（两 limb） | 21.0 |        459 |  36.3 |
-| SimilarMagnitude2          | 11.2 |        230 |  19.7 |
+| SmallDivisor32（32 位）    | 11.5 |       14.5 |  20.6 |
+| SmallDivisor64（64 位）    | 13.9 |       14.3 |  24.4 |
+| Pow2Divisor（2 的幂）      | 6.82 |        314 |  68.0 |
+| SimilarMagnitude           | 16.2 |        232 |  68.0 |
+| LargeDivisor128（两 limb） | 27.6 |        547 |  36.5 |
+| SimilarMagnitude2          | 15.2 |        213 |  83.5 |
 
+#### 取模（Modulo）
+
+**设计**
+- SmallDivisor64：被除数为随机 256 位，除数取 64 位范围，覆盖小除数取模路径。
+- SimilarMagnitude：被除数与除数数量级相近，覆盖多 limb 取模路径。
+
+| 用例             | gint | ClickHouse | Boost |
+| ---------------- | ---: | ---------: | ----: |
+| SmallDivisor64   | 20.2 |       16.8 |  20.5 |
+| SimilarMagnitude | 19.1 |        232 |  68.6 |
+
+#### 位运算（Bitwise）
+
+**设计**
+- And：随机 256 位值按位与。
+- Xor：随机 256 位值按位异或。
+
+| 用例 | gint  | ClickHouse | Boost |
+| ---- | ----: | ---------: | ----: |
+| And  | 0.773 |      0.767 |  7.64 |
+| Xor  | 0.762 |      0.365 |  7.26 |
+
+#### 移位（Shift）
+
+**设计**
+- LeftVariable：随机 256 位值按变量位移量左移。
+- RightVariable：随机 256 位值按变量位移量右移。
+
+| 用例          | gint | ClickHouse | Boost |
+| ------------- | ---: | ---------: | ----: |
+| LeftVariable  | 4.41 |       3.31 |  5.79 |
+| RightVariable | 2.83 |       3.21 |  3.78 |
 
 #### 字符串转换（ToString）
 
 **设计**
 - Base10：高位为 1 的逐步递增数，评估十进制字符串转换效率。
 
-| 用例    | gint | ClickHouse | Boost |
-| ------- | ---: | ---------: | ----: |
-| Base10  | 127  |       342  |   155 |
+| 用例   | gint | ClickHouse | Boost |
+| ------ | ---: | ---------: | ----: |
+| Base10 |  129 |        294 |   144 |
