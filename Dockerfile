@@ -5,7 +5,7 @@ RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-* \
      && sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-* \
      && dnf -y clean all && dnf -y makecache
 
-# ---- 基础开发环境 ----
+# ---- 基础 Linux/GCC 开发环境 ----
 RUN dnf -y update && dnf -y install \
      gcc gcc-c++ make cmake git pkgconfig which boost-devel \
      perl python3 curl ca-certificates tar xz bzip2 unzip \
@@ -14,7 +14,7 @@ RUN dnf -y update && dnf -y install \
 # ---- 启用 PowerTools（某些包如 clang-tools-extra 可能需要）----
 RUN (dnf config-manager --set-enabled PowerTools || dnf config-manager --set-enabled powertools) || true
 
-# ---- 安装 clang/clangd（clangd 在 clang-tools-extra 包内）----
+# ---- 安装 clang/clangd（开发辅助工具；默认构建仍使用 GCC/g++）----
 RUN dnf -y install clang clang-tools-extra \
      && dnf clean all \
      && ln -sf /usr/bin/clangd /usr/local/bin/clangd
