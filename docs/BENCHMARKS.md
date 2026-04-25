@@ -2,7 +2,7 @@
 
 本文档介绍性能测试结构：
 - **基准测试（Benchmark）**：仅编译并运行 gint 的用例，用于观察绝对性能。
-- **对比测试（Comparison）**：在同一套用例上，对比 ClickHouse 宽整数与 Boost.Multiprecision 的 unsigned 256 位算术。
+- **对比测试（Comparison）**：在同一套用例上，对比 ClickHouse 宽整数与 Boost.Multiprecision 的 256 位算术。
 
 ## 环境口径
 
@@ -24,7 +24,6 @@
 - 最短运行时间：建议加入 `--benchmark_min_time=0.2s`（单位必须为秒）。
 - 过滤子集：可用 `--benchmark_filter`（示例：`--benchmark_filter=^Div/SmallDivisor64/`）。
 - 完整矩阵：使用 `bench-full` 或 `bench-compare-full`，等价于给可执行传入 `--gint_full`。
-- 对比语义预检：`bench-compare` / `bench-compare-full` 可额外传入 `--gint_validate`（或设置 `GINT_BENCH_VALIDATE=1`），在跑分前检查代表性用例中 gint、ClickHouse、Boost 的输出一致性。
 
 ## 基准测试（Benchmark）
 
@@ -44,7 +43,7 @@
 ## 对比测试（Comparison）
 
 ### 目的
-- 在代表性细分场景下，对比 unsigned 256 位算术在不同实现（gint/ClickHouse/Boost）间的性能差异。
+- 在代表性细分场景下，对比 256 位算术在不同实现（gint/ClickHouse/Boost）间的性能差异。
 
 ### 用法
 - 本机 AppleClang 标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
@@ -55,7 +54,7 @@
 ### 方法学
 - 每个用例 256 对确定性样本（固定种子），循环中轮询；
 - 三方库共享相同输入；
-- 对比测试提供显式语义预检模式（`--gint_validate`），用于在采信性能数据前确认代表性样本的三方结果一致；
+- 对比测试只衡量吞吐，不校验三方结果等价；gint 正确性由单元测试覆盖；
 - 预生成数据集，循环内仅取引用与计算，不做拷贝/构造；
 - 对循环不变操作数与表达式使用 `benchmark::DoNotOptimize`，防止常量折叠或被外提；
 - 倾向覆盖常见“快/慢”路径与真实工作负载热点。
@@ -74,9 +73,9 @@
 
 | 用例         | gint  | ClickHouse | Boost |
 | ------------ | ----: | ---------: | ----: |
-| NoCarry      | 0.659 |       1.26 |  4.24 |
-| FullCarry    | 0.658 |       1.57 |  5.57 |
-| CarryChain64 | 0.658 |       1.22 |  4.64 |
+| NoCarry      | 0.666 |       1.94 |  4.72 |
+| FullCarry    | 0.661 |       1.84 |  1.77 |
+| CarryChain64 | 0.659 |       1.74 |  4.60 |
 
 #### 减法（Subtraction）
 
@@ -87,9 +86,9 @@
 
 | 用例          | gint  | ClickHouse | Boost |
 | ------------- | ----: | ---------: | ----: |
-| NoBorrow      | 0.663 |       1.25 |  5.14 |
-| FullBorrow    | 0.665 |       1.61 |  4.66 |
-| BorrowChain64 | 0.665 |       1.27 |  5.09 |
+| NoBorrow      | 0.664 |       1.59 |  4.81 |
+| FullBorrow    | 0.658 |       1.76 |  2.04 |
+| BorrowChain64 | 0.659 |       1.68 |  4.54 |
 
 #### 乘法（Multiplication）
 
@@ -101,10 +100,10 @@
 
 | 用例         | gint  | ClickHouse | Boost |
 | ------------ | ----: | ---------: | ----: |
-| U64xU64      |  1.79 |       1.58 |  2.24 |
-| HighxHigh    |  1.78 |       1.60 |  10.1 |
-| WideTimesU64 | 0.884 |      0.883 |  1.83 |
-| U32xWide     |  1.77 |       1.64 |  3.80 |
+| U64xU64      |  1.77 |       2.78 |  2.23 |
+| HighxHigh    |  1.75 |       2.75 |  10.4 |
+| WideTimesU64 | 0.889 |       3.22 |  2.51 |
+| U32xWide     |  1.78 |       3.64 |  4.23 |
 
 #### 除法（Division）
 
@@ -118,12 +117,12 @@
 
 | 用例                       | gint | ClickHouse | Boost |
 | -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 8.47 |       11.1 |  18.6 |
-| SmallDivisor64（64 位）    | 13.2 |       12.4 |  20.8 |
-| Pow2Divisor（2 的幂）      | 3.82 |        290 |  64.8 |
-| SimilarMagnitude           | 15.3 |        219 |  62.8 |
-| LargeDivisor128（两 limb） | 15.9 |        524 |  35.6 |
-| SimilarMagnitude2          | 13.9 |        199 |  76.3 |
+| SmallDivisor32（32 位）    | 11.1 |       13.7 |  19.7 |
+| SmallDivisor64（64 位）    | 13.7 |       13.7 |  22.8 |
+| Pow2Divisor（2 的幂）      | 6.68 |        310 |  66.6 |
+| SimilarMagnitude           | 15.8 |        227 |  65.4 |
+| LargeDivisor128（两 limb） | 17.0 |        524 |  36.1 |
+| SimilarMagnitude2          | 14.7 |        205 |  77.6 |
 
 #### 取模（Modulo）
 
@@ -133,8 +132,8 @@
 
 | 用例             | gint | ClickHouse | Boost |
 | ---------------- | ---: | ---------: | ----: |
-| SmallDivisor64   | 17.9 |       14.7 |  18.5 |
-| SimilarMagnitude | 17.6 |        220 |  63.7 |
+| SmallDivisor64   | 20.5 |       15.3 |  19.0 |
+| SimilarMagnitude | 18.4 |        227 |  65.2 |
 
 #### 位运算（Bitwise）
 
@@ -144,8 +143,8 @@
 
 | 用例 | gint  | ClickHouse | Boost |
 | ---- | ----: | ---------: | ----: |
-| And  |  1.20 |       1.19 |  5.94 |
-| Xor  | 0.737 |      0.741 |  5.77 |
+| And  | 0.756 |      0.750 |  7.84 |
+| Xor  | 0.750 |      0.354 |  6.96 |
 
 #### 移位（Shift）
 
@@ -155,8 +154,8 @@
 
 | 用例          | gint | ClickHouse | Boost |
 | ------------- | ---: | ---------: | ----: |
-| LeftVariable  | 4.33 |       3.10 |  5.78 |
-| RightVariable | 1.21 |       1.82 |  2.46 |
+| LeftVariable  | 4.31 |       3.20 |  5.65 |
+| RightVariable | 2.78 |       2.99 |  3.73 |
 
 #### 字符串转换（ToString）
 
@@ -165,4 +164,4 @@
 
 | 用例   | gint | ClickHouse | Boost |
 | ------ | ---: | ---------: | ----: |
-| Base10 |  121 |        287 |   139 |
+| Base10 |  125 |        284 |   142 |

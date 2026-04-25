@@ -13,26 +13,26 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Performance
 
-Local AppleClang microbenchmark sample: Apple M4 Pro, macOS 26.4.1, AppleClang 21.0.0, Release/O3, Google Benchmark (`--benchmark_min_time=0.2s`). Numbers are `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed unsigned 256-bit inputs. Use them for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
+Local AppleClang microbenchmark sample: Apple M4 Pro, macOS 26.4.1, AppleClang 21.0.0, Release/O3, Google Benchmark (`--benchmark_min_time=0.2s`). Numbers are `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed 256-bit inputs. Use them for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
 
-Arithmetic & ToString — unsigned 256-bit
+Arithmetic & ToString — 256-bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
-| Add/NoCarry            | 0.659 |       1.26 |  4.24 |
-| Add/FullCarry          | 0.658 |       1.57 |  5.57 |
-| Sub/NoBorrow           | 0.663 |       1.25 |  5.14 |
-| Sub/FullBorrow         | 0.665 |       1.61 |  4.66 |
-| Mul/U64xU64            | 1.79 |       1.58 |  2.24 |
-| Mul/HighxHigh          | 1.78 |       1.60 | 10.1 |
-| Div/SmallDivisor32     | 8.47 |       11.1 | 18.6 |
-| Div/Pow2Divisor        | 3.82 |        290 | 64.8 |
-| Div/SimilarMagnitude   | 15.3 |        219 | 62.8 |
-| ToString/Base10        |  121 |        287 |  139 |
+| Add/NoCarry            | 0.666 |       1.94 |  4.72 |
+| Add/FullCarry          | 0.661 |       1.84 |  1.77 |
+| Sub/NoBorrow           | 0.664 |       1.59 |  4.81 |
+| Sub/FullBorrow         | 0.658 |       1.76 |  2.04 |
+| Mul/U64xU64            | 1.77 |       2.78 |  2.23 |
+| Mul/HighxHigh          | 1.75 |       2.75 | 10.4 |
+| Div/SmallDivisor32     | 11.1 |       13.7 | 19.7 |
+| Div/Pow2Divisor        | 6.68 |        310 | 66.6 |
+| Div/SimilarMagnitude   | 15.8 |        227 | 65.4 |
+| ToString/Base10        |  125 |        284 |  142 |
 
 Highlights
-- Add/Sub: ~1.9-2.4x faster vs ClickHouse; ~6.4-8.5x vs Boost.
-- Mul: close to ClickHouse on the listed 256-bit cases; faster than Boost, especially on high x high.
+- Add/Sub: ~2.4-2.9x faster vs ClickHouse; ~2.7-7.2x vs Boost.
+- Mul: faster than ClickHouse and Boost on the listed 256-bit cases, with the largest gain on high x high.
 - Div: large wins for power-of-two and similar-magnitude divisors; still faster on 32-bit small divisors.
 - ToString: ~1.1x faster vs Boost; ~2.3x vs ClickHouse.
 

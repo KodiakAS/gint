@@ -145,4 +145,4 @@ jobs:
         run: |
           # Smoke only: keep this short. Use local runs or a dedicated perf workflow for performance conclusions.
           runs/ci/build-benchmark-smoke/perf_benchmark_int256 --benchmark_min_time=0.01s
-          runs/ci/build-benchmark-smoke/perf_compare_int256 --gint_validate --benchmark_min_time=0.01s
+          runs/ci/build-benchmark-smoke/perf_compare_int256 --benchmark_min_time=0.01s

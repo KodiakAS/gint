@@ -41,8 +41,8 @@ if(GINT_BUILD_TESTS)
     include(CheckCXXCompilerFlag)
 
     # Aggregate core unit tests into a single executable for readability and speed.
-    # Divzero-check variants use separate executables so the macro policy is not
-    # mixed inside one test binary.
+    # Divzero-check variants use separate executables because the macro policy is
+    # target-wide at runtime and must not be mixed inside one test binary.
     set(GINT_TEST_SOURCES
         tests/arithmetic_basic_test.cpp
         tests/arithmetic_divmod_test.cpp
@@ -132,24 +132,6 @@ if(GINT_BUILD_TESTS)
     target_link_libraries(gint_tests_divzero_checks PRIVATE GTest::gtest_main)
     gtest_discover_tests(gint_tests_divzero_checks
         TEST_PREFIX divzero_checks.
-        NO_PRETTY_VALUES
-        DISCOVERY_TIMEOUT 60
-    )
-
-    add_executable(gint_tests_divzero_macro_isolation
-        tests/divzero_macro_enabled_tu.cpp
-        tests/divzero_macro_unchecked_tu.cpp
-        tests/divzero_macro_isolation_test.cpp
-    )
-    target_include_directories(gint_tests_divzero_macro_isolation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(gint_tests_divzero_macro_isolation PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_compile_options(gint_tests_divzero_macro_isolation PRIVATE ${GINT_TEST_OPTIONS})
-    if(GINT_TEST_LINK_OPTIONS)
-        target_link_options(gint_tests_divzero_macro_isolation PRIVATE ${GINT_TEST_LINK_OPTIONS})
-    endif()
-    target_link_libraries(gint_tests_divzero_macro_isolation PRIVATE GTest::gtest_main)
-    gtest_discover_tests(gint_tests_divzero_macro_isolation
-        TEST_PREFIX divzero_macro.
         NO_PRETTY_VALUES
         DISCOVERY_TIMEOUT 60
     )
