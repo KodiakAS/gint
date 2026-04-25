@@ -92,6 +92,35 @@ if(GINT_BUILD_TESTS)
         )
     endif()
 
+    add_executable(gint_tests_no_divzero_checks tests/divzero_unchecked_test.cpp)
+    target_include_directories(gint_tests_no_divzero_checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    set_target_properties(gint_tests_no_divzero_checks PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_compile_options(gint_tests_no_divzero_checks PRIVATE ${GINT_TEST_OPTIONS})
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_tests_no_divzero_checks PRIVATE ${GINT_TEST_LINK_OPTIONS})
+    endif()
+    target_link_libraries(gint_tests_no_divzero_checks PRIVATE GTest::gtest_main)
+    gtest_discover_tests(gint_tests_no_divzero_checks
+        TEST_PREFIX no_divzero_checks.
+        NO_PRETTY_VALUES
+        DISCOVERY_TIMEOUT 60
+    )
+
+    add_executable(gint_tests_no_divzero_checks_fastpaths tests/divzero_unchecked_test.cpp)
+    target_include_directories(gint_tests_no_divzero_checks_fastpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    set_target_properties(gint_tests_no_divzero_checks_fastpaths PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_compile_options(gint_tests_no_divzero_checks_fastpaths PRIVATE ${GINT_TEST_OPTIONS})
+    target_compile_definitions(gint_tests_no_divzero_checks_fastpaths PRIVATE GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH=1 GINT_ENABLE_DIRECT_LARGE_MOD=1)
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_tests_no_divzero_checks_fastpaths PRIVATE ${GINT_TEST_LINK_OPTIONS})
+    endif()
+    target_link_libraries(gint_tests_no_divzero_checks_fastpaths PRIVATE GTest::gtest_main)
+    gtest_discover_tests(gint_tests_no_divzero_checks_fastpaths
+        TEST_PREFIX no_divzero_checks_fastpaths.
+        NO_PRETTY_VALUES
+        DISCOVERY_TIMEOUT 60
+    )
+
     # Optionally compile the full unit test suite under C++17 when explicitly enabled
     if(GINT_BUILD_TESTS_CXX17)
         check_cxx_compiler_flag("-std=c++17" HAS_CXX17)

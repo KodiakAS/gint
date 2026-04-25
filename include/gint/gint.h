@@ -1405,6 +1405,8 @@ public:
     friend integer operator/(integer lhs, signed_limb_type rhs)
     {
         GINT_DIVZERO_CHECK(rhs == 0);
+        if (GINT_UNLIKELY(rhs == 0))
+            return integer();
         // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
         if (std::is_same<Signed, unsigned>::value && rhs < 0)
             return lhs / integer(rhs);
@@ -1447,6 +1449,8 @@ public:
     friend integer operator%(integer lhs, signed_limb_type rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
+        if (GINT_UNLIKELY(rhs == 0))
+            return lhs;
         // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
         if (std::is_same<Signed, unsigned>::value && rhs < 0)
             return lhs % integer(rhs);
@@ -1500,6 +1504,8 @@ public:
     friend integer operator%(integer lhs, T rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
+        if (GINT_UNLIKELY(rhs == 0))
+            return lhs;
         // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
         if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && rhs < 0)
             return lhs % integer(rhs);
@@ -2310,7 +2316,7 @@ private:
         limb_type high_or = 0;
         for (size_t i = 1; i < limbs; ++i)
             high_or |= v.data_[i];
-        return high_or == 0;
+        return value != 0 && high_or == 0;
     }
 
     static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
@@ -2460,8 +2466,10 @@ private:
     {
         unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
         unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
-        unsigned __int128 q = a / b;
         integer result;
+        if (GINT_UNLIKELY(b == 0))
+            return result;
+        unsigned __int128 q = a / b;
         result.data_[0] = static_cast<limb_type>(q);
         result.data_[1] = static_cast<limb_type>(q >> 64);
         return result;
@@ -2471,6 +2479,8 @@ private:
     static typename std::enable_if<(L < 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
+        if (GINT_UNLIKELY(rhs.data_[0] == 0))
+            return result;
         result.data_[0] = lhs.data_[0] / rhs.data_[0];
         return result;
     }
@@ -2504,7 +2514,7 @@ private:
         size_t n = limbs;
         while (n > 0 && lhs.data_[n - 1] == 0)
             --n;
-        if (n < div_limbs)
+        if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
             return quotient;
 
         std::array<limb_type, limbs + 1> u = {};
