@@ -1,4 +1,3 @@
-#define GINT_ENABLE_DIVZERO_CHECKS
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 

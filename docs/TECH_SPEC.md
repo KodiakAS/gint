@@ -114,8 +114,8 @@
 ## 13. 异常与错误语义
 
 - 除零检查（可选）：
-  - 宏 `GINT_ENABLE_DIVZERO_CHECKS` 未定义（默认）：不做检查；若执行到除零/模零，行为未定义（与内建整数一致）。
-  - 宏已定义（需在包含头文件前定义）：除零或模零抛出 `std::domain_error`。
+  - 宏 `GINT_ENABLE_DIVZERO_CHECKS` 未定义（默认）：不抛异常；除零返回 0，模零返回被除数本身。该行为用于避免 unchecked 路径触发底层除法 UB。
+  - 宏已定义（需在包含头文件前定义）：除零或模零抛出 `std::domain_error`。这是运行时全局策略；同一可执行/库 target 内不支持混用开启和未开启的翻译单元，建议通过 target 级编译定义统一配置。
 - 其它操作（溢出、下溢、移位越界等）：不抛异常，按模或规则处理（见 §6、§8）。
 
 测试参考：`tests/exceptions_overflow_test.cpp`。
@@ -134,7 +134,7 @@
   - 整数 ÷ `±inf` 结果为 0；
   - `±inf` ÷ 整数、`±inf` % 整数抛出 `std::domain_error`；
   - 整数 % `±inf` 结果为该整数本身；
-  - 当 `|f| < 1` 时，以浮点作除数或模时将被截断为 0；若开启除零检查（见 §13），视为除零并抛出异常。
+  - 当 `|f| < 1` 时，以浮点作除数或模时将被截断为 0；若开启除零检查（见 §13），视为除零并抛出异常；否则遵循 unchecked 除零/模零规则。
 
 测试参考：`tests/shift_test.cpp`、`tests/conversion_test.cpp`。
 
@@ -217,7 +217,7 @@ void demo() {
 
 ## 19. 配置开关
 
-- `GINT_ENABLE_DIVZERO_CHECKS`：启用除零/模零抛出 `std::domain_error` 的运行时检查。
+- `GINT_ENABLE_DIVZERO_CHECKS`：启用除零/模零抛出 `std::domain_error` 的运行时全局检查；应在包含 `gint/gint.h` 前定义，并在同一 target 内统一配置。
 - `GINT_ENABLE_FMT`：启用 `fmt` 的格式化适配（需要链接/可用 `fmt`）。
 - `GINT_ENABLE_MUL_FASTPATH`：控制乘法小数值/常见位宽快速路径；默认在 Clang 下关闭、其它编译器下开启，可用 `-DGINT_ENABLE_MUL_FASTPATH=0/1` 覆盖。
 - `GINT_ENABLE_AARCH64_LIMB_ASM`：控制 AArch64 limb 级内联汇编路径；默认在 `__aarch64__` 下开启、其它平台关闭，可用 `-DGINT_ENABLE_AARCH64_LIMB_ASM=0/1` 覆盖。

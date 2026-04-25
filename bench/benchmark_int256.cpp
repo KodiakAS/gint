@@ -132,19 +132,11 @@ template <typename Int>
 static void Add_FullCarry(benchmark::State & state)
 {
     // Worst-case: all bits set + 1 causes ripple across all limbs
-    // Use varied data to prevent constant folding while maintaining worst-case semantics
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xFCA12345678ULL);
         for (size_t i = 0; i < kDataN; ++i)
-        {
-            // All 1s with occasional random high bits to prevent optimization
-            Int a = Int{-1};
-            if (i % 8 == 0)
-                a ^= (Int{rng()} << 192);
-            d[i] = {a, Int{1}};
-        }
+            d[i] = {Int{-1}, Int{1}};
         return d;
     }();
     size_t i = 0;
@@ -189,19 +181,11 @@ template <typename Int>
 static void Sub_FullBorrow(benchmark::State & state)
 {
     // Worst-case: 0 - 1 borrows across all limbs
-    // Use varied data to prevent constant folding while maintaining worst-case semantics
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xFB98765432ULL);
         for (size_t i = 0; i < kDataN; ++i)
-        {
-            // Zero with occasional random high bits to prevent optimization
-            Int a = Int{0};
-            if (i % 8 == 0)
-                a ^= (Int{rng()} << 192);
-            d[i] = {a, Int{1}};
-        }
+            d[i] = {Int{0}, Int{1}};
         return d;
     }();
     size_t i = 0;

@@ -15,23 +15,23 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 Local AppleClang microbenchmark sample: Apple M4 Pro, macOS 26.4.1, AppleClang 21.0.0, Release/O3, Google Benchmark (`--benchmark_min_time=0.2s`). Numbers are `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed 256-bit inputs. Use them for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
 
-Arithmetic & ToString — 256‑bit
+Arithmetic & ToString — 256-bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
-| Add/NoCarry            | 0.664 |       1.78 |  4.80 |
-| Add/FullCarry          | 0.669 |       1.78 |  2.30 |
-| Sub/NoBorrow           | 0.680 |       1.79 |  4.88 |
-| Sub/FullBorrow         | 0.669 |       1.83 |  2.56 |
-| Mul/U64xU64            | 1.79 |       2.54 |  2.28 |
-| Mul/HighxHigh          | 1.83 |       2.55 | 10.9 |
-| Div/SmallDivisor32     | 11.5 |       14.5 | 20.6 |
-| Div/Pow2Divisor        | 6.82 |        314 | 68.0 |
-| Div/SimilarMagnitude   | 16.2 |        232 | 68.0 |
-| ToString/Base10        |  129 |        294 |  144 |
+| Add/NoCarry            | 0.666 |       1.94 |  4.72 |
+| Add/FullCarry          | 0.661 |       1.84 |  1.77 |
+| Sub/NoBorrow           | 0.664 |       1.59 |  4.81 |
+| Sub/FullBorrow         | 0.658 |       1.76 |  2.04 |
+| Mul/U64xU64            | 1.77 |       2.78 |  2.23 |
+| Mul/HighxHigh          | 1.75 |       2.75 | 10.4 |
+| Div/SmallDivisor32     | 11.1 |       13.7 | 19.7 |
+| Div/Pow2Divisor        | 6.68 |        310 | 66.6 |
+| Div/SimilarMagnitude   | 15.8 |        227 | 65.4 |
+| ToString/Base10        |  125 |        284 |  142 |
 
 Highlights
-- Add/Sub: ~2.4-2.7x faster vs ClickHouse; ~3.4-7.2x vs Boost.
+- Add/Sub: ~2.4-2.9x faster vs ClickHouse; ~2.7-7.2x vs Boost.
 - Mul: faster than ClickHouse and Boost on the listed 256-bit cases, with the largest gain on high x high.
 - Div: large wins for power-of-two and similar-magnitude divisors; still faster on 32-bit small divisors.
 - ToString: ~1.1x faster vs Boost; ~2.3x vs ClickHouse.
