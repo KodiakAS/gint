@@ -40,7 +40,9 @@ if(GINT_BUILD_TESTS)
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
 
-    # Aggregate all unit tests into a single executable for readability and speed
+    # Aggregate core unit tests into a single executable for readability and speed.
+    # Divzero-check variants use separate executables so the macro policy is not
+    # mixed inside one test binary.
     set(GINT_TEST_SOURCES
         tests/arithmetic_basic_test.cpp
         tests/arithmetic_divmod_test.cpp
@@ -50,7 +52,6 @@ if(GINT_BUILD_TESTS)
         tests/comparison_test.cpp
         tests/construction_test.cpp
         tests/conversion_test.cpp
-        tests/exceptions_overflow_test.cpp
         tests/float_interop_edge_test.cpp
         tests/fmt_support_test.cpp
         tests/numeric_limits_test.cpp
@@ -121,7 +122,39 @@ if(GINT_BUILD_TESTS)
         DISCOVERY_TIMEOUT 60
     )
 
-    # Optionally compile the full unit test suite under C++17 when explicitly enabled
+    add_executable(gint_tests_divzero_checks tests/exceptions_overflow_test.cpp)
+    target_include_directories(gint_tests_divzero_checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    set_target_properties(gint_tests_divzero_checks PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_compile_options(gint_tests_divzero_checks PRIVATE ${GINT_TEST_OPTIONS})
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_tests_divzero_checks PRIVATE ${GINT_TEST_LINK_OPTIONS})
+    endif()
+    target_link_libraries(gint_tests_divzero_checks PRIVATE GTest::gtest_main)
+    gtest_discover_tests(gint_tests_divzero_checks
+        TEST_PREFIX divzero_checks.
+        NO_PRETTY_VALUES
+        DISCOVERY_TIMEOUT 60
+    )
+
+    add_executable(gint_tests_divzero_macro_isolation
+        tests/divzero_macro_enabled_tu.cpp
+        tests/divzero_macro_unchecked_tu.cpp
+        tests/divzero_macro_isolation_test.cpp
+    )
+    target_include_directories(gint_tests_divzero_macro_isolation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    set_target_properties(gint_tests_divzero_macro_isolation PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_compile_options(gint_tests_divzero_macro_isolation PRIVATE ${GINT_TEST_OPTIONS})
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_tests_divzero_macro_isolation PRIVATE ${GINT_TEST_LINK_OPTIONS})
+    endif()
+    target_link_libraries(gint_tests_divzero_macro_isolation PRIVATE GTest::gtest_main)
+    gtest_discover_tests(gint_tests_divzero_macro_isolation
+        TEST_PREFIX divzero_macro.
+        NO_PRETTY_VALUES
+        DISCOVERY_TIMEOUT 60
+    )
+
+    # Optionally compile the core unit test suite under C++17 when explicitly enabled
     if(GINT_BUILD_TESTS_CXX17)
         check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
         if(HAS_CXX17)

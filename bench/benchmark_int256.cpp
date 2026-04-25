@@ -8,18 +8,19 @@
 
 #include <array>
 #include <cstdlib>
+#include <iostream>
 #include <random>
 #include <string>
 #include <vector>
 
 #include <gint/gint.h>
 
-using WInt = gint::integer<256, signed>;
+using WInt = gint::integer<256, unsigned>;
 #ifdef GINT_ENABLE_CH_COMPARE
-using CInt = wide::integer<256, signed>;
+using CInt = wide::integer<256, unsigned>;
 #endif
 #ifdef GINT_ENABLE_BOOST_COMPARE
-using BInt = boost::multiprecision::int256_t;
+using BInt = boost::multiprecision::uint256_t;
 #endif
 
 inline std::string to_string_convert(const WInt & x)
@@ -136,15 +137,8 @@ static void Add_FullCarry(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xFCA12345678ULL);
         for (size_t i = 0; i < kDataN; ++i)
-        {
-            // All 1s with occasional random high bits to prevent optimization
-            Int a = Int{-1};
-            if (i % 8 == 0)
-                a ^= (Int{rng()} << 192);
-            d[i] = {a, Int{1}};
-        }
+            d[i] = {Int{-1}, Int{1}};
         return d;
     }();
     size_t i = 0;
@@ -193,15 +187,8 @@ static void Sub_FullBorrow(benchmark::State & state)
     static std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0xFB98765432ULL);
         for (size_t i = 0; i < kDataN; ++i)
-        {
-            // Zero with occasional random high bits to prevent optimization
-            Int a = Int{0};
-            if (i % 8 == 0)
-                a ^= (Int{rng()} << 192);
-            d[i] = {a, Int{1}};
-        }
+            d[i] = {Int{0}, Int{1}};
         return d;
     }();
     size_t i = 0;
@@ -559,11 +546,25 @@ static void Mod_SimilarMagnitude(benchmark::State & state)
     }
 }
 
-static bool parse_full_matrix_flag(int & argc, char **& argv)
+struct BenchOptions
 {
-    bool full = false;
-    if (const char * env = std::getenv("GINT_BENCH_FULL"))
-        full = (std::string(env) == "1" || std::string(env) == "true");
+    bool full_matrix = false;
+    bool validate = false;
+};
+
+static bool env_flag_enabled(const char * name)
+{
+    if (const char * env = std::getenv(name))
+        return std::string(env) == "1" || std::string(env) == "true";
+    return false;
+}
+
+static BenchOptions parse_custom_flags(int & argc, char **& argv)
+{
+    BenchOptions options;
+    options.full_matrix = env_flag_enabled("GINT_BENCH_FULL");
+    options.validate = env_flag_enabled("GINT_BENCH_VALIDATE");
+
     // strip custom flag(s) from argv so Google Benchmark doesn't see them
     static std::vector<char *> new_argv;
     new_argv.clear();
@@ -573,14 +574,19 @@ static bool parse_full_matrix_flag(int & argc, char **& argv)
         std::string s = argv[i] ? argv[i] : "";
         if (s == "--gint_full" || s == "--gint-full")
         {
-            full = true;
+            options.full_matrix = true;
+            continue;
+        }
+        if (s == "--gint_validate" || s == "--gint-validate")
+        {
+            options.validate = true;
             continue;
         }
         new_argv.push_back(argv[i]);
     }
     argv = new_argv.data();
     argc = static_cast<int>(new_argv.size());
-    return full;
+    return options;
 }
 
 #ifdef GINT_ENABLE_CH_COMPARE
@@ -732,9 +738,116 @@ static void Div_SimilarMagnitude2(benchmark::State & state)
     }
 }
 
+static bool validate_case_strings(
+    const char * name, const std::string & gint_value, const std::string & clickhouse_value, const std::string & boost_value)
+{
+    if (gint_value == clickhouse_value && gint_value == boost_value)
+        return true;
+
+    std::cerr << "benchmark validation failed for " << name << "\n"
+              << "  gint:       " << gint_value << "\n"
+              << "  ClickHouse: " << clickhouse_value << "\n"
+              << "  Boost:      " << boost_value << "\n";
+    return false;
+}
+
+#if defined(GINT_ENABLE_CH_COMPARE) && defined(GINT_ENABLE_BOOST_COMPARE)
+template <typename G, typename C, typename B>
+static bool validate_case(const char * name, const G & gint_value, const C & clickhouse_value, const B & boost_value)
+{
+    return validate_case_strings(name, to_string_convert(gint_value), to_string_convert(clickhouse_value), to_string_convert(boost_value));
+}
+
+static bool validate_comparison_semantics(bool full_matrix)
+{
+    bool ok = true;
+
+    const WInt wa = assemble_u256<WInt>(0x0123456789ABCDEFULL, 0x0FEDCBA987654321ULL, 0x1111222233334444ULL, 0x0555666677778888ULL);
+    const CInt ca = assemble_u256<CInt>(0x0123456789ABCDEFULL, 0x0FEDCBA987654321ULL, 0x1111222233334444ULL, 0x0555666677778888ULL);
+    const BInt ba = assemble_u256<BInt>(0x0123456789ABCDEFULL, 0x0FEDCBA987654321ULL, 0x1111222233334444ULL, 0x0555666677778888ULL);
+
+    const WInt wb = assemble_u256<WInt>(0x1111111111111111ULL, 0x2222222222222222ULL, 0x3333333333333333ULL, 0x0000000000000000ULL);
+    const CInt cb = assemble_u256<CInt>(0x1111111111111111ULL, 0x2222222222222222ULL, 0x3333333333333333ULL, 0x0000000000000000ULL);
+    const BInt bb = assemble_u256<BInt>(0x1111111111111111ULL, 0x2222222222222222ULL, 0x3333333333333333ULL, 0x0000000000000000ULL);
+
+    const WInt wmax = WInt{-1};
+    const CInt cmax = CInt{-1};
+    const BInt bmax = BInt{-1};
+
+    ok &= validate_case("Add/NoCarry", wa + WInt{12345}, ca + CInt{12345}, ba + BInt{12345});
+    ok &= validate_case("Add/FullCarry", wmax + WInt{1}, cmax + CInt{1}, bmax + BInt{1});
+    ok &= validate_case("Sub/NoBorrow", wa - WInt{12345}, ca - CInt{12345}, ba - BInt{12345});
+    ok &= validate_case("Sub/FullBorrow", WInt{0} - WInt{1}, CInt{0} - CInt{1}, BInt{0} - BInt{1});
+    ok &= validate_case(
+        "Mul/U64xU64",
+        WInt{0x123456789ABCDEFULL} * WInt{0x1111222233334444ULL},
+        CInt{0x123456789ABCDEFULL} * CInt{0x1111222233334444ULL},
+        BInt{0x123456789ABCDEFULL} * BInt{0x1111222233334444ULL});
+    ok &= validate_case("Mul/HighxHigh", wa * wb, ca * cb, ba * bb);
+    ok &= validate_case("Mul/WideTimesU64", wa * 0x123456789ABCDEFULL, ca * 0x123456789ABCDEFULL, ba * 0x123456789ABCDEFULL);
+    ok &= validate_case("Div/SmallDivisor32", wa / WInt{0xF1234567ULL}, ca / CInt{0xF1234567ULL}, ba / BInt{0xF1234567ULL});
+    ok &= validate_case(
+        "Div/SmallDivisor64", wa / WInt{0xF123456789ABCDEFULL}, ca / CInt{0xF123456789ABCDEFULL}, ba / BInt{0xF123456789ABCDEFULL});
+    ok &= validate_case("Div/Pow2Divisor", wa / (WInt{1} << 130), ca / (CInt{1} << 130), ba / (BInt{1} << 130));
+    ok &= validate_case(
+        "Div/SimilarMagnitude",
+        ((WInt{1} << 255) - WInt{12345}) / ((WInt{1} << 200) + WInt{7}),
+        ((CInt{1} << 255) - CInt{12345}) / ((CInt{1} << 200) + CInt{7}),
+        ((BInt{1} << 255) - BInt{12345}) / ((BInt{1} << 200) + BInt{7}));
+    ok &= validate_case(
+        "Mod/SmallDivisor64", wa % WInt{0xF123456789ABCDEFULL}, ca % CInt{0xF123456789ABCDEFULL}, ba % BInt{0xF123456789ABCDEFULL});
+    ok &= validate_case(
+        "Mod/SimilarMagnitude",
+        ((WInt{1} << 255) - WInt{12345}) % ((WInt{1} << 200) + WInt{7}),
+        ((CInt{1} << 255) - CInt{12345}) % ((CInt{1} << 200) + CInt{7}),
+        ((BInt{1} << 255) - BInt{12345}) % ((BInt{1} << 200) + BInt{7}));
+    ok &= validate_case("Bitwise/And", wa & wb, ca & cb, ba & bb);
+    ok &= validate_case("Bitwise/Xor", wa ^ wb, ca ^ cb, ba ^ bb);
+    ok &= validate_case("Shift/LeftVariable", wa << 37, ca << 37, ba << 37);
+    ok &= validate_case("Shift/RightVariable", wa >> 37, ca >> 37, ba >> 37);
+    ok &= validate_case_strings("ToString/Base10", to_string_convert(wa), to_string_convert(ca), to_string_convert(ba));
+
+    if (full_matrix)
+    {
+        ok &= validate_case(
+            "Add/CarryChain64",
+            assemble_u256<WInt>(~0ULL, 3, 4, 5) + WInt{1},
+            assemble_u256<CInt>(~0ULL, 3, 4, 5) + CInt{1},
+            assemble_u256<BInt>(~0ULL, 3, 4, 5) + BInt{1});
+        ok &= validate_case(
+            "Sub/BorrowChain64",
+            assemble_u256<WInt>(0, 3, 4, 5) - WInt{1},
+            assemble_u256<CInt>(0, 3, 4, 5) - CInt{1},
+            assemble_u256<BInt>(0, 3, 4, 5) - BInt{1});
+        ok &= validate_case("Mul/U32xWide", wa * WInt{0xF1234567ULL}, ca * CInt{0xF1234567ULL}, ba * BInt{0xF1234567ULL});
+        ok &= validate_case(
+            "Div/LargeDivisor128",
+            ((WInt{1} << 255) + WInt{123}) / ((WInt{1} << 127) + WInt{98765}),
+            ((CInt{1} << 255) + CInt{123}) / ((CInt{1} << 127) + CInt{98765}),
+            ((BInt{1} << 255) + BInt{123}) / ((BInt{1} << 127) + BInt{98765}));
+        ok &= validate_case(
+            "Div/SimilarMagnitude2",
+            ((WInt{1} << 255) - WInt{98765}) / ((WInt{1} << 211) + WInt{12345}),
+            ((CInt{1} << 255) - CInt{98765}) / ((CInt{1} << 211) + CInt{12345}),
+            ((BInt{1} << 255) - BInt{98765}) / ((BInt{1} << 211) + BInt{12345}));
+    }
+
+    return ok;
+}
+#else
+static bool validate_comparison_semantics(bool)
+{
+    std::cerr << "benchmark comparison validation skipped: ClickHouse/Boost comparison backends are not enabled\n";
+    return true;
+}
+#endif
+
 int main(int argc, char ** argv)
 {
-    bool full_matrix = parse_full_matrix_flag(argc, argv);
+    BenchOptions options = parse_custom_flags(argc, argv);
+    if (options.validate && !validate_comparison_semantics(options.full_matrix))
+        return 2;
+
     // Addition
     REG_CASE("Add/NoCarry", Add_NoCarry);
     REG_CASE("Add/FullCarry", Add_FullCarry);
@@ -770,7 +883,7 @@ int main(int argc, char ** argv)
     // ToString
     REG_CASE("ToString/Base10", ToString);
 
-    if (full_matrix)
+    if (options.full_matrix)
     {
         // Full matrix: register additional, more granular cases
         REG_CASE("Add/CarryChain64", Add_CarryChain64);

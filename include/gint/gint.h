@@ -32,12 +32,20 @@
 #    define GINT_CLANG_NOINLINE
 #endif
 
-#define GINT_ZERO_CHECK(cond, msg) \
-    do \
-    { \
-        if (GINT_UNLIKELY(cond) && ::gint::detail::divzero_checks_enabled()) \
-            throw std::domain_error(msg); \
-    } while (false)
+#if defined(GINT_ENABLE_DIVZERO_CHECKS)
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+            if (GINT_UNLIKELY(cond)) \
+                throw std::domain_error(msg); \
+        } while (false)
+#else
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+            (void)sizeof(cond); \
+        } while (false)
+#endif
 #define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
 #define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
 
@@ -119,29 +127,6 @@ using UInt256 = integer<256, unsigned>;
 //=== Internal helper utilities ==============================================
 namespace detail
 {
-GINT_FORCE_INLINE bool & divzero_checks_flag() noexcept
-{
-    static bool enabled = false;
-    return enabled;
-}
-
-GINT_FORCE_INLINE bool divzero_checks_enabled() noexcept
-{
-    return divzero_checks_flag();
-}
-
-#if defined(GINT_ENABLE_DIVZERO_CHECKS)
-struct divzero_checks_registrar
-{
-    divzero_checks_registrar() noexcept { divzero_checks_flag() = true; }
-};
-
-namespace
-{
-static const divzero_checks_registrar k_divzero_checks_registrar;
-}
-#endif
-
 #ifdef GINT_TEST_ACCESS
 template <size_t Bits, typename Signed>
 struct integer_test_access;
