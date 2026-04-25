@@ -626,22 +626,12 @@ mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, c
             u128 carry = sum >> 64;
 
             u128 high = p11;
-            uint64_t high_carry = 0;
-            u128 prev = high;
             high += (p01 >> 64);
-            if (high < prev)
-                ++high_carry;
-            prev = high;
             high += (p10 >> 64);
-            if (high < prev)
-                ++high_carry;
-            prev = high;
             high += carry;
-            if (high < prev)
-                ++high_carry;
 
             res[2] = static_cast<uint64_t>(high);
-            res[3] = static_cast<uint64_t>(high >> 64) + high_carry;
+            res[3] = static_cast<uint64_t>(high >> 64);
         }
         return;
     }
@@ -1430,12 +1420,12 @@ public:
         {
             return rem_unsigned_magnitude(lhs, rhs);
         }
-#endif
-
+#else
         integer q = lhs / rhs;
         q *= rhs;
         lhs -= q;
         return lhs;
+#endif
     }
 
     friend integer operator%(integer lhs, limb_type rhs)
@@ -2618,18 +2608,10 @@ private:
                 u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
                 // 1) Initial estimate via reciprocal multiply
                 u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128(numerator, inv128);
-                const u128 QMAX = (static_cast<u128>(1) << 64) - 1;
-                if (qhat > QMAX)
-                    qhat = QMAX;
                 u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
-                // Downward correction to ensure qhat <= floor(numerator / v1)
-                if (qhat_v1 > numerator)
-                {
-                    --qhat;
-                    qhat_v1 -= v1;
-                }
-                // Upward correction to ensure qhat >= floor(numerator / v1)
-                else if ((numerator - qhat_v1) >= v1)
+                // The reciprocal estimate cannot overshoot; correct only the
+                // possible one-step underestimate.
+                if ((numerator - qhat_v1) >= v1)
                 {
                     ++qhat;
                     qhat_v1 += v1;
@@ -2703,18 +2685,8 @@ private:
                 u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
                 // 1) Initial estimate via reciprocal multiply
                 u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128(numerator, inv128);
-                const u128 QMAX = (static_cast<u128>(1) << 64) - 1;
-                if (qhat > QMAX)
-                    qhat = QMAX;
                 u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
-                // Downward correction
-                if (qhat_v1 > numerator)
-                {
-                    --qhat;
-                    qhat_v1 -= v1;
-                }
-                // Upward correction
-                else if ((numerator - qhat_v1) >= v1)
+                if ((numerator - qhat_v1) >= v1)
                 {
                     ++qhat;
                     qhat_v1 += v1;
