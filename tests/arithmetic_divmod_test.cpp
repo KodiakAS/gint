@@ -606,6 +606,9 @@ TEST(WideIntegerDivision, Div128SingleLimbPath)
     U64 b = 12345ULL;
     U64 q = TestAccess<U64>::div_128(a, b);
     EXPECT_EQ(static_cast<uint64_t>(q), static_cast<uint64_t>(a) / static_cast<uint64_t>(b));
+
+    U64 z = 0;
+    EXPECT_EQ(TestAccess<U64>::div_128(a, z), U64(0));
 }
 
 TEST(WideIntegerDivision, DivLargeBreak)
@@ -838,6 +841,30 @@ TEST(WideIntegerDivision, DivLargeGeneric_AddbackBranch)
     EXPECT_LT(r, divisor);
 }
 
+TEST(WideIntegerDivision, DivLargeGenericConstructedAddbackBranch)
+{
+    using U512 = gint::integer<512, unsigned>;
+
+    // lhs is q_digit * divisor - 1 with a normalized three-limb divisor. The
+    // first quotient estimate is one too high, so Knuth's add-back path runs.
+    constexpr uint64_t q_digit = 2513787319205155663ULL;
+
+    U512 lhs;
+    TestAccess<U512>::limb(lhs, 0) = 7865594366602207753ULL;
+    TestAccess<U512>::limb(lhs, 1) = 14317669559219201549ULL;
+    TestAccess<U512>::limb(lhs, 2) = 18061272594500877176ULL;
+    TestAccess<U512>::limb(lhs, 3) = 1890733067841405531ULL;
+
+    U512 divisor;
+    TestAccess<U512>::limb(divisor, 0) = 13930160852258120406ULL;
+    TestAccess<U512>::limb(divisor, 1) = 11788048577503494824ULL;
+    TestAccess<U512>::limb(divisor, 2) = 13874630024467741450ULL;
+
+    U512 q = TestAccess<U512>::div_large(lhs, divisor, 3);
+    EXPECT_EQ(q, U512(q_digit - 1));
+    EXPECT_EQ(lhs - q * divisor, divisor - U512(1));
+}
+
 TEST(WideIntegerDivision, DivLarge3EarlyReturnWhenDividendShorter)
 {
     using U256 = gint::integer<256, unsigned>;
@@ -866,6 +893,33 @@ TEST(WideIntegerDivision, DivLarge2Generic_AddbackBranch)
 
     U512 q = TestAccess<U512>::div_large_2(lhs, divisor);
     U512 expected = lhs / divisor;
+    EXPECT_EQ(q, expected);
+    U512 r = lhs - q * divisor;
+    EXPECT_LT(r, divisor);
+}
+
+TEST(WideIntegerDivision, DivLarge2GenericLoopUpwardAndAddback)
+{
+    using U512 = gint::integer<512, unsigned>;
+
+    // Fixed operands that exercise the n != 4 two-limb loop's upward qhat
+    // correction and add-back path.
+    U512 lhs;
+    TestAccess<U512>::limb(lhs, 0) = 6295741537884838863ULL;
+    TestAccess<U512>::limb(lhs, 1) = 14138627545845163593ULL;
+    TestAccess<U512>::limb(lhs, 2) = 6391316625312145471ULL;
+    TestAccess<U512>::limb(lhs, 3) = 15338468070455510617ULL;
+    TestAccess<U512>::limb(lhs, 4) = 7382200937827080594ULL;
+    TestAccess<U512>::limb(lhs, 5) = 11782123156758599754ULL;
+    TestAccess<U512>::limb(lhs, 6) = 13632931721610285019ULL;
+    TestAccess<U512>::limb(lhs, 7) = 11884197023051099476ULL;
+
+    U512 divisor;
+    TestAccess<U512>::limb(divisor, 0) = 17513998343136139140ULL;
+    TestAccess<U512>::limb(divisor, 1) = 6443127926368659239ULL;
+
+    U512 q = TestAccess<U512>::div_large_2(lhs, divisor);
+    U512 expected = TestAccess<U512>::div_large(lhs, divisor, 2);
     EXPECT_EQ(q, expected);
     U512 r = lhs - q * divisor;
     EXPECT_LT(r, divisor);
@@ -906,4 +960,28 @@ TEST(WideIntegerDivision, MinValueUnsignedPathSignCorrection)
     S256 r2 = min % neg_divisor;
     EXPECT_FALSE(static_cast<int64_t>(TestAccess<S256>::limb(q2, S256::limbs - 1) >> 63)); // quotient should be non-negative
     EXPECT_EQ(q2 * neg_divisor + r2, min);
+}
+
+TEST(WideIntegerDivision, DivLarge3QhatAdjustmentBreak)
+{
+    using U256 = gint::integer<256, unsigned>;
+
+    // Fixed operands that force the three-limb qhat adjustment loop to stop
+    // after the carry crosses one base limb.
+    U256 lhs;
+    TestAccess<U256>::limb(lhs, 0) = 6565772855194965757ULL;
+    TestAccess<U256>::limb(lhs, 1) = 6890790792660555462ULL;
+    TestAccess<U256>::limb(lhs, 2) = 7302078116051201395ULL;
+    TestAccess<U256>::limb(lhs, 3) = 7241624559238170523ULL;
+
+    U256 divisor;
+    TestAccess<U256>::limb(divisor, 0) = 6958441993705679365ULL;
+    TestAccess<U256>::limb(divisor, 1) = 17057296535633014190ULL;
+    TestAccess<U256>::limb(divisor, 2) = 8175714336819284825ULL;
+
+    U256 q = TestAccess<U256>::div_large_3(lhs, divisor);
+    U256 expected = TestAccess<U256>::div_large(lhs, divisor, 3);
+    EXPECT_EQ(q, expected);
+    U256 r = lhs - q * divisor;
+    EXPECT_LT(r, divisor);
 }

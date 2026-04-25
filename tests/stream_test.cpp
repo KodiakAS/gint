@@ -26,6 +26,23 @@ TEST(WideIntegerStream, OutputZero)
     EXPECT_EQ(oss.str(), "0");
 }
 
+TEST(WideIntegerStream, OutputAdditionalWidths)
+{
+    {
+        gint::integer<256, unsigned> v = (gint::integer<256, unsigned>(1) << 128) + 42;
+        std::ostringstream oss;
+        oss << v;
+        EXPECT_EQ(oss.str(), "340282366920938463463374607431768211498");
+    }
+
+    {
+        gint::integer<512, signed> v = -((gint::integer<512, signed>(1) << 200) + 7);
+        std::ostringstream oss;
+        oss << v;
+        EXPECT_EQ(oss.str(), "-1606938044258990275541962092341162602522202993782792835301383");
+    }
+}
+
 TEST(WideIntegerStream, ToStringChunksWithZeros)
 {
     using U = gint::integer<256, unsigned>;
