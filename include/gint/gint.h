@@ -1426,7 +1426,7 @@ public:
                 if (GINT_UNLIKELY(lhs.data_[limbs - 1] == min_magnitude && is_min_value(lhs)))
                     lhs_is_min = true;
                 else
-                    lhs = -lhs;
+                    negate_for_division(lhs);
             }
             // 同理对除数执行一次最高 limb 检查，保持正负号拆分与检测逻辑一致。
             if (rhs_neg)
@@ -1434,7 +1434,7 @@ public:
                 if (GINT_UNLIKELY(divisor.data_[limbs - 1] == min_magnitude && is_min_value(divisor)))
                     rhs_is_min = true;
                 else
-                    divisor = -divisor;
+                    negate_for_division(divisor);
             }
             if (GINT_UNLIKELY(lhs_is_min || rhs_is_min))
                 return div_unsigned_path(lhs, divisor, lhs_neg, rhs_neg, lhs_is_min, rhs_is_min);
@@ -1480,7 +1480,7 @@ public:
             }
         }
         if (std::is_same<Signed, signed>::value && lhs_neg != rhs_neg)
-            result = -result;
+            negate_for_division(result);
         return result;
     }
 
@@ -2303,7 +2303,7 @@ private:
         bool lhs_neg = false;
         if (std::is_same<Signed, signed>::value && (tmp.data_[limbs - 1] >> 63))
         {
-            tmp = -tmp;
+            negate_for_division(tmp);
             lhs_neg = true;
         }
         bool div_neg = div < 0;
@@ -2314,7 +2314,7 @@ private:
         if (lhs_neg)
             rem = -rem;
         if (lhs_neg != div_neg)
-            quotient = -quotient;
+            negate_for_division(quotient);
         return rem;
     }
 
@@ -2390,7 +2390,7 @@ private:
             result.data_[i] = quotient_mag.data_[i];
 
         if (lhs_neg != rhs_neg)
-            result = -result;
+            negate_for_division(result);
         return result;
     }
 
@@ -2422,14 +2422,35 @@ private:
         return high_or == 0;
     }
 
+    static GINT_FORCE_INLINE void negate_in_place(integer & v) noexcept
+    {
+        limb_type carry = 1;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            const limb_type inv = ~v.data_[i];
+            const limb_type sum = inv + carry;
+            v.data_[i] = sum;
+            carry = carry && (sum == 0);
+        }
+    }
+
+    static GINT_FORCE_INLINE void negate_for_division(integer & v) noexcept
+    {
+#if GINT_GCC_TUNED_PATHS
+        negate_in_place(v);
+#else
+        v = -v;
+#endif
+    }
+
     static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
     {
         integer result;
         if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
         {
-            lhs = -lhs;
+            negate_for_division(lhs);
             lhs.div_mod_small(divisor, result);
-            result = -result;
+            negate_for_division(result);
             return result;
         }
 
@@ -2446,7 +2467,8 @@ private:
             Unsigned lhs_mag;
             copy_abs_magnitude(lhs_mag, lhs, true);
             result.data_[0] = lhs_mag.mod_small(divisor);
-            return -result;
+            negate_for_division(result);
+            return result;
         }
 
         result.data_[0] = lhs.mod_small(divisor);
@@ -2486,7 +2508,9 @@ private:
         integer result;
         for (size_t i = 0; i < limbs; ++i)
             result.data_[i] = rem_mag.data_[i];
-        return lhs_neg ? -result : result;
+        if (lhs_neg)
+            negate_for_division(result);
+        return result;
     }
 
     static integer rem_unsigned_magnitude(const integer & lhs, const integer & divisor) noexcept
