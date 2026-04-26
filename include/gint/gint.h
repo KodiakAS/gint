@@ -999,12 +999,6 @@ public:
             {
                 switch (limb_shift)
                 {
-                    case 0:
-                        out0 = src0;
-                        out1 = src1;
-                        out2 = src2;
-                        out3 = src3;
-                        break;
                     case 1:
                         out1 = src0;
                         out2 = src1;
@@ -1110,12 +1104,6 @@ public:
             {
                 switch (limb_shift)
                 {
-                    case 0:
-                        out0 = src0;
-                        out1 = src1;
-                        out2 = src2;
-                        out3 = src3;
-                        break;
                     case 1:
                         out0 = src1;
                         out1 = src2;
@@ -1604,7 +1592,7 @@ public:
             throw std::domain_error("infinite dividend");
         GINT_DIVZERO_CHECK(rhs.is_zero());
         return integer(lhs) / rhs;
-    }
+    } // LCOV_EXCL_LINE
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator%(integer lhs, T rhs)
@@ -1651,7 +1639,7 @@ public:
         if (std::isinf(lhs))
             throw std::domain_error("infinite dividend in modulo");
         return integer(lhs) % rhs;
-    }
+    } // LCOV_EXCL_LINE
 
     friend constexpr bool operator==(const integer & lhs, const integer & rhs) noexcept
     {
@@ -2403,7 +2391,7 @@ private:
         if (lhs_neg != rhs_neg)
             negate_for_division(result);
         return result;
-    }
+    } // LCOV_EXCL_LINE
 
     static size_t used_limbs(const integer & v) noexcept
     {
@@ -3315,7 +3303,7 @@ template <size_t Bits, typename Signed>
 inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed> & value)
 {
     return out << to_string(value);
-}
+} // LCOV_EXCL_LINE
 
 } // namespace gint
 
@@ -3335,7 +3323,7 @@ struct formatter<gint::integer<Bits, Signed>>
     auto format(const gint::integer<Bits, Signed> & value, FormatContext & ctx) const -> typename FormatContext::iterator
     {
         return fmt::format_to(ctx.out(), "{}", gint::to_string(value));
-    }
+    } // LCOV_EXCL_LINE
 };
 } // namespace fmt
 #endif
