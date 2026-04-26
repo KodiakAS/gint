@@ -71,37 +71,30 @@
 #    endif
 #endif
 
-// Fast-path policy for multiplication
-// Rationale:
-// - GCC (both x86_64 and AArch64) benefits from small-number fast paths
-//   (e.g., 64x64, operands <=128-bit, single-limb), often yielding fewer
-//   µops and shorter dependency chains.
-// - AppleClang on AArch64 tends to generate excellent straight-line code for
-//   the general path, and the extra branching/ICache footprint of fast paths
-//   can outweigh their savings. Default: disable under Clang.
-// Allow users to override via -DGINT_ENABLE_MUL_FASTPATH=0/1.
-#ifndef GINT_ENABLE_MUL_FASTPATH
+// Compiler-tuned path policy:
+// - GCC benefits from selected small-number/division/modulo fast paths.
+// - Clang benefits from a narrower modulo fast path and otherwise prefers
+//   several generic paths that optimize better under AppleClang on AArch64.
+#ifndef GINT_GCC_TUNED_PATHS
 #    if defined(__clang__)
-#        define GINT_ENABLE_MUL_FASTPATH 0
+#        define GINT_GCC_TUNED_PATHS 0
+#    elif defined(__GNUC__)
+#        define GINT_GCC_TUNED_PATHS 1
 #    else
-#        define GINT_ENABLE_MUL_FASTPATH 1
+#        define GINT_GCC_TUNED_PATHS 0
 #    endif
 #endif
 
-#ifndef GINT_ENABLE_DIRECT_LARGE_MOD
+#ifndef GINT_CLANG_TUNED_PATHS
 #    if defined(__clang__)
-#        define GINT_ENABLE_DIRECT_LARGE_MOD 0
+#        define GINT_CLANG_TUNED_PATHS 1
 #    else
-#        define GINT_ENABLE_DIRECT_LARGE_MOD 1
+#        define GINT_CLANG_TUNED_PATHS 0
 #    endif
 #endif
 
-#ifndef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
-#    if defined(__clang__)
-#        define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH 0
-#    else
-#        define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH 1
-#    endif
+#if GINT_GCC_TUNED_PATHS && GINT_CLANG_TUNED_PATHS
+#    error "GINT_GCC_TUNED_PATHS and GINT_CLANG_TUNED_PATHS are mutually exclusive"
 #endif
 
 namespace gint
@@ -595,7 +588,7 @@ GINT_FORCE_INLINE void
 mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     using u128 = unsigned __int128;
-#if GINT_ENABLE_MUL_FASTPATH
+#if GINT_GCC_TUNED_PATHS
     // Fast path: if both operands fit within 128 bits we can reduce to the
     // specialized 128-bit multiplication or even a single 64-bit multiply.
     if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
@@ -947,7 +940,7 @@ public:
     // - Non-positive shift amounts are a no-op by design (avoids UB).
     // - Right shift is arithmetic for signed integers (sign-propagating),
     //   and logical (zero-fill) for unsigned.
-    GINT_CONSTEXPR14 integer & operator<<=(int n) noexcept
+    GINT_CONSTEXPR14 GINT_FORCE_INLINE integer & operator<<=(int n) noexcept
     {
         if (n <= 0)
             return *this; // negative and zero shifts are no-ops by design
@@ -961,6 +954,71 @@ public:
         }
         size_t limb_shift = shift / 64;
         int bit_shift = shift % 64;
+        if (limbs == 4)
+        {
+            const uint64_t src0 = static_cast<uint64_t>(data_[0]);
+            const uint64_t src1 = static_cast<uint64_t>(data_[1]);
+            const uint64_t src2 = static_cast<uint64_t>(data_[2]);
+            const uint64_t src3 = static_cast<uint64_t>(data_[3]);
+            uint64_t out0 = 0;
+            uint64_t out1 = 0;
+            uint64_t out2 = 0;
+            uint64_t out3 = 0;
+            if (bit_shift)
+            {
+                const unsigned inv_shift = 64U - static_cast<unsigned>(bit_shift);
+                switch (limb_shift)
+                {
+                    case 0:
+                        out0 = src0 << bit_shift;
+                        out1 = (src1 << bit_shift) | (src0 >> inv_shift);
+                        out2 = (src2 << bit_shift) | (src1 >> inv_shift);
+                        out3 = (src3 << bit_shift) | (src2 >> inv_shift);
+                        break;
+                    case 1:
+                        out1 = src0 << bit_shift;
+                        out2 = (src1 << bit_shift) | (src0 >> inv_shift);
+                        out3 = (src2 << bit_shift) | (src1 >> inv_shift);
+                        break;
+                    case 2:
+                        out2 = src0 << bit_shift;
+                        out3 = (src1 << bit_shift) | (src0 >> inv_shift);
+                        break;
+                    default:
+                        out3 = src0 << bit_shift;
+                        break;
+                }
+            }
+            else
+            {
+                switch (limb_shift)
+                {
+                    case 0:
+                        out0 = src0;
+                        out1 = src1;
+                        out2 = src2;
+                        out3 = src3;
+                        break;
+                    case 1:
+                        out1 = src0;
+                        out2 = src1;
+                        out3 = src2;
+                        break;
+                    case 2:
+                        out2 = src0;
+                        out3 = src1;
+                        break;
+                    default:
+                        out3 = src0;
+                        break;
+                }
+            }
+            data_[0] = static_cast<limb_type>(out0);
+            data_[1] = static_cast<limb_type>(out1);
+            data_[2] = static_cast<limb_type>(out2);
+            data_[3] = static_cast<limb_type>(out3);
+            return *this;
+        }
         if (limb_shift)
         {
             for (size_t i = limbs; i-- > limb_shift;)
@@ -981,7 +1039,7 @@ public:
         return *this;
     }
 
-    GINT_CONSTEXPR14 integer & operator>>=(int n) noexcept
+    GINT_CONSTEXPR14 GINT_FORCE_INLINE integer & operator>>=(int n) noexcept
     {
         if (n <= 0)
             return *this; // negative and zero shifts are no-ops by design
@@ -1002,13 +1060,11 @@ public:
         const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
         if (limbs == 4)
         {
-            const uint64_t src[4] = {
-                static_cast<uint64_t>(data_[0]),
-                static_cast<uint64_t>(data_[1]),
-                static_cast<uint64_t>(data_[2]),
-                static_cast<uint64_t>(data_[3]),
-            };
-            auto fetch = [&src](size_t idx, uint64_t fill_word) -> uint64_t { return idx < 4 ? src[idx] : fill_word; };
+            const uint64_t src0 = static_cast<uint64_t>(data_[0]);
+            const uint64_t src1 = static_cast<uint64_t>(data_[1]);
+            const uint64_t src2 = static_cast<uint64_t>(data_[2]);
+            const uint64_t src3 = static_cast<uint64_t>(data_[3]);
+            const uint64_t fill_word = static_cast<uint64_t>(fill);
             uint64_t out0 = 0;
             uint64_t out1 = 0;
             uint64_t out2 = 0;
@@ -1016,19 +1072,63 @@ public:
             if (bit_shift)
             {
                 const unsigned inv_shift = 64U - bit_shift;
-                const uint64_t fill_word = static_cast<uint64_t>(fill);
-                out0 = (fetch(limb_shift + 0, fill_word) >> bit_shift) | (fetch(limb_shift + 1, fill_word) << inv_shift);
-                out1 = (fetch(limb_shift + 1, fill_word) >> bit_shift) | (fetch(limb_shift + 2, fill_word) << inv_shift);
-                out2 = (fetch(limb_shift + 2, fill_word) >> bit_shift) | (fetch(limb_shift + 3, fill_word) << inv_shift);
-                out3 = (fetch(limb_shift + 3, fill_word) >> bit_shift) | (fetch(limb_shift + 4, fill_word) << inv_shift);
+                switch (limb_shift)
+                {
+                    case 0:
+                        out0 = (src0 >> bit_shift) | (src1 << inv_shift);
+                        out1 = (src1 >> bit_shift) | (src2 << inv_shift);
+                        out2 = (src2 >> bit_shift) | (src3 << inv_shift);
+                        out3 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        break;
+                    case 1:
+                        out0 = (src1 >> bit_shift) | (src2 << inv_shift);
+                        out1 = (src2 >> bit_shift) | (src3 << inv_shift);
+                        out2 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        out3 = fill_word;
+                        break;
+                    case 2:
+                        out0 = (src2 >> bit_shift) | (src3 << inv_shift);
+                        out1 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                    default:
+                        out0 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        out1 = fill_word;
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                }
             }
             else
             {
-                const uint64_t fill_word = static_cast<uint64_t>(fill);
-                out0 = fetch(limb_shift + 0, fill_word);
-                out1 = fetch(limb_shift + 1, fill_word);
-                out2 = fetch(limb_shift + 2, fill_word);
-                out3 = fetch(limb_shift + 3, fill_word);
+                switch (limb_shift)
+                {
+                    case 0:
+                        out0 = src0;
+                        out1 = src1;
+                        out2 = src2;
+                        out3 = src3;
+                        break;
+                    case 1:
+                        out0 = src1;
+                        out1 = src2;
+                        out2 = src3;
+                        out3 = fill_word;
+                        break;
+                    case 2:
+                        out0 = src2;
+                        out1 = src3;
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                    default:
+                        out0 = src3;
+                        out1 = fill_word;
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                }
             }
             data_[0] = static_cast<limb_type>(out0);
             data_[1] = static_cast<limb_type>(out1);
@@ -1301,7 +1401,7 @@ public:
 
     friend integer operator/(integer lhs, const integer & rhs)
     {
-#if GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
+#if GINT_GCC_TUNED_PATHS
         limb_type positive_limb_divisor;
         if (positive_single_limb_value(rhs, positive_limb_divisor))
         {
@@ -1410,7 +1510,12 @@ public:
     friend integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
-#if GINT_ENABLE_DIRECT_LARGE_MOD
+#if GINT_CLANG_TUNED_PATHS
+        limb_type positive_limb_divisor;
+        if (positive_single_limb_value(rhs, positive_limb_divisor))
+            return rem_by_positive_limb(lhs, positive_limb_divisor);
+#endif
+#if GINT_GCC_TUNED_PATHS
         if (std::is_same<Signed, signed>::value)
         {
             const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
@@ -2302,11 +2407,19 @@ private:
         value = v.data_[0];
         if (std::is_same<Signed, signed>::value && limbs == 1 && (value >> 63))
             return false;
+        if (value == 0)
+            return false;
+        if (limbs == 1)
+            return true;
+        if (limbs == 2)
+            return v.data_[1] == 0;
+        if (limbs == 4)
+            return v.data_[3] == 0 && v.data_[2] == 0 && v.data_[1] == 0;
 
         limb_type high_or = 0;
         for (size_t i = 1; i < limbs; ++i)
             high_or |= v.data_[i];
-        return value != 0 && high_or == 0;
+        return high_or == 0;
     }
 
     static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
@@ -2321,6 +2434,22 @@ private:
         }
 
         lhs.div_mod_small(divisor, result);
+        return result;
+    }
+
+    static integer rem_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
+    {
+        integer result;
+        if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
+        {
+            using Unsigned = integer<Bits, unsigned>;
+            Unsigned lhs_mag;
+            copy_abs_magnitude(lhs_mag, lhs, true);
+            result.data_[0] = lhs_mag.mod_small(divisor);
+            return -result;
+        }
+
+        result.data_[0] = lhs.mod_small(divisor);
         return result;
     }
 
@@ -3085,6 +3214,5 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_RESTRICT
 #undef GINT_HAS_IS_CONSTANT_EVALUATED
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
-#undef GINT_ENABLE_MUL_FASTPATH
-#undef GINT_ENABLE_DIRECT_LARGE_MOD
-#undef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
+#undef GINT_GCC_TUNED_PATHS
+#undef GINT_CLANG_TUNED_PATHS
