@@ -62,8 +62,7 @@
 
 ### 结果（完整矩阵，real_time ns/op）
 
-数值越低越好。以下数据来自 `bench-compare-full` 的本机 AppleClang 样本，结果文件为
-`runs/local/compare_full_after_divlarge4_docs_20260426.json`。
+数值越低越好。以下数据来自 `bench-compare-full` 的本机 AppleClang 样本；如需复现，应按上文命令重新采集当前工作区的本地结果。
 
 #### 加法（Addition）
 
