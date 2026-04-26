@@ -155,6 +155,7 @@
     - 通用实现 `div_large`：只做一次 128/64 除法并以“乘回求余”代替取模，减少除法使用；规范化左移通过内部工具函数 `lshift_limbs_to()` 复用，消除重复代码。
     - 两肢专用 `div_large_2`：定长内核，基于最高 limb 估商，校正最多两次；乘回复用 `qhat*v1 = numerator - rhat` 消去一处乘法。
     - 三肢专用 `div_large_3`：定长内核，复用 `qhat*v[2] = numerator - rhat` 优化；保持 Algorithm D 的估商修正与借位补偿流程。
+    - 四肢专用 `div_large_4`：针对 256 位满宽除数（`divisor_limbs == 4`）且商最多为单 limb 的场景，定长展开规范化、估商修正和乘回减法；`operator/` 与 GCC-tuned 的多 limb `operator%` 路径都会复用该内核。
   - 仍保留移位‑减法（`div_shift_subtract`）作为后备实现，但常规路径不使用。
 - 字符串转换（to_string）：
   - 采用十进制 10^19 分块法：每次除以 10^19 收集一段 19 位十进制块（低位到高位），最后一次性拼接输出（首块不补零，其余块左零填充）。

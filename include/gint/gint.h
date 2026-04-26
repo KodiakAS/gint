@@ -32,6 +32,12 @@
 #    define GINT_CLANG_NOINLINE
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#    define GINT_NOINLINE __attribute__((noinline))
+#else
+#    define GINT_NOINLINE
+#endif
+
 #define GINT_ZERO_CHECK(cond, msg) \
     do \
     { \
@@ -1473,6 +1479,11 @@ public:
                 // Specialized fast path: three-limb divisor
                 result = div_large_3(lhs, divisor);
             }
+            else if (limbs == 4 && divisor_limbs == 4)
+            {
+                // Specialized fast path: full-width 256-bit divisor produces a single quotient limb.
+                result = div_large_4(lhs, divisor);
+            }
             else
             {
                 // Multi-limb divisor: use Knuth's Algorithm D (div_large)
@@ -2538,6 +2549,8 @@ private:
             quotient = div_large_2(lhs, divisor);
         else if (divisor_limbs == 3)
             quotient = div_large_3(lhs, divisor);
+        else if (limbs == 4 && divisor_limbs == 4)
+            quotient = div_large_4(lhs, divisor);
         else
             quotient = div_large(lhs, divisor, divisor_limbs);
 
@@ -2721,6 +2734,106 @@ private:
             quotient.data_[j] = static_cast<limb_type>(qhat);
         }
         return quotient;
+    }
+
+    // Optimized specialization: full-width 256-bit divisor (divisor_limbs == 4)
+    template <size_t L = limbs>
+    static GINT_NOINLINE typename std::enable_if<(L == 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
+    {
+        integer quotient;
+        if (lhs.data_[3] == 0)
+            return quotient;
+
+        using u128 = unsigned __int128;
+
+        // Normalize divisor so that its top limb has its MSB set.
+        const int shift = __builtin_clzll(divisor.data_[3]);
+        limb_type u0;
+        limb_type u1;
+        limb_type u2;
+        limb_type u3;
+        limb_type u4;
+        limb_type v0;
+        limb_type v1;
+        limb_type v2;
+        limb_type v3;
+
+        if (shift == 0)
+        {
+            u0 = lhs.data_[0];
+            u1 = lhs.data_[1];
+            u2 = lhs.data_[2];
+            u3 = lhs.data_[3];
+            u4 = 0;
+            v0 = divisor.data_[0];
+            v1 = divisor.data_[1];
+            v2 = divisor.data_[2];
+            v3 = divisor.data_[3];
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            u0 = lhs.data_[0] << shift;
+            u1 = (lhs.data_[1] << shift) | (lhs.data_[0] >> inv_shift);
+            u2 = (lhs.data_[2] << shift) | (lhs.data_[1] >> inv_shift);
+            u3 = (lhs.data_[3] << shift) | (lhs.data_[2] >> inv_shift);
+            u4 = lhs.data_[3] >> inv_shift;
+            v0 = divisor.data_[0] << shift;
+            v1 = (divisor.data_[1] << shift) | (divisor.data_[0] >> inv_shift);
+            v2 = (divisor.data_[2] << shift) | (divisor.data_[1] >> inv_shift);
+            v3 = (divisor.data_[3] << shift) | (divisor.data_[2] >> inv_shift);
+        }
+
+        const u128 numerator = (static_cast<u128>(u4) << 64) | u3;
+        u128 qhat = numerator / v3;
+        u128 rhat = numerator - qhat * v3;
+
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * v2 > ((rhat << 64) | u2))
+        {
+            --qhat;
+            rhat += v3;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        u128 borrow = 0;
+        {
+            u128 p = qhat * v0 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u0 = static_cast<limb_type>(static_cast<u128>(u0) - p);
+            borrow = (p >> 64) + (u0 > ~p_low);
+        }
+        {
+            u128 p = qhat * v1 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u1 = static_cast<limb_type>(static_cast<u128>(u1) - p);
+            borrow = (p >> 64) + (u1 > ~p_low);
+        }
+        {
+            u128 p = qhat * v2 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u2 = static_cast<limb_type>(static_cast<u128>(u2) - p);
+            borrow = (p >> 64) + (u2 > ~p_low);
+        }
+        {
+            u128 p = qhat * v3 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u3 = static_cast<limb_type>(static_cast<u128>(u3) - p);
+            borrow = (p >> 64) + (u3 > ~p_low);
+        }
+
+        if (static_cast<u128>(u4) < borrow)
+            --qhat;
+
+        quotient.data_[0] = static_cast<limb_type>(qhat);
+        return quotient;
+    }
+
+    // Stub for non-256-bit instantiations to keep dependent calls well-formed.
+    template <size_t L = limbs>
+    static typename std::enable_if<(L != 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
+    {
+        return div_large(lhs, divisor, 4);
     }
 
     // Optimized specialization: two-limb divisor (divisor_limbs == 2)
@@ -3058,6 +3171,8 @@ struct integer_test_access
 
     static Int div_large_3(Int lhs, const Int & rhs) noexcept { return Int::div_large_3(lhs, rhs); }
 
+    static Int div_large_4(Int lhs, const Int & rhs) noexcept { return Int::div_large_4(lhs, rhs); }
+
     template <typename T>
     static int compare_with_float_abs(const Int & lhs_abs, T rhs_abs) noexcept
     {
@@ -3235,6 +3350,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_CONSTEXPR14
 #undef GINT_FORCE_INLINE
 #undef GINT_CLANG_NOINLINE
+#undef GINT_NOINLINE
 #undef GINT_RESTRICT
 #undef GINT_HAS_IS_CONSTANT_EVALUATED
 #undef GINT_ENABLE_AARCH64_LIMB_ASM

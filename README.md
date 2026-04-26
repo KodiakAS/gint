@@ -19,19 +19,19 @@ Arithmetic & ToString — 256-bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
-| Add/NoCarry            | 0.666 |       1.94 |  4.72 |
-| Add/FullCarry          | 0.661 |       1.84 |  1.77 |
-| Sub/NoBorrow           | 0.664 |       1.59 |  4.81 |
-| Sub/FullBorrow         | 0.658 |       1.76 |  2.04 |
-| Mul/U64xU64            | 1.77 |       2.78 |  2.23 |
-| Mul/HighxHigh          | 1.75 |       2.75 | 10.4 |
-| Div/SmallDivisor32     | 11.1 |       13.7 | 19.7 |
-| Div/Pow2Divisor        | 6.68 |        310 | 66.6 |
-| Div/SimilarMagnitude   | 15.8 |        227 | 65.4 |
-| ToString/Base10        |  125 |        284 |  142 |
+| Add/NoCarry            | 0.677 |       1.84 |  4.90 |
+| Add/FullCarry          | 0.682 |       2.07 |  1.91 |
+| Sub/NoBorrow           | 0.683 |       1.63 |  4.99 |
+| Sub/FullBorrow         | 0.686 |       1.82 |  2.09 |
+| Mul/U64xU64            | 1.86 |       2.89 |  2.34 |
+| Mul/HighxHigh          | 1.83 |       2.85 | 10.7 |
+| Div/SmallDivisor32     | 11.5 |       14.7 | 20.8 |
+| Div/Pow2Divisor        | 6.00 |        316 | 68.8 |
+| Div/SimilarMagnitude   | 13.4 |        237 | 69.3 |
+| ToString/Base10        |  128 |        298 |  148 |
 
 Highlights
-- Add/Sub: ~2.4-2.9x faster vs ClickHouse; ~2.7-7.2x vs Boost.
+- Add/Sub: ~2.4-3.0x faster vs ClickHouse; ~2.8-7.3x vs Boost.
 - Mul: faster than ClickHouse and Boost on the listed 256-bit cases, with the largest gain on high x high.
 - Div: large wins for power-of-two and similar-magnitude divisors; still faster on 32-bit small divisors.
 - ToString: ~1.1x faster vs Boost; ~2.3x vs ClickHouse.
@@ -78,6 +78,8 @@ make coverage
 
 This builds the project with coverage flags, runs the tests, and
 produces a coverage report under the `runs/local/build-coverage` directory.
+For Linux/GCC coverage of GCC-tuned paths, run the same target in the Docker
+image with `COVERAGE_DIR=runs/docker/build-coverage`.
 
 ## Documentation
 
