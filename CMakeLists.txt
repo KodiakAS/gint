@@ -122,6 +122,21 @@ if(GINT_BUILD_TESTS)
         DISCOVERY_TIMEOUT 60
     )
 
+    add_executable(gint_tests_gcc_tuned_fastpaths tests/gcc_tuned_fastpaths_test.cpp)
+    target_include_directories(gint_tests_gcc_tuned_fastpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    set_target_properties(gint_tests_gcc_tuned_fastpaths PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    target_compile_options(gint_tests_gcc_tuned_fastpaths PRIVATE ${GINT_TEST_OPTIONS})
+    target_compile_definitions(gint_tests_gcc_tuned_fastpaths PRIVATE GINT_GCC_TUNED_PATHS=1 GINT_CLANG_TUNED_PATHS=0)
+    if(GINT_TEST_LINK_OPTIONS)
+        target_link_options(gint_tests_gcc_tuned_fastpaths PRIVATE ${GINT_TEST_LINK_OPTIONS})
+    endif()
+    target_link_libraries(gint_tests_gcc_tuned_fastpaths PRIVATE GTest::gtest_main)
+    gtest_discover_tests(gint_tests_gcc_tuned_fastpaths
+        TEST_PREFIX gcc_tuned_fastpaths.
+        NO_PRETTY_VALUES
+        DISCOVERY_TIMEOUT 60
+    )
+
     add_executable(gint_tests_divzero_checks tests/exceptions_overflow_test.cpp)
     target_include_directories(gint_tests_divzero_checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     set_target_properties(gint_tests_divzero_checks PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)

@@ -100,6 +100,23 @@ TEST(WideIntegerShift, ExactBoundaryBitCounts)
     EXPECT_EQ(minus_one >> 128, S128(-1));
 }
 
+TEST(WideIntegerShift, UInt256ExactWholeLimbRightShifts)
+{
+    using U256 = gint::integer<256, unsigned>;
+
+    U256 value = U256(0x1111111111111111ULL);
+    value |= U256(0x2222222222222222ULL) << 64;
+    value |= U256(0x3333333333333333ULL) << 128;
+    value |= U256(0x4444444444444444ULL) << 192;
+
+    U256 by64 = U256(0x2222222222222222ULL);
+    by64 |= U256(0x3333333333333333ULL) << 64;
+    by64 |= U256(0x4444444444444444ULL) << 128;
+    EXPECT_EQ(value >> 64, by64);
+
+    EXPECT_EQ(value >> 192, U256(0x4444444444444444ULL));
+}
+
 TEST(WideIntegerShift, SignedRightShiftWrapper)
 {
     using S128 = gint::integer<128, signed>;
