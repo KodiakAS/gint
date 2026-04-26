@@ -707,6 +707,55 @@ TEST(WideIntegerDivision, ThreeLimbFastPathMatchesGeneric)
     }
 }
 
+TEST(WideIntegerDivision, FourLimbFastPathMatchesGeneric)
+{
+    using U256 = gint::integer<256, unsigned>;
+
+    auto make_u256 = [](uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
+    {
+        U256 x = U256(w0);
+        x |= (U256(w1) << 64);
+        x |= (U256(w2) << 128);
+        x |= (U256(w3) << 192);
+        return x;
+    };
+
+    struct Case
+    {
+        U256 lhs;
+        U256 divisor;
+    };
+
+    Case cases[] = {
+        {make_u256(0xffffffffffffffffULL, 0xfffffffffffffffeULL, 0x0123456789abcdefULL, 0xfedcba9876543210ULL),
+         make_u256(0x8000000000000000ULL, 0x76543210fedcba98ULL, 0x89abcdef01234567ULL, 0x1111111111111111ULL)},
+        {make_u256(0x7fffffffffffffffULL, 0xffffffffffffffffULL, 0xffffffffffffffffULL, 0xfffffffffffffffeULL),
+         make_u256(0x0100000000000000ULL, 0x0000000000000001ULL, 0x0000000000000002ULL, 0x0000000000000003ULL)},
+        {make_u256(0x123456789abcdef0ULL, 0x0fedcba987654321ULL, 0x5555555555555555ULL, 0xaaaaaaaaaaaaaaaaULL),
+         make_u256(0xf000000000000000ULL, 0x0000000000000000ULL, 0x1111111111111111ULL, 0x2222222222222222ULL)},
+        {make_u256(0x9509d6071a3fb370ULL, 0x3fe7309369c26afaULL, 0xaa5e4674e9382781ULL, 0x8dde152b630710d3ULL),
+         make_u256(0x4a84eb038d1fd9b8ULL, 0x1ff39849b4e1357dULL, 0x552f233a8c25166aULL, 0xec188efbd080e66eULL)},
+        {make_u256(0x03e8fffffffffff0ULL, 0xbdc0000000000000ULL, 0x0000000000000000ULL, 0x0000000000000000ULL),
+         make_u256(0x0000ffffffffffffULL, 0xfc18ffffffffffffULL, 0xffff000000000000ULL, 0x0000000000000000ULL)},
+        {make_u256(0xfffffffffff4b97fULL, 0x2acaeb35c6adbe88ULL, 0x127d416f3e4cb89aULL, 0xd1a7d6787e53a11dULL),
+         make_u256(0x0000000000003e5eULL, 0x5c4882044378546aULL, 0xddae4b6cded24013ULL, 0x4aacad7bee6e9099ULL)},
+    };
+
+    for (const auto & c : cases)
+    {
+        U256 q_generic = TestAccess<U256>::div_large(c.lhs, c.divisor, 4);
+        U256 q_direct = TestAccess<U256>::div_large_4(c.lhs, c.divisor);
+        U256 q_fast = c.lhs / c.divisor;
+        U256 r_direct = c.lhs - q_direct * c.divisor;
+        U256 r_fast = c.lhs % c.divisor;
+
+        EXPECT_EQ(q_direct, q_generic);
+        EXPECT_EQ(q_fast, q_generic);
+        EXPECT_EQ(r_fast, r_direct);
+        EXPECT_LT(r_direct, c.divisor);
+    }
+}
+
 TEST(WideIntegerDivision, DivModSmallDivisorOne)
 {
     using U256 = gint::integer<256, unsigned>;

@@ -62,7 +62,8 @@
 
 ### 结果（完整矩阵，real_time ns/op）
 
-数值越低越好。以下数据来自 `bench-compare-full` 的本机 AppleClang 样本。
+数值越低越好。以下数据来自 `bench-compare-full` 的本机 AppleClang 样本，结果文件为
+`runs/local/compare_full_after_divlarge4_docs_20260426.json`。
 
 #### 加法（Addition）
 
@@ -73,9 +74,9 @@
 
 | 用例         | gint  | ClickHouse | Boost |
 | ------------ | ----: | ---------: | ----: |
-| NoCarry      | 0.666 |       1.94 |  4.72 |
-| FullCarry    | 0.661 |       1.84 |  1.77 |
-| CarryChain64 | 0.659 |       1.74 |  4.60 |
+| NoCarry      | 0.677 |       1.84 |  4.90 |
+| FullCarry    | 0.682 |       2.07 |  1.91 |
+| CarryChain64 | 0.683 |       1.81 |  4.84 |
 
 #### 减法（Subtraction）
 
@@ -86,9 +87,9 @@
 
 | 用例          | gint  | ClickHouse | Boost |
 | ------------- | ----: | ---------: | ----: |
-| NoBorrow      | 0.664 |       1.59 |  4.81 |
-| FullBorrow    | 0.658 |       1.76 |  2.04 |
-| BorrowChain64 | 0.659 |       1.68 |  4.54 |
+| NoBorrow      | 0.683 |       1.63 |  4.99 |
+| FullBorrow    | 0.686 |       1.82 |  2.09 |
+| BorrowChain64 | 0.681 |       1.67 |  4.91 |
 
 #### 乘法（Multiplication）
 
@@ -100,10 +101,10 @@
 
 | 用例         | gint  | ClickHouse | Boost |
 | ------------ | ----: | ---------: | ----: |
-| U64xU64      |  1.77 |       2.78 |  2.23 |
-| HighxHigh    |  1.75 |       2.75 |  10.4 |
-| WideTimesU64 | 0.889 |       3.22 |  2.51 |
-| U32xWide     |  1.78 |       3.64 |  4.23 |
+| U64xU64      |  1.86 |       2.89 |  2.34 |
+| HighxHigh    |  1.83 |       2.85 |  10.7 |
+| WideTimesU64 | 0.932 |       3.36 |  2.35 |
+| U32xWide     |  1.92 |       3.82 |  4.37 |
 
 #### 除法（Division）
 
@@ -111,29 +112,29 @@
 - SmallDivisor32：被除数为随机 256 位，除数取 32 位范围，覆盖“基数 2^32 的小除数场景”。
 - SmallDivisor64：被除数为随机 256 位，除数取 64 位范围，覆盖“128/64 估商的小除数场景”。
 - Pow2Divisor：除数为 2 的幂，覆盖“移位等价”的极端快路径。
-- SimilarMagnitude：被除数与除数数量级相近，覆盖“Knuth D 多 limb 重路径”，考察规范化与估商修正。
+- SimilarMagnitude：被除数与除数数量级相近，覆盖 256 位满宽除数的单 quotient-limb 快路径，考察规范化与估商修正。
 - LargeDivisor128：两 limb 除数，覆盖“多 limb 路径在 2-limb 情况的热点”。
-- SimilarMagnitude2：与上述相似量级不同分布，用于验证分布差异对分支与规范化的影响。
+- SimilarMagnitude2：与上述相似量级不同分布，同样覆盖满宽除数快路径，用于验证分布差异对分支与规范化的影响。
 
 | 用例                       | gint | ClickHouse | Boost |
 | -------------------------- | ---: | ---------: | ----: |
-| SmallDivisor32（32 位）    | 11.1 |       13.7 |  19.7 |
-| SmallDivisor64（64 位）    | 13.7 |       13.7 |  22.8 |
-| Pow2Divisor（2 的幂）      | 6.68 |        310 |  66.6 |
-| SimilarMagnitude           | 15.8 |        227 |  65.4 |
-| LargeDivisor128（两 limb） | 17.0 |        524 |  36.1 |
-| SimilarMagnitude2          | 14.7 |        205 |  77.6 |
+| SmallDivisor32（32 位）    | 11.5 |       14.7 |  20.8 |
+| SmallDivisor64（64 位）    | 14.1 |       14.6 |  23.6 |
+| Pow2Divisor（2 的幂）      | 6.00 |        316 |  68.8 |
+| SimilarMagnitude           | 13.4 |        237 |  69.3 |
+| LargeDivisor128（两 limb） | 18.2 |        564 |  37.0 |
+| SimilarMagnitude2          | 9.99 |        217 |  83.6 |
 
 #### 取模（Modulo）
 
 **设计**
 - SmallDivisor64：被除数为随机 256 位，除数取 64 位范围，覆盖小除数取模路径。
-- SimilarMagnitude：被除数与除数数量级相近，覆盖多 limb 取模路径。
+- SimilarMagnitude：被除数与除数数量级相近，覆盖满宽除数取模路径。
 
 | 用例             | gint | ClickHouse | Boost |
 | ---------------- | ---: | ---------: | ----: |
-| SmallDivisor64   | 20.5 |       15.3 |  19.0 |
-| SimilarMagnitude | 18.4 |        227 |  65.2 |
+| SmallDivisor64   | 13.1 |       16.1 |  20.7 |
+| SimilarMagnitude | 16.8 |        237 |  68.8 |
 
 #### 位运算（Bitwise）
 
@@ -143,8 +144,8 @@
 
 | 用例 | gint  | ClickHouse | Boost |
 | ---- | ----: | ---------: | ----: |
-| And  | 0.756 |      0.750 |  7.84 |
-| Xor  | 0.750 |      0.354 |  6.96 |
+| And  | 0.779 |      0.778 |  7.64 |
+| Xor  | 0.782 |      0.364 |  7.62 |
 
 #### 移位（Shift）
 
@@ -154,8 +155,8 @@
 
 | 用例          | gint | ClickHouse | Boost |
 | ------------- | ---: | ---------: | ----: |
-| LeftVariable  | 4.31 |       3.20 |  5.65 |
-| RightVariable | 2.78 |       2.99 |  3.73 |
+| LeftVariable  | 1.90 |       3.35 |  6.00 |
+| RightVariable | 1.39 |       3.22 |  3.86 |
 
 #### 字符串转换（ToString）
 
@@ -164,4 +165,4 @@
 
 | 用例   | gint | ClickHouse | Boost |
 | ------ | ---: | ---------: | ----: |
-| Base10 |  125 |        284 |   142 |
+| Base10 |  128 |        298 |   148 |
