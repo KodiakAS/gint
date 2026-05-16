@@ -45,16 +45,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
       - name: Configure
-        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -S . -B runs/ci/build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
-        run: cmake --build build --config Debug --parallel
+        run: cmake --build runs/ci/build --config Debug --parallel
       - name: Run tests
-        run: |
-          cd build
-          ctest -j 2 --output-on-failure
+        run: ctest --test-dir runs/ci/build -j 2 --output-on-failure
       - name: Header warning smoke
         run: |
-          cat > /tmp/gint_header_warning_smoke.cpp <<'CPP'
+          mkdir -p runs/ci
+          cat > runs/ci/gint_header_warning_smoke.cpp <<'CPP'
           #include <gint/gint.h>
           int main() {
               gint::integer<256, unsigned> x = 1;
@@ -62,7 +61,7 @@ jobs:
               return static_cast<int>(static_cast<unsigned long long>(y));
           }
           CPP
-          c++ -std=c++11 -Wall -Wextra -Werror -Iinclude /tmp/gint_header_warning_smoke.cpp -c -o /tmp/gint_header_warning_smoke.o
+          c++ -std=c++11 -Wall -Wextra -Werror -Iinclude runs/ci/gint_header_warning_smoke.cpp -c -o runs/ci/gint_header_warning_smoke.o
 
   build-cxx17:
     name: build (ubuntu-latest-cxx17)
@@ -83,11 +82,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
       - name: Configure
-        run: cmake -S . -B build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_CXX17=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -S . -B runs/ci/build-cxx17 -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_CXX17=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build C++17 tests
-        run: cmake --build build --target gint_tests_cxx17 --config Debug --parallel
+        run: cmake --build runs/ci/build-cxx17 --target gint_tests_cxx17 --config Debug --parallel
       - name: Run C++17 tests
-        run: ./build/gint_tests_cxx17 --gtest_color=yes
+        run: ./runs/ci/build-cxx17/gint_tests_cxx17 --gtest_color=yes
 
   coverage:
     runs-on: ubuntu-latest
