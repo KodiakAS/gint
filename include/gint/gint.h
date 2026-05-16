@@ -785,7 +785,13 @@ sub_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT 
 GINT_FORCE_INLINE bool
 mul_limbs4_try_small_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
+#if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LOW128_FASTPATH
     using u128 = unsigned __int128;
+#else
+    (void)res;
+    (void)lhs;
+    (void)rhs;
+#endif
 #if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH
     if ((rhs[1] | rhs[2] | rhs[3]) == 0)
     {
