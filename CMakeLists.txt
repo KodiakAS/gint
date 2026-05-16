@@ -170,7 +170,16 @@ if(GINT_BUILD_TESTS)
 endif()
 
 if(GINT_BUILD_BENCHMARKS)
+    include(CheckCXXCompilerFlag)
     find_package(benchmark REQUIRED)
+
+    set(GINT_BENCH_COMPILE_OPTIONS -O3 -DNDEBUG)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+        check_cxx_compiler_flag("-mno-outline" GINT_HAS_MNO_OUTLINE)
+        if(GINT_HAS_MNO_OUTLINE)
+            list(APPEND GINT_BENCH_COMPILE_OPTIONS -mno-outline)
+        endif()
+    endif()
 
     add_executable(perf_benchmark_int256
         bench/benchmark_int256.cpp
@@ -182,7 +191,7 @@ if(GINT_BUILD_BENCHMARKS)
     )
     target_compile_definitions(perf_benchmark_int256 PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(perf_benchmark_int256 PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_benchmark_int256 PRIVATE -O3 -DNDEBUG)
+    target_compile_options(perf_benchmark_int256 PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
 
     add_executable(perf_compare_int256
         bench/benchmark_int256.cpp
@@ -194,6 +203,6 @@ if(GINT_BUILD_BENCHMARKS)
     )
     target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
     target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_compare_int256 PRIVATE -O3 -DNDEBUG)
+    target_compile_options(perf_compare_int256 PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
 
 endif()
