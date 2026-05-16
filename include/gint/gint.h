@@ -3126,7 +3126,7 @@ private:
         return div_large(lhs, divisor, 3);
     }
 
-    alignas(Bits == 64 ? alignof(limb_type) : 16) limb_type data_[limbs] = {};
+    alignas(alignof(limb_type)) limb_type data_[limbs] = {};
 };
 
 #ifdef GINT_TEST_ACCESS
@@ -3255,38 +3255,66 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     const typename Int::limb_type base = 10000000000000000000ULL; // 1e19
     const unsigned chunk_digits = 19;
 
+#if GINT_GCC_TUNED_PATHS
     std::vector<typename Int::limb_type> chunks;
     chunks.reserve((Bits + 62) / 63);
+#else
+    constexpr size_t max_chunks = (Bits + 62) / 63;
+    std::array<typename Int::limb_type, max_chunks> chunks{};
+    size_t chunk_count = 0;
+#endif
     while (!tmp.is_zero())
     {
         Int q;
         typename Int::limb_type rem = tmp.div_mod_small(base, q);
+#if GINT_GCC_TUNED_PATHS
         chunks.push_back(rem);
+#else
+        chunks[chunk_count++] = rem;
+#endif
         tmp = q;
     }
 
     std::string out;
+#if GINT_GCC_TUNED_PATHS
     out.reserve(chunks.size() * chunk_digits + 1);
-    // most significant chunk
     auto it = chunks.rbegin();
+#else
+    out.reserve(chunk_count * chunk_digits + 1);
+#endif
+    // most significant chunk
     {
         char buf[32];
         unsigned idx = 32;
+#if GINT_GCC_TUNED_PATHS
         typename Int::limb_type x = *it;
+#else
+        typename Int::limb_type x = chunks[chunk_count - 1];
+#endif
         while (x)
         {
             buf[--idx] = static_cast<char>('0' + (x % 10));
             x /= 10;
         }
         out.append(buf + idx, 32 - idx);
+#if GINT_GCC_TUNED_PATHS
         ++it;
+#endif
     }
     // zero-padded remaining chunks
+#if GINT_GCC_TUNED_PATHS
     for (; it != chunks.rend(); ++it)
+#else
+    for (size_t chunk_index = chunk_count - 1; chunk_index-- > 0;)
+#endif
     {
         char buf[32];
         unsigned idx = 32;
+#if GINT_GCC_TUNED_PATHS
         typename Int::limb_type x = *it;
+#else
+        typename Int::limb_type x = chunks[chunk_index];
+#endif
         for (unsigned i = 0; i < chunk_digits; ++i)
         {
             buf[--idx] = static_cast<char>('0' + (x % 10));
