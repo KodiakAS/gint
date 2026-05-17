@@ -38,8 +38,10 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #    define GINT_NOINLINE __attribute__((noinline))
+#    define GINT_COLD __attribute__((cold))
 #else
 #    define GINT_NOINLINE
+#    define GINT_COLD
 #endif
 
 #define GINT_ZERO_CHECK(cond, msg) \
@@ -131,15 +133,19 @@
 #endif
 
 #ifndef GINT_ENABLE_MUL4_LOW128_FASTPATH
-#    define GINT_ENABLE_MUL4_LOW128_FASTPATH GINT_GCC_TUNED_PATHS
+#    define GINT_ENABLE_MUL4_LOW128_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
 #endif
 
 #ifndef GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH
-#    define GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH GINT_GCC_TUNED_PATHS
+#    define GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
 #endif
 
 #ifndef GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH
-#    define GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH GINT_GCC_TUNED_PATHS
+#    define GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
+#endif
+
+#ifndef GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
+#    define GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH (GINT_ARCH_X86_64 && GINT_GCC_TUNED_PATHS)
 #endif
 
 #ifndef GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH
@@ -859,6 +865,17 @@ mul_limbs4_try_small_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT
     return false;
 }
 
+#if GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
+inline GINT_NOINLINE GINT_COLD void mul_limbs4_u64(uint64_t * GINT_RESTRICT res, uint64_t lhs, uint64_t rhs) noexcept
+{
+    const unsigned __int128 p = static_cast<unsigned __int128>(lhs) * rhs;
+    res[0] = static_cast<uint64_t>(p);
+    res[1] = static_cast<uint64_t>(p >> 64);
+    res[2] = 0;
+    res[3] = 0;
+}
+#endif
+
 // Perform 128-bit multiplication using a straightforward schoolbook
 // method. The operands are split into low/high 64-bit limbs and cross
 // multiplied with 128-bit intermediates to produce a 256-bit result.
@@ -994,6 +1011,13 @@ template <>
 GINT_FORCE_INLINE void
 mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
+#if GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
+    if (GINT_UNLIKELY(lhs[3] == 0 && rhs[3] == 0 && lhs[2] == 0 && rhs[2] == 0 && lhs[1] == 0 && rhs[1] == 0))
+    {
+        mul_limbs4_u64(res, lhs[0], rhs[0]);
+        return;
+    }
+#endif
 #if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LOW128_FASTPATH
     const bool lhs_above_128 = (lhs[2] | lhs[3]) != 0;
     const bool rhs_above_128 = (rhs[2] | rhs[3]) != 0;
@@ -3718,6 +3742,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_FORCE_INLINE
 #undef GINT_CLANG_NOINLINE
 #undef GINT_NOINLINE
+#undef GINT_COLD
 #undef GINT_RESTRICT
 #undef GINT_HAS_IS_CONSTANT_EVALUATED
 #undef GINT_ARCH_AARCH64
@@ -3732,6 +3757,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_MUL4_LOW128_FASTPATH
 #undef GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH
 #undef GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH
+#undef GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
 #undef GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH
 #undef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
 #undef GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
