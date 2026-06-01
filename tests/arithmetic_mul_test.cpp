@@ -119,6 +119,25 @@ TEST(WideIntegerMultiplication, UInt1024_WideTimesWide_Generic)
     EXPECT_EQ(prod, sum);
 }
 
+TEST(WideIntegerMultiplication, UInt1024_LowLimbOperands)
+{
+    using U1024 = gint::integer<1024, unsigned>;
+    const uint64_t lhs64 = 0x123456789abcdef0ULL;
+    const uint64_t rhs64 = 0x10fedcba98765432ULL;
+
+    const U1024 low_product = U1024(lhs64) * U1024(rhs64);
+    const unsigned __int128 expected = static_cast<unsigned __int128>(lhs64) * rhs64;
+    EXPECT_EQ(low_product, U1024(expected));
+
+    U1024 wide = 0;
+    wide += U1024(0x1122334455667788ULL);
+    wide += U1024(0x99aabbccddeeff00ULL) << 256;
+    wide += U1024(0x0102030405060708ULL) << 768;
+
+    const U1024 by_u32 = wide * U1024(7);
+    EXPECT_EQ(by_u32, wide + wide + wide + wide + wide + wide + wide);
+}
+
 // Multiplication by power-of-two equals left shift (wide×wide trigger)
 TEST(WideIntegerMultiplication, UInt256_MulByPow2EqualsShift)
 {

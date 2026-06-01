@@ -24,6 +24,7 @@
 - 最短运行时间：建议加入 `--benchmark_min_time=0.2s`（单位必须为秒）。
 - 过滤子集：可用 `--benchmark_filter`（示例：`--benchmark_filter=^Div/SmallDivisor64/`）。
 - 完整矩阵：使用 `bench-full` 或 `bench-compare-full`，等价于给可执行传入 `--gint_full`。
+- 位宽选择：Makefile 默认 `BENCH_BITS=256`；可设为 `128/256/512/1024`，例如 `make BENCH_BITS=512 bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`。
 
 ## 基准测试（Benchmark）
 
@@ -35,6 +36,7 @@
 - 本机 AppleClang 完整矩阵：`make bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 - Docker/GCC 完整矩阵：`docker run --rm -t -v "$PWD":/work -w /work gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 本机直接运行：`runs/local/build-bench/perf_benchmark_int256 --benchmark_min_time=0.2s`
+- 其他位宽：`make BENCH_BITS=512 bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 
 ### 常用参数
 - `--benchmark_min_time=0.2s`：设置最短运行时间以降低抖动。
@@ -50,6 +52,7 @@
 - 本机 AppleClang 完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 - Docker/GCC 完整矩阵：`docker run --rm -t -v "$PWD":/work -w /work gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 本机直接运行：`runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
+- 其他位宽：`make BENCH_BITS=1024 bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 
 ### 方法学
 - 每个用例 256 对确定性样本（固定种子），循环中轮询；
