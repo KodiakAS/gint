@@ -663,14 +663,16 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs
 }
 
 template <size_t L>
-GINT_CONSTEXPR14 inline void bit_and_limbs(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_and_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     for (size_t i = 0; i < L; ++i)
         dst[i] = lhs[i] & rhs[i];
 }
 
 template <>
-GINT_CONSTEXPR14 inline void bit_and_limbs<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_and_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     dst[0] = lhs[0] & rhs[0];
     dst[1] = lhs[1] & rhs[1];
@@ -679,14 +681,16 @@ GINT_CONSTEXPR14 inline void bit_and_limbs<4>(uint64_t * dst, const uint64_t * l
 }
 
 template <size_t L>
-GINT_CONSTEXPR14 inline void bit_or_limbs(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_or_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     for (size_t i = 0; i < L; ++i)
         dst[i] = lhs[i] | rhs[i];
 }
 
 template <>
-GINT_CONSTEXPR14 inline void bit_or_limbs<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_or_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     dst[0] = lhs[0] | rhs[0];
     dst[1] = lhs[1] | rhs[1];
@@ -695,14 +699,16 @@ GINT_CONSTEXPR14 inline void bit_or_limbs<4>(uint64_t * dst, const uint64_t * lh
 }
 
 template <size_t L>
-GINT_CONSTEXPR14 inline void bit_xor_limbs(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_xor_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     for (size_t i = 0; i < L; ++i)
         dst[i] = lhs[i] ^ rhs[i];
 }
 
 template <>
-GINT_CONSTEXPR14 inline void bit_xor_limbs<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_xor_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     dst[0] = lhs[0] ^ rhs[0];
     dst[1] = lhs[1] ^ rhs[1];
@@ -788,8 +794,9 @@ sub_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT 
     dst[3] = r3;
 }
 
-GINT_FORCE_INLINE bool
-mul_limbs4_try_small_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+GINT_FORCE_INLINE
+bool mul_limbs4_try_small_operand(
+    uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
 #if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LOW128_FASTPATH
     using u128 = unsigned __int128;
@@ -1012,7 +1019,7 @@ GINT_FORCE_INLINE void
 mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
 #if GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
-    if (GINT_UNLIKELY(lhs[3] == 0 && rhs[3] == 0 && lhs[2] == 0 && rhs[2] == 0 && lhs[1] == 0 && rhs[1] == 0))
+    if (GINT_LIKELY((lhs[3] | rhs[3]) == 0 && (lhs[2] | rhs[2] | lhs[1] | rhs[1]) == 0))
     {
         mul_limbs4_u64(res, lhs[0], rhs[0]);
         return;
@@ -1030,6 +1037,29 @@ mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, c
         return;
 #endif
     mul_limbs4_general(res, lhs, rhs);
+}
+
+template <size_t L>
+GINT_FORCE_INLINE void
+mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    for (size_t i = 0; i < L; ++i)
+        res[i] = 0;
+    mul_limbs<L>(res, lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void
+mul_limbs_result<2>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    mul_limbs<2>(res, lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void
+mul_limbs_result<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    mul_limbs<4>(res, lhs, rhs);
 }
 
 template <size_t L>
@@ -1088,8 +1118,18 @@ public:
     friend struct detail::integer_test_access<Bits, Signed>;
 #endif
 
+private:
+    struct uninitialized_tag
+    {
+    };
+    explicit integer(uninitialized_tag) noexcept { }
+
+public:
     // Constructors
-    constexpr integer() noexcept = default;
+    constexpr integer() noexcept
+        : data_{}
+    {
+    }
     constexpr integer(const integer &) noexcept = default;
     constexpr integer(integer &&) noexcept = default;
 
@@ -1611,7 +1651,15 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator&(const integer & lhs, const integer & rhs) noexcept
     {
-        integer result;
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+        if (__builtin_is_constant_evaluated())
+        {
+            integer result;
+            detail::bit_and_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
+            return result;
+        }
+#endif
+        integer result(uninitialized_tag{});
         detail::bit_and_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
@@ -1630,7 +1678,15 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator|(const integer & lhs, const integer & rhs) noexcept
     {
-        integer result;
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+        if (__builtin_is_constant_evaluated())
+        {
+            integer result;
+            detail::bit_or_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
+            return result;
+        }
+#endif
+        integer result(uninitialized_tag{});
         detail::bit_or_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
@@ -1649,7 +1705,15 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator^(const integer & lhs, const integer & rhs) noexcept
     {
-        integer result;
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+        if (__builtin_is_constant_evaluated())
+        {
+            integer result;
+            detail::bit_xor_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
+            return result;
+        }
+#endif
+        integer result(uninitialized_tag{});
         detail::bit_xor_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
@@ -1683,8 +1747,8 @@ public:
     {
         // Dispatch to the limb-wise multiplication routine which selects the
         // appropriate algorithm based on operand size.
-        integer result{};
-        detail::mul_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
+        integer result(uninitialized_tag{});
+        detail::mul_limbs_result<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
 
@@ -2849,13 +2913,13 @@ private:
     {
         using Unsigned = integer<Bits, unsigned>;
         const bool lhs_neg = lhs.data_[limbs - 1] >> 63;
-        Unsigned lhs_mag;
-        Unsigned rhs_mag;
+        Unsigned lhs_mag(typename Unsigned::uninitialized_tag{});
+        Unsigned rhs_mag(typename Unsigned::uninitialized_tag{});
         copy_abs_magnitude(lhs_mag, lhs, lhs_neg);
         copy_abs_magnitude(rhs_mag, rhs, rhs_neg);
 
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude(lhs_mag, rhs_mag);
-        integer result;
+        integer result(uninitialized_tag{});
         for (size_t i = 0; i < limbs; ++i)
             result.data_[i] = rem_mag.data_[i];
         if (lhs_neg)
@@ -2865,11 +2929,13 @@ private:
 
     static integer rem_unsigned_magnitude(const integer & lhs, const integer & divisor) noexcept
     {
-        integer result;
+        integer result(uninitialized_tag{});
         size_t divisor_limbs = used_limbs(divisor);
 
         if (divisor_limbs == 1)
         {
+            for (size_t i = 1; i < limbs; ++i)
+                result.data_[i] = 0;
             result.data_[0] = lhs.mod_small(divisor.data_[0]);
             return result;
         }
@@ -2897,7 +2963,7 @@ private:
 #if GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH
         if (limbs == 4 && quotient.data_[2] == 0 && quotient.data_[3] == 0)
         {
-            integer product;
+            integer product(uninitialized_tag{});
             if (quotient.data_[1] == 0)
                 detail::mul_limbs4_by_limb(product.data_, divisor.data_, quotient.data_[0]);
             else
@@ -3489,7 +3555,7 @@ private:
         return div_large(lhs, divisor, 3);
     }
 
-    alignas(Bits == 64 ? alignof(limb_type) : 16) limb_type data_[limbs] = {};
+    alignas((GINT_ARCH_AARCH64 || Bits == 64) ? alignof(limb_type) : 16) limb_type data_[limbs];
 };
 
 #ifdef GINT_TEST_ACCESS
