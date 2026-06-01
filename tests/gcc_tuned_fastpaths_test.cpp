@@ -30,10 +30,30 @@ TEST(GccTunedFastpaths, UInt256LowLimbMultiply)
 
 TEST(GccTunedFastpaths, UInt256FullWidthModulo)
 {
-    const U256 divisor = make_u256(0x1000000000000000ULL, 0x0fedcba987654321ULL, 0x0123456789abcdefULL, 0x1111111111111111ULL);
-    const U256 remainder = 123456789ULL;
-    const U256 lhs = divisor * U256(9) + remainder;
+    struct Case
+    {
+        U256 divisor;
+        U256 quotient;
+        U256 remainder;
+    };
 
-    EXPECT_EQ(lhs / divisor, U256(9));
-    EXPECT_EQ(lhs % divisor, remainder);
+    const Case cases[] = {
+        {make_u256(0x1000000000000000ULL, 0x0fedcba987654321ULL, 0x0123456789abcdefULL, 0x1111111111111111ULL),
+         U256(9),
+         U256(123456789ULL)},
+        {make_u256(0x8000000000000000ULL, 0x76543210fedcba98ULL, 0x89abcdef01234567ULL, 0x1111111111111111ULL),
+         U256(1),
+         make_u256(0x0000000000000000ULL, 0x0000000000000001ULL, 0x2222222222222222ULL, 0x3333333333333333ULL)},
+        {make_u256(0x0000ffffffffffffULL, 0xfc18ffffffffffffULL, 0xffff000000000000ULL, 0x0000000000000001ULL),
+         U256(5),
+         make_u256(0x0000000000000000ULL, 0x0000000000000000ULL, 0x4444444444444444ULL, 0x5555555555555555ULL)},
+    };
+
+    for (const auto & c : cases)
+    {
+        const U256 lhs = c.divisor * c.quotient + c.remainder;
+
+        EXPECT_EQ(lhs / c.divisor, c.quotient);
+        EXPECT_EQ(lhs % c.divisor, c.remainder);
+    }
 }
