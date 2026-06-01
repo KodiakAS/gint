@@ -148,6 +148,10 @@
 #    define GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH (GINT_ARCH_X86_64 && GINT_GCC_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH
+#    define GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH 1
+#endif
+
 #ifndef GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH
 #    define GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH GINT_GCC_TUNED_PATHS
 #endif
@@ -1040,9 +1044,17 @@ mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, c
 }
 
 template <size_t L>
+GINT_NOINLINE bool
+mul_try_single_limb_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept;
+
+template <size_t L>
 GINT_FORCE_INLINE void
 mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH
+    if (L > 4 && GINT_UNLIKELY(lhs[L - 1] == 0 || rhs[L - 1] == 0) && mul_try_single_limb_operand<L>(res, lhs, rhs))
+        return;
+#endif
     for (size_t i = 0; i < L; ++i)
         res[i] = 0;
     mul_limbs<L>(res, lhs, rhs);
@@ -1060,6 +1072,62 @@ GINT_FORCE_INLINE void
 mul_limbs_result<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     mul_limbs<4>(res, lhs, rhs);
+}
+
+template <size_t L>
+GINT_FORCE_INLINE bool limbs_zero_above(const uint64_t * data, size_t first) noexcept
+{
+    if (data[L - 1] != 0)
+        return false;
+    for (size_t i = first; i < L; ++i)
+    {
+        if (data[i] != 0)
+            return false;
+    }
+    return true;
+}
+
+template <size_t L>
+GINT_FORCE_INLINE void mul_single_limb_product(uint64_t * res, uint64_t lhs, uint64_t rhs) noexcept
+{
+    const unsigned __int128 product = static_cast<unsigned __int128>(lhs) * rhs;
+    res[0] = static_cast<uint64_t>(product);
+    if (L > 1)
+        res[1] = static_cast<uint64_t>(product >> 64);
+    for (size_t i = 2; i < L; ++i)
+        res[i] = 0;
+}
+
+template <size_t L>
+GINT_FORCE_INLINE void mul_limbs_by_limb_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
+{
+    unsigned __int128 carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned __int128 cur = static_cast<unsigned __int128>(lhs[i]) * rhs + carry;
+        res[i] = static_cast<uint64_t>(cur);
+        carry = cur >> 64;
+    }
+}
+
+template <size_t L>
+GINT_NOINLINE bool
+mul_try_single_limb_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    if (limbs_zero_above<L>(rhs, 1))
+    {
+        if (limbs_zero_above<L>(lhs, 1))
+            mul_single_limb_product<L>(res, lhs[0], rhs[0]);
+        else
+            mul_limbs_by_limb_result<L>(res, lhs, rhs[0]);
+        return true;
+    }
+    if (limbs_zero_above<L>(lhs, 1))
+    {
+        mul_limbs_by_limb_result<L>(res, rhs, lhs[0]);
+        return true;
+    }
+    return false;
 }
 
 template <size_t L>
@@ -1745,9 +1813,9 @@ public:
     // Multiplication is left non-constexpr due to helper internals
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
+        integer result(uninitialized_tag{});
         // Dispatch to the limb-wise multiplication routine which selects the
         // appropriate algorithm based on operand size.
-        integer result(uninitialized_tag{});
         detail::mul_limbs_result<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
