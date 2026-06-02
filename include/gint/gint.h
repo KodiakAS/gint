@@ -2947,6 +2947,11 @@ private:
             return result;
         }
 
+#if GINT_X86_64_GCC_TUNED_PATHS
+        if (limbs == 4 && divisor_limbs == 4)
+            return rem_large_4(lhs, divisor);
+#endif
+
         integer quotient;
         if (limbs == 2)
             quotient = div_128(lhs, divisor);
@@ -3246,11 +3251,139 @@ private:
         return quotient;
     }
 
+    template <size_t L = limbs>
+    static typename std::enable_if<(L == 4), integer>::type rem_large_4(integer lhs, const integer & divisor) noexcept
+    {
+        using u128 = unsigned __int128;
+
+        const int shift = __builtin_clzll(divisor.data_[3]);
+        limb_type u0;
+        limb_type u1;
+        limb_type u2;
+        limb_type u3;
+        limb_type u4;
+        limb_type v0;
+        limb_type v1;
+        limb_type v2;
+        limb_type v3;
+
+        if (shift == 0)
+        {
+            u0 = lhs.data_[0];
+            u1 = lhs.data_[1];
+            u2 = lhs.data_[2];
+            u3 = lhs.data_[3];
+            u4 = 0;
+            v0 = divisor.data_[0];
+            v1 = divisor.data_[1];
+            v2 = divisor.data_[2];
+            v3 = divisor.data_[3];
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            u0 = lhs.data_[0] << shift;
+            u1 = (lhs.data_[1] << shift) | (lhs.data_[0] >> inv_shift);
+            u2 = (lhs.data_[2] << shift) | (lhs.data_[1] >> inv_shift);
+            u3 = (lhs.data_[3] << shift) | (lhs.data_[2] >> inv_shift);
+            u4 = lhs.data_[3] >> inv_shift;
+            v0 = divisor.data_[0] << shift;
+            v1 = (divisor.data_[1] << shift) | (divisor.data_[0] >> inv_shift);
+            v2 = (divisor.data_[2] << shift) | (divisor.data_[1] >> inv_shift);
+            v3 = (divisor.data_[3] << shift) | (divisor.data_[2] >> inv_shift);
+        }
+
+        const u128 numerator = (static_cast<u128>(u4) << 64) | u3;
+        u128 qhat = numerator / v3;
+        u128 rhat = numerator - qhat * v3;
+
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * v2 > ((rhat << 64) | u2))
+        {
+            --qhat;
+            rhat += v3;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        u128 borrow = 0;
+        {
+            u128 p = qhat * v0 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u0 = static_cast<limb_type>(static_cast<u128>(u0) - p);
+            borrow = (p >> 64) + (u0 > ~p_low);
+        }
+        {
+            u128 p = qhat * v1 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u1 = static_cast<limb_type>(static_cast<u128>(u1) - p);
+            borrow = (p >> 64) + (u1 > ~p_low);
+        }
+        {
+            u128 p = qhat * v2 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u2 = static_cast<limb_type>(static_cast<u128>(u2) - p);
+            borrow = (p >> 64) + (u2 > ~p_low);
+        }
+        {
+            u128 p = qhat * v3 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u3 = static_cast<limb_type>(static_cast<u128>(u3) - p);
+            borrow = (p >> 64) + (u3 > ~p_low);
+        }
+
+        if (static_cast<u128>(u4) < borrow)
+        {
+            u128 carry = 0;
+            u128 t = static_cast<u128>(u0) + v0 + carry;
+            u0 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            t = static_cast<u128>(u1) + v1 + carry;
+            u1 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            t = static_cast<u128>(u2) + v2 + carry;
+            u2 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            t = static_cast<u128>(u3) + v3 + carry;
+            u3 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            // The subtract phase has not yet applied this borrow to u4.
+            u4 = static_cast<limb_type>(static_cast<u128>(u4) + carry - borrow);
+        }
+        else
+        {
+            u4 = static_cast<limb_type>(static_cast<u128>(u4) - borrow);
+        }
+
+        integer result(uninitialized_tag{});
+        if (shift == 0)
+        {
+            result.data_[0] = u0;
+            result.data_[1] = u1;
+            result.data_[2] = u2;
+            result.data_[3] = u3;
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            result.data_[0] = (u0 >> shift) | (u1 << inv_shift);
+            result.data_[1] = (u1 >> shift) | (u2 << inv_shift);
+            result.data_[2] = (u2 >> shift) | (u3 << inv_shift);
+            result.data_[3] = (u3 >> shift) | (u4 << inv_shift);
+        }
+        return result;
+    }
+
     // Stub for non-256-bit instantiations to keep dependent calls well-formed.
     template <size_t L = limbs>
     static typename std::enable_if<(L != 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
     {
         return div_large(lhs, divisor, 4);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L != 4), integer>::type rem_large_4(const integer & lhs, const integer &) noexcept
+    {
+        return lhs;
     }
 
     // Optimized specialization: two-limb divisor (divisor_limbs == 2)
