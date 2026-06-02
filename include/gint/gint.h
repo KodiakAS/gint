@@ -185,6 +185,10 @@
 #    define GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH
+#    define GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
+#endif
+
 #if GINT_X86_64_GCC_TUNED_PATHS
 #    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
 #else
@@ -1860,20 +1864,10 @@ private:
         return *this;
     }
 
-#if !GINT_GCC_TUNED_PATHS
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value(const integer & value, int n) noexcept
+#if !GINT_GCC_TUNED_PATHS || GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size(const integer & value, size_t shift) noexcept
     {
-        if (limbs == 4)
-        {
-            integer result = value;
-            result <<= n;
-            return result;
-        }
-        if (n <= 0)
-            return value;
-
         const size_t total_bits = limbs * 64;
-        const size_t shift = static_cast<size_t>(n);
 #    if __cplusplus >= 201402L
         integer result;
 #    else
@@ -1911,6 +1905,20 @@ private:
                 result.data_[i] = value.data_[i - limb_shift];
         }
         return result;
+    }
+
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value(const integer & value, int n) noexcept
+    {
+        if (limbs == 4)
+        {
+            integer result = value;
+            result <<= n;
+            return result;
+        }
+        if (n <= 0)
+            return value;
+
+        return shift_left_value_by_size(value, static_cast<size_t>(n));
     }
 
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_value(const integer & value, int n) noexcept
@@ -2186,6 +2194,15 @@ public:
         lhs <<= n;
         return lhs;
     }
+
+#    if GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH
+    template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
+    {
+        const size_t shift = static_cast<size_t>(n);
+        return shift_left_value_by_size(lhs, shift);
+    }
+#    endif
 
     GINT_CONSTEXPR14 friend integer operator>>(integer lhs, int n) noexcept
     {
