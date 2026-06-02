@@ -914,6 +914,44 @@ TEST(WideIntegerDivision, DivLargeGenericConstructedAddbackBranch)
     EXPECT_EQ(lhs - q * divisor, divisor - U512(1));
 }
 
+TEST(WideIntegerDivision, RemLargeGenericMatchesQuotientRemainder)
+{
+    using U512 = gint::integer<512, unsigned>;
+
+    const U512 lhs = (U512(1) << 511) - U512(12345);
+    const U512 full_width_divisor = (U512(1) << 470) + U512(987654321);
+    const U512 seven_limb_divisor = (U512(1) << 436) + U512(123456789);
+
+    {
+        const U512 q = TestAccess<U512>::div_large(lhs, full_width_divisor, 8);
+        const U512 r = TestAccess<U512>::rem_large(lhs, full_width_divisor, 8);
+        EXPECT_EQ(q * full_width_divisor + r, lhs);
+        EXPECT_LT(r, full_width_divisor);
+    }
+
+    {
+        const U512 q = TestAccess<U512>::div_large(lhs, seven_limb_divisor, 7);
+        const U512 r = TestAccess<U512>::rem_large(lhs, seven_limb_divisor, 7);
+        EXPECT_EQ(q * seven_limb_divisor + r, lhs);
+        EXPECT_LT(r, seven_limb_divisor);
+    }
+}
+
+TEST(WideIntegerDivision, SignedLargeModuloMatchesQuotientRemainder)
+{
+    using I512 = gint::integer<512, signed>;
+
+    const I512 divisor = (I512(1) << 470) + I512(987654321);
+    const I512 magnitude = (I512(1) << 510) + I512(12345);
+    const I512 lhs = -magnitude;
+
+    const I512 q = lhs / divisor;
+    const I512 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
+    EXPECT_LT(r, I512(0));
+    EXPECT_GT(r, -divisor);
+}
+
 TEST(WideIntegerDivision, DivLarge3EarlyReturnWhenDividendShorter)
 {
     using U256 = gint::integer<256, unsigned>;

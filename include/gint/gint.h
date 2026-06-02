@@ -190,6 +190,10 @@
 #    define GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+#    define GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
+#endif
+
 #if GINT_X86_64_GCC_TUNED_PATHS
 #    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
 #else
@@ -3945,7 +3949,11 @@ private:
         copy_abs_magnitude(lhs_mag, lhs, lhs_neg);
         copy_abs_magnitude(rhs_mag, rhs, rhs_neg);
 
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+        Unsigned rem_mag = Unsigned::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
+#else
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude(lhs_mag, rhs_mag);
+#endif
         integer result(uninitialized_tag{});
         for (size_t i = 0; i < limbs; ++i)
             result.data_[i] = rem_mag.data_[i];
@@ -4007,6 +4015,21 @@ private:
         quotient *= divisor;
         result -= quotient;
         return result;
+    }
+
+    static integer rem_unsigned_magnitude_with_large_direct(const integer & lhs, const integer & divisor) noexcept
+    {
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+        if (limbs > 4 && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
+        {
+            const size_t divisor_limbs = used_limbs(divisor);
+            int pow_bit;
+            if (is_power_of_two(divisor, pow_bit))
+                return lhs & (divisor - integer(1));
+            return rem_large(lhs, divisor, divisor_limbs);
+        }
+#endif
+        return rem_unsigned_magnitude(lhs, divisor);
     }
 
     static bool is_min_value(const integer & v) noexcept
@@ -4183,6 +4206,87 @@ private:
             quotient.data_[j] = static_cast<limb_type>(qhat);
         }
         return quotient;
+    }
+
+    static GINT_NOINLINE integer rem_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        size_t n = limbs;
+        while (n > 0 && lhs.data_[n - 1] == 0)
+            --n;
+        if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
+            return lhs;
+
+        std::array<limb_type, limbs + 1> u = {};
+        std::array<limb_type, limbs> v = {};
+
+        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
+        limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
+        u[n] = carry;
+
+        carry = lshift_limbs_to(divisor.data_, div_limbs, v.data(), shift);
+
+        for (int j = static_cast<int>(n - div_limbs); j >= 0; --j)
+        {
+            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + div_limbs]) << 64) | u[j + div_limbs - 1];
+            unsigned __int128 qhat = numerator / v[div_limbs - 1];
+            unsigned __int128 rhat = numerator - qhat * v[div_limbs - 1];
+
+            while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[div_limbs - 2] > ((rhat << 64) | u[j + div_limbs - 2]))
+            {
+                --qhat;
+                rhat += v[div_limbs - 1];
+                if (rhat >= (static_cast<unsigned __int128>(1) << 64))
+                    break;
+            }
+
+            unsigned __int128 borrow = 0;
+            for (size_t i = 0; i < div_limbs; ++i)
+            {
+                unsigned __int128 p = qhat * v[i] + borrow;
+                if (u[j + i] < static_cast<limb_type>(p))
+                {
+                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            if (static_cast<unsigned __int128>(u[j + div_limbs]) < borrow)
+            {
+                unsigned __int128 carry2 = 0;
+                for (size_t i = 0; i < div_limbs; ++i)
+                {
+                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
+                    u[j + i] = static_cast<limb_type>(t2);
+                    carry2 = t2 >> 64;
+                }
+                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) + carry2);
+            }
+            else
+            {
+                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) - borrow);
+            }
+        }
+
+        integer result;
+        if (shift == 0)
+        {
+            for (size_t i = 0; i < div_limbs; ++i)
+                result.data_[i] = u[i];
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            for (size_t i = 0; i < div_limbs; ++i)
+            {
+                const limb_type next = (i + 1 < div_limbs) ? u[i + 1] : 0;
+                result.data_[i] = (u[i] >> shift) | (next << inv_shift);
+            }
+        }
+        return result;
     }
 
     // Optimized specialization: full-width 256-bit divisor (divisor_limbs == 4)
@@ -4744,6 +4848,8 @@ struct integer_test_access
 
     static Int div_large(Int lhs, const Int & rhs, size_t div_limbs) noexcept { return Int::div_large(lhs, rhs, div_limbs); }
 
+    static Int rem_large(Int lhs, const Int & rhs, size_t div_limbs) noexcept { return Int::rem_large(lhs, rhs, div_limbs); }
+
     static Int div_large_2(Int lhs, const Int & rhs) noexcept { return Int::div_large_2(lhs, rhs); }
 
     static Int div_large_3(Int lhs, const Int & rhs) noexcept { return Int::div_large_3(lhs, rhs); }
@@ -4993,4 +5099,5 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
+#undef GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
