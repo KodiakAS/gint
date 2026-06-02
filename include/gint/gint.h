@@ -168,6 +168,10 @@
 #    define GINT_ENABLE_X86_64_HW_SMALL_DIVMOD GINT_ARCH_X86_64
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
+#    define GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
 namespace gint
 {
 
@@ -719,6 +723,30 @@ bit_xor_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lh
     dst[2] = lhs[2] ^ rhs[2];
     dst[3] = lhs[3] ^ rhs[3];
 }
+
+#if GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
+template <>
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_xor_limbs<16>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    dst[0] = lhs[0] ^ rhs[0];
+    dst[1] = lhs[1] ^ rhs[1];
+    dst[2] = lhs[2] ^ rhs[2];
+    dst[3] = lhs[3] ^ rhs[3];
+    dst[4] = lhs[4] ^ rhs[4];
+    dst[5] = lhs[5] ^ rhs[5];
+    dst[6] = lhs[6] ^ rhs[6];
+    dst[7] = lhs[7] ^ rhs[7];
+    dst[8] = lhs[8] ^ rhs[8];
+    dst[9] = lhs[9] ^ rhs[9];
+    dst[10] = lhs[10] ^ rhs[10];
+    dst[11] = lhs[11] ^ rhs[11];
+    dst[12] = lhs[12] ^ rhs[12];
+    dst[13] = lhs[13] ^ rhs[13];
+    dst[14] = lhs[14] ^ rhs[14];
+    dst[15] = lhs[15] ^ rhs[15];
+}
+#endif
 
 GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
 {
@@ -4040,3 +4068,4 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
 #undef GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
 #undef GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
+#undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
