@@ -201,6 +201,11 @@
 #    define GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH \
+        (GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH && GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
 #ifndef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #    define GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
@@ -2440,10 +2445,35 @@ public:
     friend integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
+#if GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
+        if (limbs == 2)
+        {
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+            {
+                integer result;
+                if (std::is_same<Signed, signed>::value && (lhs.data_[1] >> 63))
+                {
+                    using Unsigned = integer<Bits, unsigned>;
+                    Unsigned lhs_mag;
+                    copy_abs_magnitude(lhs_mag, lhs, true);
+                    result.data_[0] = lhs_mag.mod_small(positive_limb_divisor);
+                    negate_for_division(result);
+                    return result;
+                }
+
+                result.data_[0] = lhs.mod_small(positive_limb_divisor);
+                return result;
+            }
+        }
+#endif
 #if GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
-        limb_type positive_limb_divisor;
-        if (positive_single_limb_value(rhs, positive_limb_divisor))
-            return rem_by_positive_limb(lhs, positive_limb_divisor);
+        if (!(GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH && limbs == 2))
+        {
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+                return rem_by_positive_limb(lhs, positive_limb_divisor);
+        }
 #endif
 #if GINT_GCC_TUNED_PATHS
         if (std::is_same<Signed, signed>::value)
@@ -4513,6 +4543,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
 #undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
