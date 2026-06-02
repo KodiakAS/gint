@@ -173,6 +173,10 @@
 #    define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH GINT_GCC_TUNED_PATHS
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
 #ifndef GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
 #    define GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH (GINT_CLANG_TUNED_PATHS || GINT_ARCH_X86_64)
 #endif
@@ -2208,6 +2212,16 @@ public:
         {
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
             return div_by_positive_limb(lhs, positive_limb_divisor);
+        }
+#elif GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
+        if (limbs == 2)
+        {
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+            {
+                GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+                return div_by_positive_limb(lhs, positive_limb_divisor);
+            }
         }
 #endif
 
@@ -4289,6 +4303,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_NON_X86_GCC_TUNED_PATHS
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
 #undef GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+#undef GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
 #undef GINT_ENABLE_X86_64_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
