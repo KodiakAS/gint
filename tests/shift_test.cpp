@@ -1,6 +1,108 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <type_traits>
+
+namespace
+{
+template <typename Int>
+using TestAccess = gint::detail::integer_test_access<Int::bits, typename Int::signed_tag>;
+
+template <typename Int>
+Int patterned_value(uint64_t salt)
+{
+    Int value = 0;
+    for (std::size_t i = 0; i < Int::limbs; ++i)
+    {
+        uint64_t limb = 0x9e3779b97f4a7c15ULL * static_cast<uint64_t>(i + 1);
+        limb ^= salt + (static_cast<uint64_t>(i) << 32);
+        limb ^= limb >> 29;
+        TestAccess<Int>::limb(value, i) = limb;
+    }
+    return value;
+}
+
+template <typename Int>
+Int reference_left_shift(const Int & input, std::size_t shift)
+{
+    Int result = 0;
+    if (shift >= Int::bits)
+        return result;
+
+    const std::size_t limb_shift = shift / 64;
+    const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+    for (std::size_t i = 0; i < Int::limbs; ++i)
+    {
+        typename Int::limb_type part = 0;
+        if (i >= limb_shift)
+        {
+            const std::size_t src = i - limb_shift;
+            part = TestAccess<Int>::limb(input, src);
+            if (bit_shift)
+            {
+                part <<= bit_shift;
+                if (src)
+                    part |= TestAccess<Int>::limb(input, src - 1) >> (64U - bit_shift);
+            }
+        }
+        TestAccess<Int>::limb(result, i) = part;
+    }
+    return result;
+}
+
+template <typename Int>
+Int reference_right_shift(const Int & input, std::size_t shift)
+{
+    const bool is_signed_t = std::is_same<typename Int::signed_tag, signed>::value;
+    const bool neg = is_signed_t && (TestAccess<Int>::limb(input, Int::limbs - 1) >> 63);
+    const typename Int::limb_type fill = neg ? ~typename Int::limb_type(0) : typename Int::limb_type(0);
+
+    Int result = 0;
+    if (shift >= Int::bits)
+    {
+        for (std::size_t i = 0; i < Int::limbs; ++i)
+            TestAccess<Int>::limb(result, i) = fill;
+        return result;
+    }
+
+    const std::size_t limb_shift = shift / 64;
+    const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+    for (std::size_t i = 0; i < Int::limbs; ++i)
+    {
+        const std::size_t src = i + limb_shift;
+        typename Int::limb_type part = fill;
+        if (src < Int::limbs)
+        {
+            part = TestAccess<Int>::limb(input, src);
+            if (bit_shift)
+            {
+                part >>= bit_shift;
+                if (src + 1 < Int::limbs)
+                    part |= TestAccess<Int>::limb(input, src + 1) << (64U - bit_shift);
+                else
+                    part |= fill << (64U - bit_shift);
+            }
+        }
+        TestAccess<Int>::limb(result, i) = part;
+    }
+    return result;
+}
+
+template <typename Int>
+void expect_shift_matches_reference(const Int & value)
+{
+    const std::size_t shifts[] = {1, 31, 63, 64, 65, 73, 127, 191, 255, 319, 511, Int::bits - 1, Int::bits};
+    for (std::size_t i = 0; i < sizeof(shifts) / sizeof(shifts[0]); ++i)
+    {
+        const int shift = static_cast<int>(shifts[i]);
+        EXPECT_EQ(value << shift, reference_left_shift(value, shifts[i])) << "left shift " << shift;
+        EXPECT_EQ(value >> shift, reference_right_shift(value, shifts[i])) << "right shift " << shift;
+    }
+}
+} // namespace
+
 TEST(WideIntegerShift, Basic)
 {
     gint::integer<128, unsigned> a = 1;
@@ -162,4 +264,19 @@ TEST(WideIntegerShift, EdgeCasesSigned512Negative)
     t >>= 600; // >= total_bits
     // Arithmetic shift of negative by >= width yields -1
     EXPECT_EQ(t, S512(-1));
+}
+
+TEST(WideIntegerShift, GenericWideUnsignedMatchesReference)
+{
+    expect_shift_matches_reference(patterned_value<gint::integer<128, unsigned>>(0x123456789abcdef0ULL));
+    expect_shift_matches_reference(patterned_value<gint::integer<512, unsigned>>(0x0fedcba987654321ULL));
+    expect_shift_matches_reference(patterned_value<gint::integer<1024, unsigned>>(0xa5a5a5a55a5a5a5aULL));
+}
+
+TEST(WideIntegerShift, GenericWideSignedRightShiftMatchesReference)
+{
+    using S512 = gint::integer<512, signed>;
+    S512 value = patterned_value<S512>(0x4242424242424242ULL);
+    TestAccess<S512>::limb(value, S512::limbs - 1) |= uint64_t(1) << 63;
+    expect_shift_matches_reference(value);
 }
