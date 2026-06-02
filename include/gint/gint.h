@@ -185,6 +185,18 @@
 #    define GINT_ENABLE_X86_64_HW_SMALL_DIVMOD GINT_ARCH_X86_64
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
 #if GINT_X86_64_GCC_TUNED_PATHS
 #    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
 #else
@@ -2238,6 +2250,10 @@ public:
         {
             lhs_neg = lhs.data_[limbs - 1] >> 63;
             rhs_neg = divisor.data_[limbs - 1] >> 63;
+#if GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+            if (lhs_neg && rhs_neg && negative_negative_div_quotient_is_zero(lhs, divisor))
+                return integer();
+#endif
             const limb_type min_magnitude = static_cast<limb_type>(1ULL << 63);
             // 快路径：仅当最高 limb 匹配补码最小值时再调用 is_min_value，避免普通负数走慢分支。
             if (lhs_neg)
@@ -3322,10 +3338,23 @@ private:
     }
 
     template <size_t L = limbs>
-    static GINT_FORCE_INLINE typename std::enable_if<(L < 16), bool>::type
+    static GINT_FORCE_INLINE typename std::enable_if<(L < 16 && L != 2), bool>::type
     positive_power_of_two_fastpath_divisor(const integer &, int &) noexcept
     {
         return false;
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
+    positive_power_of_two_fastpath_divisor(const integer & v, int & bit_index) noexcept
+    {
+#if GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+        return positive_power_of_two_value(v, bit_index);
+#else
+        (void)v;
+        (void)bit_index;
+        return false;
+#endif
     }
 
     static GINT_FORCE_INLINE integer div_by_positive_power_of_two(integer lhs, int pow_bit) noexcept
@@ -3341,6 +3370,32 @@ private:
             return result;
         }
         return lhs >> pow_bit;
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
+    negative_negative_div_quotient_is_zero(const integer & lhs, const integer & rhs) noexcept
+    {
+#if GINT_ARCH_AARCH64
+        // For two negative two's-complement values, larger raw bits mean smaller magnitude.
+        unsigned result;
+        __asm__("cmp %[lhs_hi], %[rhs_hi]\n"
+                "ccmp %[lhs_lo], %[rhs_lo], #0, eq\n"
+                "cset %w[result], hi"
+                : [result] "=r"(result)
+                : [lhs_hi] "r"(lhs.data_[1]), [rhs_hi] "r"(rhs.data_[1]), [lhs_lo] "r"(lhs.data_[0]), [rhs_lo] "r"(rhs.data_[0])
+                : "cc");
+        return result != 0;
+#else
+        return lhs.data_[1] > rhs.data_[1] || (lhs.data_[1] == rhs.data_[1] && lhs.data_[0] > rhs.data_[0]);
+#endif
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L != 2), bool>::type
+    negative_negative_div_quotient_is_zero(const integer &, const integer &) noexcept
+    {
+        return false;
     }
 
     static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
@@ -3523,11 +3578,33 @@ private:
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
+        integer result;
+        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
+            return result;
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+        if (rhs.data_[1] >= (limb_type(1) << 62))
+        {
+            limb_type rem_hi = lhs.data_[1];
+            limb_type rem_lo = lhs.data_[0];
+            limb_type q = 0;
+            for (limb_type i = 0; i < 3; ++i)
+            {
+                if (rem_hi < rhs.data_[1] || (rem_hi == rhs.data_[1] && rem_lo < rhs.data_[0]))
+                    break;
+                limb_type next_lo = rem_lo - rhs.data_[0];
+                limb_type borrow = rem_lo < rhs.data_[0];
+                rem_hi = rem_hi - rhs.data_[1] - borrow;
+                rem_lo = next_lo;
+                ++q;
+            }
+            result.data_[0] = q;
+            result.data_[1] = 0;
+            return result;
+        }
+#endif
+
         unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
         unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
-        integer result;
-        if (GINT_UNLIKELY(b == 0))
-            return result;
         unsigned __int128 q = a / b;
         result.data_[0] = static_cast<limb_type>(q);
         result.data_[1] = static_cast<limb_type>(q >> 64);
@@ -4318,4 +4395,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
 #undef GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
 #undef GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
+#undef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
