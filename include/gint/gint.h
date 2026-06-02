@@ -136,6 +136,11 @@
 #    define GINT_ENABLE_X86_64_SUB_INTRINSICS (GINT_ARCH_X86_64 && (GINT_GCC_TUNED_PATHS || GINT_CLANG_TUNED_PATHS))
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+#    define GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS \
+        (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS && __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll))
+#endif
+
 #ifndef GINT_ENABLE_MUL4_LOW128_FASTPATH
 #    define GINT_ENABLE_MUL4_LOW128_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
 #endif
@@ -360,6 +365,17 @@ GINT_FORCE_INLINE void add_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) n
         lhs[i] = static_cast<uint64_t>(r);
     }
     return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long carry_out;
+        const unsigned long long r
+            = __builtin_addcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), carry, &carry_out);
+        lhs[i] = static_cast<uint64_t>(r);
+        carry = carry_out;
+    }
+    return;
 #endif
     add_limbs_scalar<L>(lhs, rhs);
 }
@@ -467,6 +483,17 @@ GINT_FORCE_INLINE void sub_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) n
         lhs[i] = static_cast<uint64_t>(r);
     }
     return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long borrow_out;
+        const unsigned long long r
+            = __builtin_subcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), borrow, &borrow_out);
+        lhs[i] = static_cast<uint64_t>(r);
+        borrow = borrow_out;
+    }
+    return;
 #endif
     sub_limbs_scalar<L>(lhs, rhs);
 }
@@ -565,6 +592,17 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         unsigned long long r;
         carry = _addcarry_u64(carry, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
         dst[i] = static_cast<uint64_t>(r);
+    }
+    return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long carry_out;
+        const unsigned long long r
+            = __builtin_addcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), carry, &carry_out);
+        dst[i] = static_cast<uint64_t>(r);
+        carry = carry_out;
     }
     return;
 #endif
@@ -672,6 +710,17 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         unsigned long long r;
         borrow = _subborrow_u64(borrow, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
         dst[i] = static_cast<uint64_t>(r);
+    }
+    return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long borrow_out;
+        const unsigned long long r
+            = __builtin_subcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), borrow, &borrow_out);
+        dst[i] = static_cast<uint64_t>(r);
+        borrow = borrow_out;
     }
     return;
 #endif
@@ -4176,6 +4225,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_X86_64_GCC_TUNED_PATHS
 #undef GINT_NON_X86_GCC_TUNED_PATHS
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
+#undef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
 #undef GINT_ENABLE_X86_64_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_SUB_INTRINSICS
