@@ -3975,8 +3975,8 @@ private:
         if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
             return quotient;
 
-        std::array<limb_type, limbs + 1> u = {};
-        std::array<limb_type, limbs> v = {};
+        std::array<limb_type, limbs + 1> u;
+        std::array<limb_type, limbs> v;
 
         int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
         limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
