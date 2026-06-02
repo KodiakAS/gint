@@ -197,6 +197,10 @@
 #    define GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
 #if GINT_X86_64_GCC_TUNED_PATHS
 #    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
 #else
@@ -2239,6 +2243,10 @@ public:
 #elif GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
         if (limbs == 2)
         {
+            int positive_pow_bit;
+            if (positive_power_of_two_fastpath_divisor(rhs, positive_pow_bit))
+                return div_by_positive_power_of_two(lhs, positive_pow_bit);
+
             limb_type positive_limb_divisor;
             if (positive_single_limb_value(rhs, positive_limb_divisor))
             {
@@ -3414,6 +3422,11 @@ private:
         integer result;
         if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
         {
+#if GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+            if (GINT_UNLIKELY(divisor > 0xFFFFFFFFULL && (divisor & (divisor - 1)) != 0)
+                && div_signed_int128_by_positive_limb(lhs, divisor, result))
+                return result;
+#endif
             negate_for_division(lhs);
             lhs.div_mod_small(divisor, result);
             negate_for_division(result);
@@ -3422,6 +3435,25 @@ private:
 
         lhs.div_mod_small(divisor, result);
         return result;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
+    static GINT_FORCE_INLINE bool div_signed_int128_by_positive_limb(const integer & lhs, limb_type divisor, integer & result) noexcept
+    {
+        using u128 = unsigned __int128;
+        using s128 = __int128;
+        const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+        const s128 quotient = static_cast<s128>(lhs_raw) / static_cast<s128>(divisor);
+        const u128 quotient_raw = static_cast<u128>(quotient);
+        result.data_[0] = static_cast<limb_type>(quotient_raw);
+        result.data_[1] = static_cast<limb_type>(quotient_raw >> 64);
+        return true;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L != 2 || !std::is_same<Signed, signed>::value), int>::type = 0>
+    static GINT_FORCE_INLINE bool div_signed_int128_by_positive_limb(const integer &, limb_type, integer &) noexcept
+    {
+        return false;
     }
 
     static integer rem_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
@@ -4409,4 +4441,5 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
