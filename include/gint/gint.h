@@ -1269,6 +1269,17 @@ template <size_t L>
 GINT_NOINLINE bool
 mul_try_single_limb_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
+    if (GINT_UNLIKELY((lhs[L - 1] | rhs[L - 1]) == 0))
+    {
+        uint64_t high_or = 0;
+        for (size_t i = 1; i < L; ++i)
+            high_or |= lhs[i] | rhs[i];
+        if (high_or == 0)
+        {
+            mul_single_limb_product<L>(res, lhs[0], rhs[0]);
+            return true;
+        }
+    }
     if (limbs_zero_above<L>(rhs, 1))
     {
         if (limbs_zero_above<L>(lhs, 1))
