@@ -141,6 +141,10 @@
         (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS && __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll))
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+#    define GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
 #ifndef GINT_ENABLE_MUL4_LOW128_FASTPATH
 #    define GINT_ENABLE_MUL4_LOW128_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
 #endif
@@ -2906,6 +2910,16 @@ private:
             }
             return static_cast<limb_type>(data_[0] & (div - 1));
         }
+#if GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+        if (limbs == 2 && div > 0xFFFFFFFFULL)
+        {
+            const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
+            const u128 q = num / div;
+            quotient.data_[0] = static_cast<limb_type>(q);
+            quotient.data_[1] = static_cast<limb_type>(q >> 64);
+            return static_cast<limb_type>(num % div);
+        }
+#endif
 #if GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
 #    if GINT_CLANG_TUNED_PATHS
         if (div != 10000000000000000000ULL)
@@ -3072,6 +3086,14 @@ private:
 
         if ((div & (div - 1)) == 0)
             return static_cast<limb_type>(data_[0] & (div - 1));
+
+#if GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+        if (limbs == 2 && div > 0xFFFFFFFFULL)
+        {
+            const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
+            return static_cast<limb_type>(num % div);
+        }
+#endif
 
 #if GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
         {
@@ -4266,6 +4288,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_X86_64_GCC_TUNED_PATHS
 #undef GINT_NON_X86_GCC_TUNED_PATHS
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
+#undef GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
 #undef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
 #undef GINT_ENABLE_X86_64_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
