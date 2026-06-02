@@ -2380,7 +2380,7 @@ public:
     }
 
 #    if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
-    template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
+    template <size_t L = limbs, typename std::enable_if<(L >= 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
     {
         const size_t shift = static_cast<size_t>(n);
@@ -2395,7 +2395,7 @@ public:
     }
 
 #    if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
-    template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
+    template <size_t L = limbs, typename std::enable_if<(L >= 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
     {
         const size_t shift = static_cast<size_t>(n);
