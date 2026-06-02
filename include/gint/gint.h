@@ -189,6 +189,10 @@
 #    define GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_GCC_WIDE_RIGHT_SHIFT_UNSIGNED_FASTPATH
+#    define GINT_ENABLE_AARCH64_GCC_WIDE_RIGHT_SHIFT_UNSIGNED_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
+#endif
+
 #if GINT_X86_64_GCC_TUNED_PATHS
 #    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
 #else
@@ -1921,6 +1925,54 @@ private:
         return shift_left_value_by_size(value, static_cast<size_t>(n));
     }
 
+#endif
+
+#if GINT_ENABLE_AARCH64_GCC_WIDE_RIGHT_SHIFT_UNSIGNED_FASTPATH
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_value_by_size(const integer & value, size_t shift) noexcept
+    {
+        const bool is_signed_t = std::is_same<Signed, signed>::value;
+        const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
+        const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+        const size_t total_bits = limbs * 64;
+#    if __cplusplus >= 201402L
+        integer result;
+#    else
+        integer result(uninitialized_tag{});
+#    endif
+        if (shift >= total_bits)
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                result.data_[i] = fill;
+            return result;
+        }
+
+        const size_t limb_shift = shift / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        const size_t count = limbs - limb_shift;
+        if (bit_shift)
+        {
+            const unsigned inv_shift = 64U - bit_shift;
+            result.data_[0] = value.data_[limb_shift] >> bit_shift;
+            for (size_t i = 1; i < count; ++i)
+            {
+                const limb_type cur = value.data_[limb_shift + i];
+                result.data_[i - 1] |= cur << inv_shift;
+                result.data_[i] = cur >> bit_shift;
+            }
+            result.data_[count - 1] |= fill << inv_shift;
+        }
+        else
+        {
+            for (size_t i = 0; i < count; ++i)
+                result.data_[i] = value.data_[i + limb_shift];
+        }
+        for (size_t i = count; i < limbs; ++i)
+            result.data_[i] = fill;
+        return result;
+    }
+#endif
+
+#if !GINT_GCC_TUNED_PATHS
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_value(const integer & value, int n) noexcept
     {
         if (limbs == 4)
@@ -2209,6 +2261,15 @@ public:
         lhs >>= n;
         return lhs;
     }
+
+#    if GINT_ENABLE_AARCH64_GCC_WIDE_RIGHT_SHIFT_UNSIGNED_FASTPATH
+    template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        const size_t shift = static_cast<size_t>(n);
+        return shift_right_value_by_size(lhs, shift);
+    }
+#    endif
 #else
     template <size_t L = limbs, typename std::enable_if<(L <= 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(integer lhs, int n) noexcept
