@@ -57,3 +57,13 @@ TEST(GccTunedFastpaths, UInt256FullWidthModulo)
         EXPECT_EQ(lhs % c.divisor, c.remainder);
     }
 }
+
+TEST(GccTunedFastpaths, UInt256FullWidthModuloAddBackBorrow)
+{
+    const U256 divisor = make_u256(0x000094db6cdc2e34ULL, 0xb91396c790d85d37ULL, 0xeb85403c7e8db475ULL, 0xd9621895e98f559dULL);
+    const U256 lhs = divisor - U256(0x40be4b66aaea7d9cULL);
+
+    EXPECT_LT(lhs, divisor);
+    EXPECT_EQ(lhs / divisor, U256(0));
+    EXPECT_EQ(lhs % divisor, lhs);
+}

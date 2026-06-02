@@ -3345,7 +3345,9 @@ private:
             carry = t >> 64;
             t = static_cast<u128>(u3) + v3 + carry;
             u3 = static_cast<limb_type>(t);
-            u4 = static_cast<limb_type>(static_cast<u128>(u4) + (t >> 64));
+            carry = t >> 64;
+            // The subtract phase has not yet applied this borrow to u4.
+            u4 = static_cast<limb_type>(static_cast<u128>(u4) + carry - borrow);
         }
         else
         {
