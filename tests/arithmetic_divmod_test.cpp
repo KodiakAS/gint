@@ -166,6 +166,17 @@ TEST(WideIntegerDivision, SignedMinDividedByItself)
     EXPECT_EQ(min % min, S128(0));
 }
 
+TEST(WideIntegerDivision, SignedNegative128OverLargerNegativeIsZero)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min = std::numeric_limits<S128>::min();
+    const S128 lhs = min + S128(12345);
+    const S128 rhs = min + S128(7);
+
+    EXPECT_EQ(lhs / rhs, S128(0));
+    EXPECT_EQ(lhs % rhs, lhs);
+}
+
 TEST(WideIntegerDivision, SignedSmallDivisorInt64Min)
 {
     using S256 = gint::integer<256, signed>;
@@ -609,6 +620,19 @@ TEST(WideIntegerDivision, Div128SingleLimbPath)
 
     U64 z = 0;
     EXPECT_EQ(TestAccess<U64>::div_128(a, z), U64(0));
+}
+
+TEST(WideIntegerDivision, Div128LargeDivisorSmallQuotient)
+{
+    using U128 = gint::integer<128, unsigned>;
+    const U128 divisor = (U128(1) << 126) + U128(7);
+
+    EXPECT_EQ(TestAccess<U128>::div_128(divisor - U128(1), divisor), U128(0));
+    for (uint64_t expected = 1; expected <= 3; ++expected)
+    {
+        const U128 lhs = divisor * U128(expected) + U128(11);
+        EXPECT_EQ(TestAccess<U128>::div_128(lhs, divisor), U128(expected));
+    }
 }
 
 TEST(WideIntegerDivision, DivLargeBreak)
