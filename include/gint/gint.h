@@ -2820,6 +2820,16 @@ public:
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
             return div_by_positive_limb(lhs, positive_limb_divisor);
         }
+#elif GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
+        if (limbs == 2)
+        {
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+            {
+                GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+                return div_by_positive_limb(lhs, positive_limb_divisor);
+            }
+        }
 #endif
 
         int positive_pow_bit;
