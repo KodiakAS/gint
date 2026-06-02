@@ -1777,27 +1777,24 @@ private:
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), integer>::type
     shift_right_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
     {
-        if (GINT_UNLIKELY(n == 0))
-            return lhs;
-
-        if (GINT_UNLIKELY(n >= 128))
+        if (GINT_LIKELY(n < 128U))
         {
-            const bool neg = (lhs.data_[1] >> 63) != 0;
-            const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+            using s128 = __int128;
+            using u128 = unsigned __int128;
+            const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+            const s128 shifted = static_cast<s128>(raw) >> n;
+            const u128 shifted_raw = static_cast<u128>(shifted);
             integer result(uninitialized_tag{});
-            result.data_[0] = fill;
-            result.data_[1] = fill;
+            result.data_[0] = static_cast<limb_type>(shifted_raw);
+            result.data_[1] = static_cast<limb_type>(shifted_raw >> 64);
             return result;
         }
 
-        using s128 = __int128;
-        using u128 = unsigned __int128;
-        const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
-        const s128 shifted = static_cast<s128>(raw) >> n;
-        const u128 shifted_raw = static_cast<u128>(shifted);
+        const bool neg = (lhs.data_[1] >> 63) != 0;
+        const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
         integer result(uninitialized_tag{});
-        result.data_[0] = static_cast<limb_type>(shifted_raw);
-        result.data_[1] = static_cast<limb_type>(shifted_raw >> 64);
+        result.data_[0] = fill;
+        result.data_[1] = fill;
         return result;
     }
 
