@@ -2057,10 +2057,183 @@ private:
         return integer();
     }
 
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 typename std::enable_if<(L == 8), integer>::type
+    shift_right_value_by_size_fixed8(const integer & value, size_t shift) noexcept
+    {
+        const bool is_signed_t = std::is_same<Signed, signed>::value;
+        const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
+        const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+        const size_t total_bits = limbs * 64;
+        if (shift >= total_bits)
+        {
+#    if __cplusplus >= 201402L
+            integer result;
+#    else
+            integer result(uninitialized_tag{});
+#    endif
+            for (size_t i = 0; i < limbs; ++i)
+                result.data_[i] = fill;
+            return result;
+        }
+
+        const size_t limb_shift = shift / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+#    if __cplusplus >= 201402L
+        integer result;
+#    else
+        integer result(uninitialized_tag{});
+#    endif
+        const limb_type src0 = value.data_[0];
+        const limb_type src1 = value.data_[1];
+        const limb_type src2 = value.data_[2];
+        const limb_type src3 = value.data_[3];
+        const limb_type src4 = value.data_[4];
+        const limb_type src5 = value.data_[5];
+        const limb_type src6 = value.data_[6];
+        const limb_type src7 = value.data_[7];
+        limb_type out0 = fill;
+        limb_type out1 = fill;
+        limb_type out2 = fill;
+        limb_type out3 = fill;
+        limb_type out4 = fill;
+        limb_type out5 = fill;
+        limb_type out6 = fill;
+        limb_type out7 = fill;
+
+        if (bit_shift)
+        {
+            const unsigned inv_shift = 64U - bit_shift;
+            switch (limb_shift)
+            {
+                case 0:
+                    out0 = (src0 >> bit_shift) | (src1 << inv_shift);
+                    out1 = (src1 >> bit_shift) | (src2 << inv_shift);
+                    out2 = (src2 >> bit_shift) | (src3 << inv_shift);
+                    out3 = (src3 >> bit_shift) | (src4 << inv_shift);
+                    out4 = (src4 >> bit_shift) | (src5 << inv_shift);
+                    out5 = (src5 >> bit_shift) | (src6 << inv_shift);
+                    out6 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out7 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                case 1:
+                    out0 = (src1 >> bit_shift) | (src2 << inv_shift);
+                    out1 = (src2 >> bit_shift) | (src3 << inv_shift);
+                    out2 = (src3 >> bit_shift) | (src4 << inv_shift);
+                    out3 = (src4 >> bit_shift) | (src5 << inv_shift);
+                    out4 = (src5 >> bit_shift) | (src6 << inv_shift);
+                    out5 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out6 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                case 2:
+                    out0 = (src2 >> bit_shift) | (src3 << inv_shift);
+                    out1 = (src3 >> bit_shift) | (src4 << inv_shift);
+                    out2 = (src4 >> bit_shift) | (src5 << inv_shift);
+                    out3 = (src5 >> bit_shift) | (src6 << inv_shift);
+                    out4 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out5 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                case 3:
+                    out0 = (src3 >> bit_shift) | (src4 << inv_shift);
+                    out1 = (src4 >> bit_shift) | (src5 << inv_shift);
+                    out2 = (src5 >> bit_shift) | (src6 << inv_shift);
+                    out3 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out4 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                case 4:
+                    out0 = (src4 >> bit_shift) | (src5 << inv_shift);
+                    out1 = (src5 >> bit_shift) | (src6 << inv_shift);
+                    out2 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out3 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                case 5:
+                    out0 = (src5 >> bit_shift) | (src6 << inv_shift);
+                    out1 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out2 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                case 6:
+                    out0 = (src6 >> bit_shift) | (src7 << inv_shift);
+                    out1 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+                default:
+                    out0 = (src7 >> bit_shift) | (fill << inv_shift);
+                    break;
+            }
+        }
+        else
+        {
+            switch (limb_shift)
+            {
+                case 0:
+                    return value;
+                case 1:
+                    out0 = src1;
+                    out1 = src2;
+                    out2 = src3;
+                    out3 = src4;
+                    out4 = src5;
+                    out5 = src6;
+                    out6 = src7;
+                    break;
+                case 2:
+                    out0 = src2;
+                    out1 = src3;
+                    out2 = src4;
+                    out3 = src5;
+                    out4 = src6;
+                    out5 = src7;
+                    break;
+                case 3:
+                    out0 = src3;
+                    out1 = src4;
+                    out2 = src5;
+                    out3 = src6;
+                    out4 = src7;
+                    break;
+                case 4:
+                    out0 = src4;
+                    out1 = src5;
+                    out2 = src6;
+                    out3 = src7;
+                    break;
+                case 5:
+                    out0 = src5;
+                    out1 = src6;
+                    out2 = src7;
+                    break;
+                case 6:
+                    out0 = src6;
+                    out1 = src7;
+                    break;
+                default:
+                    out0 = src7;
+                    break;
+            }
+        }
+        result.data_[0] = out0;
+        result.data_[1] = out1;
+        result.data_[2] = out2;
+        result.data_[3] = out3;
+        result.data_[4] = out4;
+        result.data_[5] = out5;
+        result.data_[6] = out6;
+        result.data_[7] = out7;
+        return result;
+    }
+
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 typename std::enable_if<(L != 8), integer>::type
+    shift_right_value_by_size_fixed8(const integer &, size_t) noexcept
+    {
+        return integer();
+    }
+
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_value_by_size(const integer & value, size_t shift) noexcept
     {
         if (limbs == 16)
             return shift_right_value_by_size_fixed16(value, shift);
+        if (limbs == 8)
+            return shift_right_value_by_size_fixed8(value, shift);
 
         const bool is_signed_t = std::is_same<Signed, signed>::value;
         const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
