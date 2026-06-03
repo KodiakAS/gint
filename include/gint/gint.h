@@ -186,7 +186,7 @@
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
-#    define GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH (GINT_ARCH_AARCH64 && (GINT_GCC_TUNED_PATHS || GINT_CLANG_TUNED_PATHS))
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
@@ -3812,7 +3812,11 @@ private:
 
         integer quotient;
         if (limbs == 2)
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH && GINT_GCC_TUNED_PATHS
+            quotient = div_128_native(lhs, divisor);
+#else
             quotient = div_128(lhs, divisor);
+#endif
         else if (divisor_limbs == 2)
             quotient = div_large_2(lhs, divisor);
         else if (divisor_limbs == 3)
@@ -3925,6 +3929,15 @@ private:
         }
 #endif
 
+        return div_128_native(lhs, rhs);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
+    {
+        integer result;
+        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
+            return result;
         unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
         unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
         unsigned __int128 q = a / b;
@@ -3935,6 +3948,12 @@ private:
 
     template <size_t L = limbs>
     static typename std::enable_if<(L < 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
+    {
+        return div_128_native(lhs, rhs);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
         if (GINT_UNLIKELY(rhs.data_[0] == 0))
