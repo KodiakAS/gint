@@ -195,6 +195,10 @@
 #    endif
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH
+#    define GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
+#endif
+
 #if GINT_X86_64_GCC_TUNED_PATHS
 #    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
 #else
@@ -1808,6 +1812,103 @@ private:
         return result;
     }
 
+#if GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 4), integer>::type
+    shift_right_value4_by_size(const integer & value, size_t shift) noexcept
+    {
+        if (shift == 0)
+            return value;
+
+        const bool is_signed_t = std::is_same<Signed, signed>::value;
+        const bool neg = is_signed_t && (value.data_[3] >> 63);
+        const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+        if (shift >= 256)
+        {
+            integer result(uninitialized_tag{});
+            result.data_[0] = fill;
+            result.data_[1] = fill;
+            result.data_[2] = fill;
+            result.data_[3] = fill;
+            return result;
+        }
+
+        const size_t limb_shift = shift / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        const uint64_t src0 = static_cast<uint64_t>(value.data_[0]);
+        const uint64_t src1 = static_cast<uint64_t>(value.data_[1]);
+        const uint64_t src2 = static_cast<uint64_t>(value.data_[2]);
+        const uint64_t src3 = static_cast<uint64_t>(value.data_[3]);
+        const uint64_t fill_word = static_cast<uint64_t>(fill);
+        uint64_t out0 = 0;
+        uint64_t out1 = 0;
+        uint64_t out2 = 0;
+        uint64_t out3 = 0;
+        if (bit_shift)
+        {
+            const unsigned inv_shift = 64U - bit_shift;
+            switch (limb_shift)
+            {
+                case 0:
+                    out0 = (src0 >> bit_shift) | (src1 << inv_shift);
+                    out1 = (src1 >> bit_shift) | (src2 << inv_shift);
+                    out2 = (src2 >> bit_shift) | (src3 << inv_shift);
+                    out3 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                    break;
+                case 1:
+                    out0 = (src1 >> bit_shift) | (src2 << inv_shift);
+                    out1 = (src2 >> bit_shift) | (src3 << inv_shift);
+                    out2 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                    out3 = fill_word;
+                    break;
+                case 2:
+                    out0 = (src2 >> bit_shift) | (src3 << inv_shift);
+                    out1 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                    out2 = fill_word;
+                    out3 = fill_word;
+                    break;
+                default:
+                    out0 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                    out1 = fill_word;
+                    out2 = fill_word;
+                    out3 = fill_word;
+                    break;
+            }
+        }
+        else
+        {
+            switch (limb_shift)
+            {
+                case 1:
+                    out0 = src1;
+                    out1 = src2;
+                    out2 = src3;
+                    out3 = fill_word;
+                    break;
+                case 2:
+                    out0 = src2;
+                    out1 = src3;
+                    out2 = fill_word;
+                    out3 = fill_word;
+                    break;
+                default:
+                    out0 = src3;
+                    out1 = fill_word;
+                    out2 = fill_word;
+                    out3 = fill_word;
+                    break;
+            }
+        }
+
+        integer result(uninitialized_tag{});
+        result.data_[0] = static_cast<limb_type>(out0);
+        result.data_[1] = static_cast<limb_type>(out1);
+        result.data_[2] = static_cast<limb_type>(out2);
+        result.data_[3] = static_cast<limb_type>(out3);
+        return result;
+    }
+#endif
+
     GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE integer & shift_left_assign_wide(size_t limb_shift, unsigned bit_shift) noexcept
     {
         if (bit_shift)
@@ -2544,6 +2645,14 @@ public:
     {
         const size_t shift = static_cast<size_t>(n);
         return shift_right_value_by_size(lhs, shift);
+    }
+#    endif
+
+#    if GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH
+    template <size_t L = limbs, typename std::enable_if<(L == 4), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_value4_by_size(lhs, static_cast<size_t>(n));
     }
 #    endif
 #else
@@ -4849,4 +4958,5 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
+#undef GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
