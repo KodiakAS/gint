@@ -1039,13 +1039,15 @@ TEST(WideIntegerDivision, MinValueUnsignedPathSignCorrection)
 
     S256 q = min / divisor;
     S256 r = min % divisor;
-    EXPECT_TRUE(static_cast<int64_t>(TestAccess<S256>::limb(q, S256::limbs - 1) >> 63)); // quotient should be negative
+    const bool q_negative = static_cast<int64_t>(TestAccess<S256>::limb(q, S256::limbs - 1) >> 63) != 0;
+    EXPECT_TRUE(q_negative);
     EXPECT_EQ(q * divisor + r, min);
 
     S256 neg_divisor = -divisor;
     S256 q2 = min / neg_divisor;
     S256 r2 = min % neg_divisor;
-    EXPECT_FALSE(static_cast<int64_t>(TestAccess<S256>::limb(q2, S256::limbs - 1) >> 63)); // quotient should be non-negative
+    const bool q2_negative = static_cast<int64_t>(TestAccess<S256>::limb(q2, S256::limbs - 1) >> 63) != 0;
+    EXPECT_FALSE(q2_negative);
     EXPECT_EQ(q2 * neg_divisor + r2, min);
 }
 

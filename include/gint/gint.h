@@ -4020,7 +4020,7 @@ private:
     static integer rem_unsigned_magnitude_with_large_direct(const integer & lhs, const integer & divisor) noexcept
     {
 #if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
-        if (limbs > 4 && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
+        if (limbs >= 4 && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
         {
             const size_t divisor_limbs = used_limbs(divisor);
             int pow_bit;
@@ -4259,10 +4259,38 @@ private:
         return carry != 0 || borrow != 0;
     }
 
+    static bool rem_sub_mul_limb_full_width(integer & lhs, const integer & divisor, limb_type q) noexcept
+    {
+        unsigned __int128 carry = 0;
+        limb_type borrow = 0;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
+            carry = p >> 64;
+
+            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
+            limb_type next_borrow = static_cast<unsigned __int128>(lhs.data_[i]) < subtrahend;
+            lhs.data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs.data_[i]) - subtrahend);
+            borrow = next_borrow;
+        }
+        return carry != 0 || borrow != 0;
+    }
+
     static void rem_add_divisor(integer & lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         unsigned __int128 carry = 0;
         for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
+            lhs.data_[i] = static_cast<limb_type>(sum);
+            carry = sum >> 64;
+        }
+    }
+
+    static void rem_add_divisor_full_width(integer & lhs, const integer & divisor) noexcept
+    {
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < limbs; ++i)
         {
             unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
             lhs.data_[i] = static_cast<limb_type>(sum);
@@ -4276,8 +4304,15 @@ private:
             return lhs;
 
         const limb_type q = rem_estimate_single_limb_quotient(lhs, divisor, div_limbs);
-        if (rem_sub_mul_limb(lhs, divisor, div_limbs, q))
+        if (div_limbs == limbs)
+        {
+            if (rem_sub_mul_limb_full_width(lhs, divisor, q))
+                rem_add_divisor_full_width(lhs, divisor);
+        }
+        else if (rem_sub_mul_limb(lhs, divisor, div_limbs, q))
+        {
             rem_add_divisor(lhs, divisor, div_limbs);
+        }
         return lhs;
     }
 #endif
