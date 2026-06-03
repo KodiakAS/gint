@@ -202,6 +202,24 @@ TEST(WideIntegerShift, ExactBoundaryBitCounts)
     EXPECT_EQ(minus_one >> 128, S128(-1));
 }
 
+TEST(WideIntegerShift, UInt128UnsignedShiftAmountMatchesReference)
+{
+    using U128 = gint::integer<128, unsigned>;
+    using S128 = gint::integer<128, signed>;
+
+    U128 unsigned_value = patterned_value<U128>(0xbadc0ffee0ddf00dULL);
+    S128 signed_value = patterned_value<S128>(0x13579bdf2468ace0ULL);
+    TestAccess<S128>::limb(signed_value, S128::limbs - 1) |= uint64_t(1) << 63;
+
+    const unsigned shifts[] = {0, 1, 63, 64, 65, 73, 127, 128, 192};
+    for (std::size_t i = 0; i < sizeof(shifts) / sizeof(shifts[0]); ++i)
+    {
+        const unsigned shift = shifts[i];
+        EXPECT_EQ(unsigned_value << shift, reference_left_shift(unsigned_value, shift)) << "unsigned left shift " << shift;
+        EXPECT_EQ(signed_value << shift, reference_left_shift(signed_value, shift)) << "signed left shift " << shift;
+    }
+}
+
 TEST(WideIntegerShift, UInt256ExactWholeLimbRightShifts)
 {
     using U256 = gint::integer<256, unsigned>;
