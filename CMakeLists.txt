@@ -181,28 +181,26 @@ if(GINT_BUILD_BENCHMARKS)
         endif()
     endif()
 
-    add_executable(perf_benchmark_int256
-        bench/benchmark_int256.cpp
-    )
-    set_target_properties(perf_benchmark_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_include_directories(perf_benchmark_int256 PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-    )
-    target_compile_definitions(perf_benchmark_int256 PRIVATE GINT_ENABLE_FMT)
-    target_link_libraries(perf_benchmark_int256 PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_benchmark_int256 PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
+    function(add_gint_bench_target target bits compare)
+        add_executable(${target}
+            bench/benchmark_int256.cpp
+        )
+        set_target_properties(${target} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        target_include_directories(${target} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+        )
+        target_compile_definitions(${target} PRIVATE GINT_ENABLE_FMT GINT_BENCH_BITS=${bits})
+        if(compare)
+            target_compile_definitions(${target} PRIVATE GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
+        endif()
+        target_link_libraries(${target} PRIVATE fmt::fmt benchmark::benchmark)
+        target_compile_options(${target} PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
+    endfunction()
 
-    add_executable(perf_compare_int256
-        bench/benchmark_int256.cpp
-    )
-    set_target_properties(perf_compare_int256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_include_directories(perf_compare_int256 PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
-    )
-    target_compile_definitions(perf_compare_int256 PRIVATE GINT_ENABLE_FMT GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
-    target_link_libraries(perf_compare_int256 PRIVATE fmt::fmt benchmark::benchmark)
-    target_compile_options(perf_compare_int256 PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
+    foreach(bits IN ITEMS 128 256 512 1024)
+        add_gint_bench_target(perf_benchmark_int${bits} ${bits} OFF)
+        add_gint_bench_target(perf_compare_int${bits} ${bits} ON)
+    endforeach()
 
 endif()

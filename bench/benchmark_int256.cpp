@@ -14,12 +14,22 @@
 
 #include <gint/gint.h>
 
-using WInt = gint::integer<256, signed>;
+#ifndef GINT_BENCH_BITS
+#    define GINT_BENCH_BITS 256
+#endif
+
+constexpr size_t kBenchBits = GINT_BENCH_BITS;
+static_assert(kBenchBits % 64 == 0, "benchmark widths must be limb-aligned");
+static_assert(kBenchBits >= 128, "benchmark widths must be at least 128 bits");
+
+using WInt = gint::integer<kBenchBits, signed>;
 #ifdef GINT_ENABLE_CH_COMPARE
-using CInt = wide::integer<256, signed>;
+using CInt = wide::integer<kBenchBits, signed>;
 #endif
 #ifdef GINT_ENABLE_BOOST_COMPARE
-using BInt = boost::multiprecision::int256_t;
+using BInt = boost::multiprecision::number<
+    boost::multiprecision::
+        cpp_int_backend<kBenchBits, kBenchBits, boost::multiprecision::signed_magnitude, boost::multiprecision::unchecked, void>>;
 #endif
 
 inline std::string to_string_convert(const WInt & x)
@@ -44,26 +54,36 @@ namespace
 
 constexpr size_t kDataN = 256; // small deterministic dataset per case
 constexpr uint64_t kSeedBase = 0x9E3779B97F4A7C15ull;
+constexpr size_t kBenchLimbs = kBenchBits / 64;
 
 template <typename Int>
-inline Int assemble_u256(uint64_t w0, uint64_t w1, uint64_t w2, uint64_t w3)
+inline Int assemble_words(const std::array<uint64_t, kBenchLimbs> & words)
 {
     Int x = Int{0};
-    x |= Int{w0};
-    x |= (Int{w1} << 64);
-    x |= (Int{w2} << 128);
-    x |= (Int{w3} << 192);
+    for (size_t i = 0; i < kBenchLimbs; ++i)
+        x |= (Int{words[i]} << static_cast<int>(i * 64));
     return x;
 }
 
 template <typename Int>
-inline Int random_u256_clear_msb(std::mt19937_64 & rng)
+inline Int random_wide(std::mt19937_64 & rng, bool clear_top_bit = false)
 {
-    uint64_t w0 = rng();
-    uint64_t w1 = rng();
-    uint64_t w2 = rng();
-    uint64_t w3 = rng() & 0x7FFF'FFFF'FFFF'FFFFull; // mask out the top bit to keep the value in a tighter range
-    return assemble_u256<Int>(w0, w1, w2, w3);
+    std::array<uint64_t, kBenchLimbs> words{};
+    for (size_t i = 0; i < kBenchLimbs; ++i)
+        words[i] = rng();
+    if (clear_top_bit)
+        words[kBenchLimbs - 1] &= 0x7FFF'FFFF'FFFF'FFFFull;
+    return assemble_words<Int>(words);
+}
+
+template <typename Int>
+inline Int random_wide_with_low_limb(std::mt19937_64 & rng, uint64_t low_limb)
+{
+    std::array<uint64_t, kBenchLimbs> words{};
+    words[0] = low_limb;
+    for (size_t i = 1; i < kBenchLimbs; ++i)
+        words[i] = rng();
+    return assemble_words<Int>(words);
 }
 
 } // namespace
@@ -78,12 +98,8 @@ static void Add_NoCarry(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xA55A'AA55'1234'5678ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            // a: random 256-bit; b: small 32-bit, avoids multi-limb carry in most cases
-            uint64_t w0 = rng();
-            uint64_t w1 = rng();
-            uint64_t w2 = rng();
-            uint64_t w3 = rng();
-            Int a = assemble_u256<Int>(w0, w1, w2, w3);
+            // a: random wide value; b: small 32-bit, avoids multi-limb carry in most cases
+            Int a = random_wide<Int>(rng);
             Int b = Int{uint32_t(rng())};
             d[i] = {a, b};
         }
@@ -101,7 +117,7 @@ static void Add_NoCarry(benchmark::State & state)
 }
 
 // -------- Mixed-operand: wide * u64 (compare) --------
-// Use fully random 256-bit 'a' to avoid accidentally benchmarking a degenerate one-limb case.
+// Use fully random wide 'a' to avoid accidentally benchmarking a degenerate one-limb case.
 template <typename Int>
 static void Mul_WideTimesU64(benchmark::State & state)
 {
@@ -111,8 +127,7 @@ static void Mul_WideTimesU64(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0x13579BDF'2468'ACE0ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            // assemble fully random 256-bit value
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             uint64_t b = rng();
             d[i] = {a, b};
         }
@@ -159,7 +174,7 @@ static void Sub_NoBorrow(benchmark::State & state)
         for (size_t i = 0; i < kDataN; ++i)
         {
             // a has low 32 bits set high (1<<31); b fits in 31 bits => no cross-limb borrow
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             a |= (Int{1} << 31);
             Int b = Int{uint32_t(rng() & 0x7FFF'FFFFu)};
             d[i] = {a, b};
@@ -230,8 +245,8 @@ static void Mul_HighxHigh(benchmark::State & state)
         for (size_t i = 0; i < kDataN; ++i)
         {
             // Set high words to trigger multi-limb schoolbook paths
-            Int a = (Int{1} << 200) | assemble_u256<Int>(rng(), rng(), rng(), 0);
-            Int b = (Int{1} << 180) | assemble_u256<Int>(rng(), rng(), rng(), 0);
+            Int a = (Int{1} << static_cast<int>(kBenchBits - 56)) | random_wide<Int>(rng);
+            Int b = (Int{1} << static_cast<int>(kBenchBits - 76)) | random_wide<Int>(rng);
             d[i] = {a, b};
         }
         return d;
@@ -257,7 +272,7 @@ static void Div_SmallDivisor32(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0x1234'5678'9ABC'DEF0ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             uint32_t dv = static_cast<uint32_t>((rng() | 1ull) & 0xFFFF'FFFFu); // ensure non-zero
             Int b = Int{dv};
             d[i] = {a, b};
@@ -285,7 +300,7 @@ static void Div_SmallDivisor64(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xA1B2'C3D4'E5F6'1234ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             uint64_t dv = (rng() | (1ull << 33)); // ensure > 2^33 and non-zero
             if ((dv & 0xFFFFFFFFULL) == dv)
                 dv |= (1ull << 40); // force out of 32-bit range
@@ -312,10 +327,10 @@ static void Div_Pow2Divisor(benchmark::State & state)
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0xF00F'F00F'00F0'0F00ull);
-        std::uniform_int_distribution<int> dist_k(1, 200);
+        std::uniform_int_distribution<int> dist_k(1, static_cast<int>(kBenchBits - 56));
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             int k = dist_k(rng);
             Int b = (Int{1} << k);
             d[i] = {a, b};
@@ -340,10 +355,10 @@ static void Div_SimilarMagnitude(benchmark::State & state)
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x0BAD'CAFE'FEED'FACEull);
-        std::uniform_int_distribution<int> dist_shift(180, 220);
+        std::uniform_int_distribution<int> dist_shift(static_cast<int>(kBenchBits - 76), static_cast<int>(kBenchBits - 36));
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = (Int{1} << 255) - Int{uint32_t(rng())};
+            Int a = (Int{1} << static_cast<int>(kBenchBits - 1)) - Int{uint32_t(rng())};
             int s = dist_shift(rng);
             Int b = (Int{1} << s) + Int{uint32_t(rng())};
             d[i] = {a, b};
@@ -372,8 +387,8 @@ static void ToString(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xABCDEF123456ULL);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            // Generate numbers of different magnitudes (128-255 bits)
-            int shift = 128 + static_cast<int>(rng() % 128);
+            // Generate numbers of different magnitudes across the upper half of the configured width.
+            int shift = static_cast<int>(kBenchBits / 2 + (rng() % (kBenchBits / 2)));
             d[i] = (Int{1} << shift) + Int{rng()};
         }
         return d;
@@ -398,8 +413,8 @@ static void Bitwise_And(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xC0FFEE1234567890ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
-            Int b = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
+            Int b = random_wide<Int>(rng);
             d[i] = {a, b};
         }
         return d;
@@ -422,8 +437,8 @@ static void Bitwise_Xor(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xBAD5EEDBADC0FFEEull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
-            Int b = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
+            Int b = random_wide<Int>(rng);
             d[i] = {a, b};
         }
         return d;
@@ -445,10 +460,10 @@ static void Shift_LeftVariable(benchmark::State & state)
     {
         std::array<std::pair<Int, unsigned>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x12345678ABCDEF01ull);
-        std::uniform_int_distribution<unsigned> dist(1, 255);
+        std::uniform_int_distribution<unsigned> dist(1, static_cast<unsigned>(kBenchBits - 1));
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             unsigned shift = dist(rng);
             d[i] = {a, shift};
         }
@@ -470,10 +485,10 @@ static void Shift_RightVariable(benchmark::State & state)
     {
         std::array<std::pair<Int, unsigned>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x0FEDCBA987654321ull);
-        std::uniform_int_distribution<unsigned> dist(1, 255);
+        std::uniform_int_distribution<unsigned> dist(1, static_cast<unsigned>(kBenchBits - 1));
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             unsigned shift = dist(rng);
             d[i] = {a, shift};
         }
@@ -498,7 +513,7 @@ static void Mod_SmallDivisor64(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0x55AA3311CCDD8899ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = random_u256_clear_msb<Int>(rng);
+            Int a = random_wide<Int>(rng, true);
             uint64_t dv = rng() | (1ull << 32);
             dv |= 1ull; // keep it odd to avoid repeated powers of two
             Int b = Int{dv};
@@ -522,10 +537,10 @@ static void Mod_SimilarMagnitude(benchmark::State & state)
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x0F1E2D3C4B5A6978ull);
-        std::uniform_int_distribution<int> dist_shift(180, 220);
+        std::uniform_int_distribution<int> dist_shift(static_cast<int>(kBenchBits - 76), static_cast<int>(kBenchBits - 36));
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = (Int{1} << 255) - Int{uint32_t(rng())};
+            Int a = (Int{1} << static_cast<int>(kBenchBits - 1)) - Int{uint32_t(rng())};
             int s = dist_shift(rng);
             Int b = (Int{1} << s) + Int{uint32_t(rng())};
             if (b == Int{0})
@@ -595,7 +610,7 @@ static void Add_CarryChain64(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xCC55'DDAA'9988'7766ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(~0ULL, rng(), rng(), rng()); // low limb all 1s
+            Int a = random_wide_with_low_limb<Int>(rng, ~0ULL); // low limb all 1s
             Int b = Int{1};
             d[i] = {a, b};
         }
@@ -620,7 +635,7 @@ static void Sub_BorrowChain64(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0x1122'3344'5566'7788ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(0, rng(), rng(), rng()); // low limb zero
+            Int a = random_wide_with_low_limb<Int>(rng, 0); // low limb zero
             Int b = Int{1};
             d[i] = {a, b};
         }
@@ -645,7 +660,7 @@ static void Mul_U32xWide(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0x55AA'AA55'55AA'AA55ull);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = assemble_u256<Int>(rng(), rng(), rng(), rng());
+            Int a = random_wide<Int>(rng);
             Int b = Int{static_cast<uint32_t>(rng())};
             d[i] = {a, b};
         }
@@ -672,7 +687,7 @@ static void Div_LargeDivisor128(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xD128ABCDEF01ULL);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = (Int{1} << 255) + Int{rng()};
+            Int a = (Int{1} << static_cast<int>(kBenchBits - 1)) + Int{rng()};
             Int b = (Int{1} << 127) + Int{rng() % 1000000};
             d[i] = {a, b};
         }
@@ -699,8 +714,8 @@ static void Div_SimilarMagnitude2(benchmark::State & state)
         std::mt19937_64 rng(kSeedBase ^ 0xFEDCBA987654ULL);
         for (size_t i = 0; i < kDataN; ++i)
         {
-            Int a = (Int{1} << 255) - Int{rng() % 10000000};
-            int s = 191 + static_cast<int>(rng() % 30); // 191-220
+            Int a = (Int{1} << static_cast<int>(kBenchBits - 1)) - Int{rng() % 10000000};
+            int s = static_cast<int>(kBenchBits - 65 + (rng() % 30));
             Int b = (Int{1} << s) + Int{rng() % 1000000000};
             d[i] = {a, b};
         }
