@@ -5,6 +5,7 @@ namespace
 {
 
 using U256 = gint::integer<256, unsigned>;
+using U512 = gint::integer<512, unsigned>;
 
 U256 make_u256(uint64_t w3, uint64_t w2, uint64_t w1, uint64_t w0)
 {
@@ -36,4 +37,20 @@ TEST(GccTunedFastpaths, UInt256FullWidthModulo)
 
     EXPECT_EQ(lhs / divisor, U256(9));
     EXPECT_EQ(lhs % divisor, remainder);
+}
+
+TEST(GccTunedFastpaths, UInt512SingleLimbQuotientDivision)
+{
+    const U512 lhs = (U512(1) << 511) - U512(17);
+
+    for (int shift : {448, 476})
+    {
+        const U512 divisor = (U512(1) << shift) + U512(123456789ULL);
+        const U512 quotient = (U512(1) << (511 - shift)) - U512(1);
+        const U512 remainder = lhs - divisor * quotient;
+
+        EXPECT_EQ(lhs / divisor, quotient);
+        EXPECT_EQ(lhs % divisor, remainder);
+        EXPECT_LT(remainder, divisor);
+    }
 }

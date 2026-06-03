@@ -173,6 +173,10 @@
 #    define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH GINT_GCC_TUNED_PATHS
 #endif
 
+#ifndef GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+#    define GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH GINT_GCC_TUNED_PATHS
+#endif
+
 #ifndef GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
 #    define GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
@@ -3966,6 +3970,73 @@ private:
         return result;
     }
 
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+    GINT_FORCE_INLINE static limb_type left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
+    {
+        limb_type cur = src[i];
+        if (shift == 0)
+            return cur;
+        limb_type prev = i == 0 ? 0 : src[i - 1];
+        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
+    }
+
+    static bool mul_by_limb_greater_than(const integer & lhs, const integer & divisor, size_t div_limbs, limb_type q) noexcept
+    {
+        if (q == 0)
+            return false;
+
+        std::array<limb_type, limbs + 1> product;
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
+            product[i] = static_cast<limb_type>(p);
+            carry = p >> 64;
+        }
+        if (carry != 0)
+            return true;
+
+        for (size_t i = div_limbs; i-- > 0;)
+        {
+            if (product[i] != lhs.data_[i])
+                return product[i] > lhs.data_[i];
+        }
+        return false;
+    }
+
+    static integer div_large_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        integer quotient;
+        if (div_limbs < 2)
+            return quotient;
+
+        using u128 = unsigned __int128;
+        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
+        const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
+        const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
+        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
+        const limb_type unext = left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
+        const limb_type uthird = left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
+
+        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
+        u128 qhat = numerator / vtop;
+        u128 rhat = numerator - qhat * vtop;
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
+        {
+            --qhat;
+            rhat += vtop;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        limb_type q = static_cast<limb_type>(qhat);
+        while (mul_by_limb_greater_than(lhs, divisor, div_limbs, q))
+            --q;
+        quotient.data_[0] = q;
+        return quotient;
+    }
+#endif
+
     static integer div_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         integer quotient;
@@ -3974,6 +4045,10 @@ private:
             --n;
         if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
             return quotient;
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+        if (n == div_limbs)
+            return div_large_single_limb_quotient(lhs, divisor, div_limbs);
+#endif
 
         std::array<limb_type, limbs + 1> u;
         std::array<limb_type, limbs> v;
