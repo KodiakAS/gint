@@ -4061,6 +4061,80 @@ private:
         return quotient;
     }
 
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+    GINT_FORCE_INLINE static limb_type rem_left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
+    {
+        limb_type cur = src[i];
+        if (shift == 0)
+            return cur;
+        limb_type prev = i == 0 ? 0 : src[i - 1];
+        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
+    }
+
+    static limb_type rem_estimate_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        using u128 = unsigned __int128;
+        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
+        const limb_type vtop = rem_left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
+        const limb_type vnext = rem_left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
+        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
+        const limb_type unext = rem_left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
+        const limb_type uthird = rem_left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
+
+        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
+        u128 qhat = numerator / vtop;
+        u128 rhat = numerator - qhat * vtop;
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
+        {
+            --qhat;
+            rhat += vtop;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        return static_cast<limb_type>(qhat);
+    }
+
+    static bool rem_sub_mul_limb(integer & lhs, const integer & divisor, size_t div_limbs, limb_type q) noexcept
+    {
+        unsigned __int128 carry = 0;
+        limb_type borrow = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
+            carry = p >> 64;
+
+            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
+            limb_type next_borrow = static_cast<unsigned __int128>(lhs.data_[i]) < subtrahend;
+            lhs.data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs.data_[i]) - subtrahend);
+            borrow = next_borrow;
+        }
+        return carry != 0 || borrow != 0;
+    }
+
+    static void rem_add_divisor(integer & lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
+            lhs.data_[i] = static_cast<limb_type>(sum);
+            carry = sum >> 64;
+        }
+    }
+
+    static integer rem_large_single_limb_quotient(integer lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        if (div_limbs < 2)
+            return lhs;
+
+        const limb_type q = rem_estimate_single_limb_quotient(lhs, divisor, div_limbs);
+        if (rem_sub_mul_limb(lhs, divisor, div_limbs, q))
+            rem_add_divisor(lhs, divisor, div_limbs);
+        return lhs;
+    }
+#endif
+
     static GINT_NOINLINE integer rem_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         size_t n = limbs;
@@ -4068,6 +4142,10 @@ private:
             --n;
         if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
             return lhs;
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+        if (n == div_limbs)
+            return rem_large_single_limb_quotient(lhs, divisor, div_limbs);
+#endif
 
         std::array<limb_type, limbs + 1> u = {};
         std::array<limb_type, limbs> v = {};
