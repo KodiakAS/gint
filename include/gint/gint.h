@@ -1958,8 +1958,8 @@ private:
 
 #if GINT_ENABLE_AARCH64_GCC_WIDE_RIGHT_SHIFT_UNSIGNED_FASTPATH
     template <size_t LimbShift>
-    static GINT_CONSTEXPR14
-        GINT_FORCE_INLINE integer shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer
+    shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
     {
 #    if __cplusplus >= 201402L
         integer result;
