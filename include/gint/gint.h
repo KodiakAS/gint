@@ -1779,8 +1779,8 @@ public:
 private:
 #if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t L = limbs>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE
-        typename std::enable_if<(L == 2), integer>::type shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2), integer>::type
+    shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
     {
         if (GINT_LIKELY(n < 128U))
         {
@@ -1828,8 +1828,8 @@ private:
 
 #if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t L = limbs>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE
-        typename std::enable_if<(L == 4), integer>::type shift_right_value4_by_size(const integer & value, size_t shift) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 4), integer>::type
+    shift_right_value4_by_size(const integer & value, size_t shift) noexcept
     {
         if (shift == 0)
             return value;
@@ -2046,8 +2046,8 @@ private:
 
 #if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t LimbShift>
-    static GINT_CONSTEXPR14
-        GINT_FORCE_INLINE integer shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer
+    shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
     {
 #    if __cplusplus >= 201402L
         integer result;
@@ -2702,7 +2702,8 @@ public:
         size_t L = limbs,
         typename std::enable_if<
             (GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH && L == 2 && std::is_same<Signed, signed>::value),
-            int>::type = 0>
+            int>::type
+        = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
     {
         return shift_right_int128_unsigned_value(lhs, n);
