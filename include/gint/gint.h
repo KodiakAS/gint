@@ -194,7 +194,15 @@
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
-#    define GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#    define GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH (GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_GCC_TUNED_PATHS))
+#endif
+
+#ifndef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#    if GINT_GCC_TUNED_PATHS
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_NOINLINE
+#    else
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_FORCE_INLINE
+#    endif
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
@@ -2491,6 +2499,11 @@ public:
         if (positive_single_limb_value(rhs, positive_limb_divisor))
         {
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+#    if GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS
+            if (limbs == 2 && std::is_same<Signed, signed>::value && positive_limb_divisor > 0xFFFFFFFFULL
+                && (positive_limb_divisor & (positive_limb_divisor - 1)) == 0)
+                return div_by_positive_power_of_two(lhs, static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
+#    endif
             return div_by_positive_limb(lhs, positive_limb_divisor);
         }
 #elif GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
@@ -3680,7 +3693,7 @@ private:
     }
 
     template <size_t L = limbs>
-    static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
+    static GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR typename std::enable_if<(L == 2), bool>::type
     negative_negative_div_quotient_is_zero(const integer & lhs, const integer & rhs) noexcept
     {
 #if GINT_ARCH_AARCH64
@@ -4747,6 +4760,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
 #undef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
 #undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
