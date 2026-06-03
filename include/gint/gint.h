@@ -2823,6 +2823,11 @@ public:
         if (positive_single_limb_value(rhs, positive_limb_divisor))
         {
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+#    if GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS
+            if (limbs == 2 && std::is_same<Signed, signed>::value && positive_limb_divisor > 0xFFFFFFFFULL
+                && (positive_limb_divisor & (positive_limb_divisor - 1)) == 0)
+                return div_by_positive_power_of_two(lhs, static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
+#    endif
             return div_by_positive_limb(lhs, positive_limb_divisor);
         }
 #elif GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
@@ -4012,7 +4017,7 @@ private:
     }
 
     template <size_t L = limbs>
-    static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
+    static GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR typename std::enable_if<(L == 2), bool>::type
     negative_negative_div_quotient_is_zero(const integer & lhs, const integer & rhs) noexcept
     {
 #if GINT_ARCH_AARCH64
