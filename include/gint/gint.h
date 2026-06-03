@@ -185,10 +185,6 @@
 #    define GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
-#ifndef GINT_ENABLE_AARCH64_GCC_INT128_LEFT_SHIFT_VALUE_FASTPATH
-#    define GINT_ENABLE_AARCH64_GCC_INT128_LEFT_SHIFT_VALUE_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
-#endif
-
 #ifndef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
 #    ifdef GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH
 #        define GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH GINT_ENABLE_AARCH64_GCC_WIDE_LEFT_SHIFT_UNSIGNED_FASTPATH
@@ -1791,10 +1787,10 @@ public:
     }
 
 private:
-#if GINT_ENABLE_AARCH64_GCC_INT128_LEFT_SHIFT_VALUE_FASTPATH
+#if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t L = limbs>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2), integer>::type
-    shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE
+        typename std::enable_if<(L == 2), integer>::type shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
     {
         if (GINT_LIKELY(n < 128U))
         {
@@ -1842,8 +1838,8 @@ private:
 
 #if GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH
     template <size_t L = limbs>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 4), integer>::type
-    shift_right_value4_by_size(const integer & value, size_t shift) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE
+        typename std::enable_if<(L == 4), integer>::type shift_right_value4_by_size(const integer & value, size_t shift) noexcept
     {
         if (shift == 0)
             return value;
@@ -2060,8 +2056,8 @@ private:
 
 #if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t LimbShift>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer
-    shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
+    static GINT_CONSTEXPR14
+        GINT_FORCE_INLINE integer shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
     {
 #    if __cplusplus >= 201402L
         integer result;
@@ -2652,7 +2648,7 @@ public:
         return lhs;
     }
 
-#    if GINT_ENABLE_AARCH64_GCC_INT128_LEFT_SHIFT_VALUE_FASTPATH
+#    if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t L = limbs, typename std::enable_if<(L == 2), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
     {
@@ -2716,8 +2712,7 @@ public:
         size_t L = limbs,
         typename std::enable_if<
             (GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH && L == 2 && std::is_same<Signed, signed>::value),
-            int>::type
-        = 0>
+            int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
     {
         return shift_right_int128_unsigned_value(lhs, n);
@@ -4993,7 +4988,6 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
 #undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH
-#undef GINT_ENABLE_AARCH64_GCC_INT128_LEFT_SHIFT_VALUE_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_INT256_RIGHT_SHIFT_VALUE_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
