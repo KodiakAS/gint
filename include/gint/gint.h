@@ -206,8 +206,7 @@
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
-#    define GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH \
-        (GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH && GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#    define GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH (GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_GCC_TUNED_PATHS))
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
@@ -2636,15 +2635,25 @@ public:
                 integer result;
                 if (std::is_same<Signed, signed>::value && (lhs.data_[1] >> 63))
                 {
+#    if GINT_GCC_TUNED_PATHS
+                    return rem_negative_int128_by_positive_limb(lhs, positive_limb_divisor);
+#    else
                     using Unsigned = integer<Bits, unsigned>;
                     Unsigned lhs_mag;
                     copy_abs_magnitude(lhs_mag, lhs, true);
                     result.data_[0] = lhs_mag.mod_small(positive_limb_divisor);
                     negate_for_division(result);
                     return result;
+#    endif
                 }
 
+#    if GINT_GCC_TUNED_PATHS
+                using u128 = unsigned __int128;
+                const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+                result.data_[0] = static_cast<limb_type>(lhs_raw % positive_limb_divisor);
+#    else
                 result.data_[0] = lhs.mod_small(positive_limb_divisor);
+#    endif
                 return result;
             }
         }
@@ -3737,6 +3746,24 @@ private:
     static GINT_FORCE_INLINE bool div_signed_int128_by_positive_limb(const integer &, limb_type, integer &) noexcept
     {
         return false;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2), int>::type = 0>
+    static GINT_NOINLINE integer rem_negative_int128_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
+    {
+        integer result;
+        using Unsigned = integer<Bits, unsigned>;
+        Unsigned lhs_mag;
+        copy_abs_magnitude(lhs_mag, lhs, true);
+        result.data_[0] = lhs_mag.mod_small(divisor);
+        negate_for_division(result);
+        return result;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L != 2), int>::type = 0>
+    static GINT_NOINLINE integer rem_negative_int128_by_positive_limb(const integer &, limb_type) noexcept
+    {
+        return integer();
     }
 
     static integer rem_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
