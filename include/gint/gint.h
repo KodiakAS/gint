@@ -867,6 +867,14 @@ bit_and_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, 
 
 template <>
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_and_limbs<2>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    dst[0] = lhs[0] & rhs[0];
+    dst[1] = lhs[1] & rhs[1];
+}
+
+template <>
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 bit_and_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     dst[0] = lhs[0] & rhs[0];
@@ -899,6 +907,28 @@ bit_xor_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, 
 {
     for (size_t i = 0; i < L; ++i)
         dst[i] = lhs[i] ^ rhs[i];
+}
+
+template <>
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_xor_limbs<2>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+    if (__builtin_is_constant_evaluated())
+    {
+        dst[0] = lhs[0] ^ rhs[0];
+        dst[1] = lhs[1] ^ rhs[1];
+        return;
+    }
+#endif
+#if GINT_ARCH_X86_64 && defined(__SSE2__)
+    const __m128i l = _mm_loadu_si128(reinterpret_cast<const __m128i *>(lhs));
+    const __m128i r = _mm_loadu_si128(reinterpret_cast<const __m128i *>(rhs));
+    _mm_storeu_si128(reinterpret_cast<__m128i *>(dst), _mm_xor_si128(l, r));
+#else
+    dst[0] = lhs[0] ^ rhs[0];
+    dst[1] = lhs[1] ^ rhs[1];
+#endif
 }
 
 template <>
@@ -1264,15 +1294,22 @@ mul_try_single_limb_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_
 
 template <size_t L>
 GINT_FORCE_INLINE void
-mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+mul_limbs_schoolbook_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH
-    if (L > 4 && GINT_UNLIKELY(lhs[L - 1] == 0 || rhs[L - 1] == 0) && mul_try_single_limb_operand<L>(res, lhs, rhs))
-        return;
-#endif
     for (size_t i = 0; i < L; ++i)
         res[i] = 0;
     mul_limbs<L>(res, lhs, rhs);
+}
+
+template <size_t L>
+GINT_FORCE_INLINE void
+mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH && !GINT_X86_64_GCC_TUNED_PATHS
+    if (L > 4 && GINT_UNLIKELY(lhs[L - 1] == 0 || rhs[L - 1] == 0) && mul_try_single_limb_operand<L>(res, lhs, rhs))
+        return;
+#endif
+    mul_limbs_schoolbook_result<L>(res, lhs, rhs);
 }
 
 template <>
@@ -2776,6 +2813,11 @@ public:
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
         integer result(uninitialized_tag{});
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH && GINT_X86_64_GCC_TUNED_PATHS
+        if (limbs > 4 && GINT_UNLIKELY(lhs.data_[limbs - 1] == 0 || rhs.data_[limbs - 1] == 0)
+            && detail::mul_try_single_limb_operand<limbs>(result.data_, lhs.data_, rhs.data_))
+            return result;
+#endif
         // Dispatch to the limb-wise multiplication routine which selects the
         // appropriate algorithm based on operand size.
         detail::mul_limbs_result<limbs>(result.data_, lhs.data_, rhs.data_);
@@ -4329,10 +4371,10 @@ private:
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
         integer result;
         if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
             return result;
-#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
         if (rhs.data_[1] >= (limb_type(1) << 62))
         {
             limb_type rem_hi = lhs.data_[1];
@@ -4353,18 +4395,17 @@ private:
             return result;
         }
 #endif
-
         return div_128_native(lhs, rhs);
     }
 
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
     {
-        integer result;
-        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
-            return result;
         unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
         unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
+        integer result;
+        if (GINT_UNLIKELY(b == 0))
+            return result;
         unsigned __int128 q = a / b;
         result.data_[0] = static_cast<limb_type>(q);
         result.data_[1] = static_cast<limb_type>(q >> 64);
