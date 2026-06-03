@@ -185,6 +185,29 @@
 #    define GINT_ENABLE_X86_64_HW_SMALL_DIVMOD GINT_ARCH_X86_64
 #endif
 
+#ifndef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH (GINT_ARCH_AARCH64 && (GINT_GCC_TUNED_PATHS || GINT_CLANG_TUNED_PATHS))
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH (GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_GCC_TUNED_PATHS))
+#endif
+
+#ifndef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#    if GINT_GCC_TUNED_PATHS
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_NOINLINE
+#    else
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_FORCE_INLINE
+#    endif
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
 #ifndef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #    define GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
@@ -3996,7 +4019,11 @@ private:
 
         integer quotient;
         if (limbs == 2)
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH && GINT_GCC_TUNED_PATHS
+            quotient = div_128_native(lhs, divisor);
+#else
             quotient = div_128(lhs, divisor);
+#endif
         else if (divisor_limbs == 2)
             quotient = div_large_2(lhs, divisor);
         else if (divisor_limbs == 3)
@@ -4099,11 +4126,42 @@ private:
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
+        integer result;
+        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
+            return result;
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+        if (rhs.data_[1] >= (limb_type(1) << 62))
+        {
+            limb_type rem_hi = lhs.data_[1];
+            limb_type rem_lo = lhs.data_[0];
+            limb_type q = 0;
+            for (limb_type i = 0; i < 3; ++i)
+            {
+                if (rem_hi < rhs.data_[1] || (rem_hi == rhs.data_[1] && rem_lo < rhs.data_[0]))
+                    break;
+                limb_type next_lo = rem_lo - rhs.data_[0];
+                limb_type borrow = rem_lo < rhs.data_[0];
+                rem_hi = rem_hi - rhs.data_[1] - borrow;
+                rem_lo = next_lo;
+                ++q;
+            }
+            result.data_[0] = q;
+            result.data_[1] = 0;
+            return result;
+        }
+#endif
+
+        return div_128_native(lhs, rhs);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
+    {
+        integer result;
+        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
+            return result;
         unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
         unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
-        integer result;
-        if (GINT_UNLIKELY(b == 0))
-            return result;
         unsigned __int128 q = a / b;
         result.data_[0] = static_cast<limb_type>(q);
         result.data_[1] = static_cast<limb_type>(q >> 64);
@@ -4112,6 +4170,12 @@ private:
 
     template <size_t L = limbs>
     static typename std::enable_if<(L < 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
+    {
+        return div_128_native(lhs, rhs);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
         if (GINT_UNLIKELY(rhs.data_[0] == 0))
@@ -5293,4 +5357,9 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+#undef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
