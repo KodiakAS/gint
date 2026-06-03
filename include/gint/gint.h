@@ -217,10 +217,6 @@
 #    define GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
-#ifndef GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
-#    define GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH (GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_GCC_TUNED_PATHS))
-#endif
-
 #ifndef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #    define GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
@@ -2958,7 +2954,7 @@ public:
     friend integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
-#if GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
+#if GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_ENABLE_AARCH64_UINT128_SMALL_MOD)
         if (limbs == 2)
         {
             limb_type positive_limb_divisor;
@@ -2967,7 +2963,7 @@ public:
                 integer result;
                 if (std::is_same<Signed, signed>::value && (lhs.data_[1] >> 63))
                 {
-#    if GINT_GCC_TUNED_PATHS
+#    if GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
                     return rem_negative_int128_by_positive_limb(lhs, positive_limb_divisor);
 #    else
                     using Unsigned = integer<Bits, unsigned>;
@@ -2979,7 +2975,7 @@ public:
 #    endif
                 }
 
-#    if GINT_GCC_TUNED_PATHS
+#    if GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
                 using u128 = unsigned __int128;
                 const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
                 result.data_[0] = static_cast<limb_type>(lhs_raw % positive_limb_divisor);
@@ -2991,7 +2987,7 @@ public:
         }
 #endif
 #if GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
-        if (!(GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH && limbs == 2))
+        if (!(limbs == 2 && GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_ENABLE_AARCH64_UINT128_SMALL_MOD)))
         {
             limb_type positive_limb_divisor;
             if (positive_single_limb_value(rhs, positive_limb_divisor))
@@ -5529,5 +5525,4 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
 #undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
-#undef GINT_ENABLE_AARCH64_INT128_POSITIVE_LIMB_REM_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE
