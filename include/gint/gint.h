@@ -142,16 +142,22 @@
         (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS && __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll))
 #endif
 
-#ifndef GINT_ENABLE_MUL4_LOW128_FASTPATH
-#    define GINT_ENABLE_MUL4_LOW128_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
+#ifndef GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+#    define GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
-#ifndef GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH
-#    define GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
+#ifndef GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
+#    define GINT_ENABLE_AARCH64_UINT128_SMALL_MOD (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
 #endif
 
-#ifndef GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH
-#    define GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
+#ifndef GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH
+#    if defined(GINT_ENABLE_MUL4_LOW128_FASTPATH) || defined(GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH) \
+        || defined(GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH)
+#        define GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH \
+            (GINT_ENABLE_MUL4_LOW128_FASTPATH || GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH)
+#    else
+#        define GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH GINT_NON_X86_GCC_TUNED_PATHS
+#    endif
 #endif
 
 #ifndef GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
@@ -170,12 +176,43 @@
 #    define GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH GINT_GCC_TUNED_PATHS
 #endif
 
+#ifndef GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+#    define GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH GINT_GCC_TUNED_PATHS
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
 #ifndef GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
 #    define GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH (GINT_CLANG_TUNED_PATHS || GINT_ARCH_X86_64)
 #endif
 
 #ifndef GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
 #    define GINT_ENABLE_X86_64_HW_SMALL_DIVMOD GINT_ARCH_X86_64
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH (GINT_ARCH_AARCH64 && (GINT_GCC_TUNED_PATHS || GINT_CLANG_TUNED_PATHS))
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH (GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_GCC_TUNED_PATHS))
+#endif
+
+#ifndef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#    if GINT_GCC_TUNED_PATHS
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_NOINLINE
+#    else
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_FORCE_INLINE
+#    endif
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+#    define GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
 #ifndef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
@@ -188,6 +225,10 @@
 
 #ifndef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
 #    define GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+#    define GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
 #endif
 
 #if GINT_X86_64_GCC_TUNED_PATHS
@@ -824,6 +865,14 @@ bit_and_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, 
 
 template <>
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_and_limbs<2>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+    dst[0] = lhs[0] & rhs[0];
+    dst[1] = lhs[1] & rhs[1];
+}
+
+template <>
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 bit_and_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     dst[0] = lhs[0] & rhs[0];
@@ -856,6 +905,28 @@ bit_xor_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, 
 {
     for (size_t i = 0; i < L; ++i)
         dst[i] = lhs[i] ^ rhs[i];
+}
+
+template <>
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+bit_xor_limbs<2>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+    if (__builtin_is_constant_evaluated())
+    {
+        dst[0] = lhs[0] ^ rhs[0];
+        dst[1] = lhs[1] ^ rhs[1];
+        return;
+    }
+#endif
+#if GINT_ARCH_X86_64 && defined(__SSE2__)
+    const __m128i l = _mm_loadu_si128(reinterpret_cast<const __m128i *>(lhs));
+    const __m128i r = _mm_loadu_si128(reinterpret_cast<const __m128i *>(rhs));
+    _mm_storeu_si128(reinterpret_cast<__m128i *>(dst), _mm_xor_si128(l, r));
+#else
+    dst[0] = lhs[0] ^ rhs[0];
+    dst[1] = lhs[1] ^ rhs[1];
+#endif
 }
 
 template <>
@@ -974,14 +1045,8 @@ GINT_FORCE_INLINE
 bool mul_limbs4_try_small_operand(
     uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LOW128_FASTPATH
+#if GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH
     using u128 = unsigned __int128;
-#else
-    (void)res;
-    (void)lhs;
-    (void)rhs;
-#endif
-#if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH
     if ((rhs[1] | rhs[2] | rhs[3]) == 0)
     {
         if ((lhs[1] | lhs[2] | lhs[3]) == 0)
@@ -998,15 +1063,11 @@ bool mul_limbs4_try_small_operand(
         }
         return true;
     }
-#endif
-#if GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH
     if ((lhs[1] | lhs[2] | lhs[3]) == 0)
     {
         mul_limbs4_by_limb(res, rhs, lhs[0]);
         return true;
     }
-#endif
-#if GINT_ENABLE_MUL4_LOW128_FASTPATH
     if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
     {
         if ((lhs[1] | rhs[1]) == 0)
@@ -1044,6 +1105,10 @@ bool mul_limbs4_try_small_operand(
         }
         return true;
     }
+#else
+    (void)res;
+    (void)lhs;
+    (void)rhs;
 #endif
     return false;
 }
@@ -1201,7 +1266,7 @@ mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, c
         return;
     }
 #endif
-#if GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH || GINT_ENABLE_MUL4_LOW128_FASTPATH
+#if GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH
     const bool lhs_above_128 = (lhs[2] | lhs[3]) != 0;
     const bool rhs_above_128 = (rhs[2] | rhs[3]) != 0;
     if (GINT_LIKELY(lhs_above_128 && rhs_above_128))
@@ -1221,15 +1286,22 @@ mul_try_single_limb_operand(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_
 
 template <size_t L>
 GINT_FORCE_INLINE void
-mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+mul_limbs_schoolbook_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH
-    if (L > 4 && GINT_UNLIKELY(lhs[L - 1] == 0 || rhs[L - 1] == 0) && mul_try_single_limb_operand<L>(res, lhs, rhs))
-        return;
-#endif
     for (size_t i = 0; i < L; ++i)
         res[i] = 0;
     mul_limbs<L>(res, lhs, rhs);
+}
+
+template <size_t L>
+GINT_FORCE_INLINE void
+mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
+{
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH && !GINT_X86_64_GCC_TUNED_PATHS
+    if (L > 4 && GINT_UNLIKELY(lhs[L - 1] == 0 || rhs[L - 1] == 0) && mul_try_single_limb_operand<L>(res, lhs, rhs))
+        return;
+#endif
+    mul_limbs_schoolbook_result<L>(res, lhs, rhs);
 }
 
 template <>
@@ -2645,14 +2717,25 @@ public:
     {
         return shift_left_int128_unsigned_value(lhs, n);
     }
-#    endif
 
-#    if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
     template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
     {
         const size_t shift = static_cast<size_t>(n);
         return shift_left_value_by_size(lhs, shift);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        const size_t shift = static_cast<size_t>(n);
+        return shift_right_value_by_size(lhs, shift);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 4), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_value4_by_size(lhs, static_cast<size_t>(n));
     }
 #    endif
 
@@ -2661,23 +2744,6 @@ public:
         lhs >>= n;
         return lhs;
     }
-
-#    if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
-    template <size_t L = limbs, typename std::enable_if<(L > 8), int>::type = 0>
-    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
-    {
-        const size_t shift = static_cast<size_t>(n);
-        return shift_right_value_by_size(lhs, shift);
-    }
-#    endif
-
-#    if GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
-    template <size_t L = limbs, typename std::enable_if<(L == 4), int>::type = 0>
-    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
-    {
-        return shift_right_value4_by_size(lhs, static_cast<size_t>(n));
-    }
-#    endif
 #else
     template <size_t L = limbs, typename std::enable_if<(L <= 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(integer lhs, int n) noexcept
@@ -2733,6 +2799,11 @@ public:
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
         integer result(uninitialized_tag{});
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH && GINT_X86_64_GCC_TUNED_PATHS
+        if (limbs > 4 && GINT_UNLIKELY(lhs.data_[limbs - 1] == 0 || rhs.data_[limbs - 1] == 0)
+            && detail::mul_try_single_limb_operand<limbs>(result.data_, lhs.data_, rhs.data_))
+            return result;
+#endif
         // Dispatch to the limb-wise multiplication routine which selects the
         // appropriate algorithm based on operand size.
         detail::mul_limbs_result<limbs>(result.data_, lhs.data_, rhs.data_);
@@ -2780,7 +2851,26 @@ public:
         if (positive_single_limb_value(rhs, positive_limb_divisor))
         {
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+#    if GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS
+            if (limbs == 2 && std::is_same<Signed, signed>::value && positive_limb_divisor > 0xFFFFFFFFULL
+                && (positive_limb_divisor & (positive_limb_divisor - 1)) == 0)
+                return div_by_positive_power_of_two(lhs, static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
+#    endif
             return div_by_positive_limb(lhs, positive_limb_divisor);
+        }
+#elif GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
+        if (limbs == 2)
+        {
+            int positive_pow_bit;
+            if (positive_power_of_two_fastpath_divisor(rhs, positive_pow_bit))
+                return div_by_positive_power_of_two(lhs, positive_pow_bit);
+
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+            {
+                GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+                return div_by_positive_limb(lhs, positive_limb_divisor);
+            }
         }
 #endif
 
@@ -2797,6 +2887,10 @@ public:
         {
             lhs_neg = lhs.data_[limbs - 1] >> 63;
             rhs_neg = divisor.data_[limbs - 1] >> 63;
+#if GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+            if (lhs_neg && rhs_neg && negative_negative_div_quotient_is_zero(lhs, divisor))
+                return integer();
+#endif
             const limb_type min_magnitude = static_cast<limb_type>(1ULL << 63);
             // 快路径：仅当最高 limb 匹配补码最小值时再调用 is_min_value，避免普通负数走慢分支。
             if (lhs_neg)
@@ -2893,10 +2987,45 @@ public:
     friend integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
+#if GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_ENABLE_AARCH64_UINT128_SMALL_MOD)
+        if (limbs == 2)
+        {
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+            {
+                integer result;
+                if (std::is_same<Signed, signed>::value && (lhs.data_[1] >> 63))
+                {
+#    if GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
+                    return rem_negative_int128_by_positive_limb(lhs, positive_limb_divisor);
+#    else
+                    using Unsigned = integer<Bits, unsigned>;
+                    Unsigned lhs_mag;
+                    copy_abs_magnitude(lhs_mag, lhs, true);
+                    result.data_[0] = lhs_mag.mod_small(positive_limb_divisor);
+                    negate_for_division(result);
+                    return result;
+#    endif
+                }
+
+#    if GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
+                using u128 = unsigned __int128;
+                const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+                result.data_[0] = static_cast<limb_type>(lhs_raw % positive_limb_divisor);
+#    else
+                result.data_[0] = lhs.mod_small(positive_limb_divisor);
+#    endif
+                return result;
+            }
+        }
+#endif
 #if GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
-        limb_type positive_limb_divisor;
-        if (positive_single_limb_value(rhs, positive_limb_divisor))
-            return rem_by_positive_limb(lhs, positive_limb_divisor);
+        if (!(limbs == 2 && GINT_ARCH_AARCH64 && (GINT_CLANG_TUNED_PATHS || GINT_ENABLE_AARCH64_UINT128_SMALL_MOD)))
+        {
+            limb_type positive_limb_divisor;
+            if (positive_single_limb_value(rhs, positive_limb_divisor))
+                return rem_by_positive_limb(lhs, positive_limb_divisor);
+        }
 #endif
 #if GINT_GCC_TUNED_PATHS
         if (std::is_same<Signed, signed>::value)
@@ -3483,6 +3612,16 @@ private:
             }
             return static_cast<limb_type>(data_[0] & (div - 1));
         }
+#if GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+        if (limbs == 2 && div > 0xFFFFFFFFULL)
+        {
+            const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
+            const u128 q = num / div;
+            quotient.data_[0] = static_cast<limb_type>(q);
+            quotient.data_[1] = static_cast<limb_type>(q >> 64);
+            return static_cast<limb_type>(num % div);
+        }
+#endif
 #if GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
 #    if GINT_CLANG_TUNED_PATHS
         if (div != 10000000000000000000ULL)
@@ -3649,6 +3788,14 @@ private:
 
         if ((div & (div - 1)) == 0)
             return static_cast<limb_type>(data_[0] & (div - 1));
+
+#if GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD || GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
+        if (limbs == 2 && div > 0xFFFFFFFFULL)
+        {
+            const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
+            return static_cast<limb_type>(num % div);
+        }
+#endif
 
 #if GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
         {
@@ -3863,10 +4010,23 @@ private:
     }
 
     template <size_t L = limbs>
-    static GINT_FORCE_INLINE typename std::enable_if<(L < 16), bool>::type
+    static GINT_FORCE_INLINE typename std::enable_if<(L < 16 && L != 2), bool>::type
     positive_power_of_two_fastpath_divisor(const integer &, int &) noexcept
     {
         return false;
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
+    positive_power_of_two_fastpath_divisor(const integer & v, int & bit_index) noexcept
+    {
+#if GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+        return positive_power_of_two_value(v, bit_index);
+#else
+        (void)v;
+        (void)bit_index;
+        return false;
+#endif
     }
 
     static GINT_FORCE_INLINE integer div_by_positive_power_of_two(integer lhs, int pow_bit) noexcept
@@ -3884,11 +4044,43 @@ private:
         return lhs >> pow_bit;
     }
 
+    template <size_t L = limbs>
+    static GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR typename std::enable_if<(L == 2), bool>::type
+    negative_negative_div_quotient_is_zero(const integer & lhs, const integer & rhs) noexcept
+    {
+#if GINT_ARCH_AARCH64
+        // For two negative two's-complement values, larger raw bits mean smaller magnitude.
+        unsigned result;
+        __asm__("cmp %[lhs_hi], %[rhs_hi]\n"
+                "ccmp %[lhs_lo], %[rhs_lo], #0, eq\n"
+                "cset %w[result], hi"
+                : [result] "=r"(result)
+                : [lhs_hi] "r"(lhs.data_[1]), [rhs_hi] "r"(rhs.data_[1]), [lhs_lo] "r"(lhs.data_[0]), [rhs_lo] "r"(rhs.data_[0])
+                : "cc");
+        return result != 0;
+#else
+        return lhs.data_[1] > rhs.data_[1] || (lhs.data_[1] == rhs.data_[1] && lhs.data_[0] > rhs.data_[0]);
+#endif
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L != 2), bool>::type
+    negative_negative_div_quotient_is_zero(const integer &, const integer &) noexcept
+    {
+        return false;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<!(GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS && L == 2), int>::type = 0>
     static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
     {
         integer result;
         if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
         {
+#if GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+            if (GINT_UNLIKELY(divisor > 0xFFFFFFFFULL && (divisor & (divisor - 1)) != 0)
+                && div_signed_int128_by_positive_limb(lhs, divisor, result))
+                return result;
+#endif
             negate_for_division(lhs);
             lhs.div_mod_small(divisor, result);
             negate_for_division(result);
@@ -3897,6 +4089,79 @@ private:
 
         lhs.div_mod_small(divisor, result);
         return result;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS && L == 2), int>::type = 0>
+    static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
+    {
+        integer result;
+        if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
+        {
+#if GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
+            if (GINT_UNLIKELY(divisor > 0xFFFFFFFFULL && (divisor & (divisor - 1)) != 0)
+                && div_signed_int128_by_positive_limb(lhs, divisor, result))
+                return result;
+#endif
+            negate_for_division(lhs);
+            lhs.div_mod_small(divisor, result);
+            negate_for_division(result);
+            return result;
+        }
+
+        if (divisor > 0xFFFFFFFFULL && (divisor & (divisor - 1)) != 0)
+            return div_unsigned_int128_by_positive_limb(lhs, divisor);
+
+        lhs.div_mod_small(divisor, result);
+        return result;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2), int>::type = 0>
+    static GINT_FORCE_INLINE integer div_unsigned_int128_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
+    {
+        using u128 = unsigned __int128;
+        const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+        const u128 quotient = lhs_raw / divisor;
+        integer result;
+        result.data_[0] = static_cast<limb_type>(quotient);
+        result.data_[1] = static_cast<limb_type>(quotient >> 64);
+        return result;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
+    static GINT_FORCE_INLINE bool div_signed_int128_by_positive_limb(const integer & lhs, limb_type divisor, integer & result) noexcept
+    {
+        using u128 = unsigned __int128;
+        using s128 = __int128;
+        const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+        const s128 quotient = static_cast<s128>(lhs_raw) / static_cast<s128>(divisor);
+        const u128 quotient_raw = static_cast<u128>(quotient);
+        result.data_[0] = static_cast<limb_type>(quotient_raw);
+        result.data_[1] = static_cast<limb_type>(quotient_raw >> 64);
+        return true;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L != 2 || !std::is_same<Signed, signed>::value), int>::type = 0>
+    static GINT_FORCE_INLINE bool div_signed_int128_by_positive_limb(const integer &, limb_type, integer &) noexcept
+    {
+        return false;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2), int>::type = 0>
+    static GINT_NOINLINE integer rem_negative_int128_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
+    {
+        integer result;
+        using Unsigned = integer<Bits, unsigned>;
+        Unsigned lhs_mag;
+        copy_abs_magnitude(lhs_mag, lhs, true);
+        result.data_[0] = lhs_mag.mod_small(divisor);
+        negate_for_division(result);
+        return result;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L != 2), int>::type = 0>
+    static GINT_NOINLINE integer rem_negative_int128_by_positive_limb(const integer &, limb_type) noexcept
+    {
+        return integer();
     }
 
     static integer rem_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
@@ -3945,7 +4210,11 @@ private:
         copy_abs_magnitude(lhs_mag, lhs, lhs_neg);
         copy_abs_magnitude(rhs_mag, rhs, rhs_neg);
 
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+        Unsigned rem_mag = Unsigned::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
+#else
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude(lhs_mag, rhs_mag);
+#endif
         integer result(uninitialized_tag{});
         for (size_t i = 0; i < limbs; ++i)
             result.data_[i] = rem_mag.data_[i];
@@ -3981,7 +4250,11 @@ private:
 
         integer quotient;
         if (limbs == 2)
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH && GINT_GCC_TUNED_PATHS
+            quotient = div_128_native(lhs, divisor);
+#else
             quotient = div_128(lhs, divisor);
+#endif
         else if (divisor_limbs == 2)
             quotient = div_large_2(lhs, divisor);
         else if (divisor_limbs == 3)
@@ -4007,6 +4280,21 @@ private:
         quotient *= divisor;
         result -= quotient;
         return result;
+    }
+
+    static integer rem_unsigned_magnitude_with_large_direct(const integer & lhs, const integer & divisor) noexcept
+    {
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+        if (limbs >= 4 && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
+        {
+            const size_t divisor_limbs = used_limbs(divisor);
+            int pow_bit;
+            if (is_power_of_two(divisor, pow_bit))
+                return lhs & (divisor - integer(1));
+            return rem_large(lhs, divisor, divisor_limbs);
+        }
+#endif
+        return rem_unsigned_magnitude(lhs, divisor);
     }
 
     static bool is_min_value(const integer & v) noexcept
@@ -4069,6 +4357,36 @@ private:
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
+#if GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+        integer result;
+        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
+            return result;
+        if (rhs.data_[1] >= (limb_type(1) << 62))
+        {
+            limb_type rem_hi = lhs.data_[1];
+            limb_type rem_lo = lhs.data_[0];
+            limb_type q = 0;
+            for (limb_type i = 0; i < 3; ++i)
+            {
+                if (rem_hi < rhs.data_[1] || (rem_hi == rhs.data_[1] && rem_lo < rhs.data_[0]))
+                    break;
+                limb_type next_lo = rem_lo - rhs.data_[0];
+                limb_type borrow = rem_lo < rhs.data_[0];
+                rem_hi = rem_hi - rhs.data_[1] - borrow;
+                rem_lo = next_lo;
+                ++q;
+            }
+            result.data_[0] = q;
+            result.data_[1] = 0;
+            return result;
+        }
+#endif
+        return div_128_native(lhs, rhs);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
+    {
         unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
         unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
         integer result;
@@ -4082,6 +4400,12 @@ private:
 
     template <size_t L = limbs>
     static typename std::enable_if<(L < 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
+    {
+        return div_128_native(lhs, rhs);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
         if (GINT_UNLIKELY(rhs.data_[0] == 0))
@@ -4113,6 +4437,73 @@ private:
         return result;
     }
 
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+    GINT_FORCE_INLINE static limb_type left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
+    {
+        limb_type cur = src[i];
+        if (shift == 0)
+            return cur;
+        limb_type prev = i == 0 ? 0 : src[i - 1];
+        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
+    }
+
+    static bool mul_by_limb_greater_than(const integer & lhs, const integer & divisor, size_t div_limbs, limb_type q) noexcept
+    {
+        if (q == 0)
+            return false;
+
+        std::array<limb_type, limbs + 1> product;
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
+            product[i] = static_cast<limb_type>(p);
+            carry = p >> 64;
+        }
+        if (carry != 0)
+            return true;
+
+        for (size_t i = div_limbs; i-- > 0;)
+        {
+            if (product[i] != lhs.data_[i])
+                return product[i] > lhs.data_[i];
+        }
+        return false;
+    }
+
+    static integer div_large_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        integer quotient;
+        if (div_limbs < 2)
+            return quotient;
+
+        using u128 = unsigned __int128;
+        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
+        const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
+        const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
+        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
+        const limb_type unext = left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
+        const limb_type uthird = left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
+
+        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
+        u128 qhat = numerator / vtop;
+        u128 rhat = numerator - qhat * vtop;
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
+        {
+            --qhat;
+            rhat += vtop;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        limb_type q = static_cast<limb_type>(qhat);
+        while (mul_by_limb_greater_than(lhs, divisor, div_limbs, q))
+            --q;
+        quotient.data_[0] = q;
+        return quotient;
+    }
+#endif
+
     static integer div_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         integer quotient;
@@ -4121,9 +4512,13 @@ private:
             --n;
         if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
             return quotient;
+#if GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+        if (n == div_limbs)
+            return div_large_single_limb_quotient(lhs, divisor, div_limbs);
+#endif
 
-        std::array<limb_type, limbs + 1> u = {};
-        std::array<limb_type, limbs> v = {};
+        std::array<limb_type, limbs + 1> u;
+        std::array<limb_type, limbs> v;
 
         int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
         limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
@@ -4183,6 +4578,200 @@ private:
             quotient.data_[j] = static_cast<limb_type>(qhat);
         }
         return quotient;
+    }
+
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+    GINT_FORCE_INLINE static limb_type rem_left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
+    {
+        limb_type cur = src[i];
+        if (shift == 0)
+            return cur;
+        limb_type prev = i == 0 ? 0 : src[i - 1];
+        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
+    }
+
+    static limb_type rem_estimate_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        using u128 = unsigned __int128;
+        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
+        const limb_type vtop = rem_left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
+        const limb_type vnext = rem_left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
+        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
+        const limb_type unext = rem_left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
+        const limb_type uthird = rem_left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
+
+        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
+        u128 qhat = numerator / vtop;
+        u128 rhat = numerator - qhat * vtop;
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
+        {
+            --qhat;
+            rhat += vtop;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        return static_cast<limb_type>(qhat);
+    }
+
+    static bool rem_sub_mul_limb(integer & lhs, const integer & divisor, size_t div_limbs, limb_type q) noexcept
+    {
+        unsigned __int128 carry = 0;
+        limb_type borrow = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
+            carry = p >> 64;
+
+            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
+            limb_type next_borrow = static_cast<unsigned __int128>(lhs.data_[i]) < subtrahend;
+            lhs.data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs.data_[i]) - subtrahend);
+            borrow = next_borrow;
+        }
+        return carry != 0 || borrow != 0;
+    }
+
+    static bool rem_sub_mul_limb_full_width(integer & lhs, const integer & divisor, limb_type q) noexcept
+    {
+        unsigned __int128 carry = 0;
+        limb_type borrow = 0;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
+            carry = p >> 64;
+
+            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
+            limb_type next_borrow = static_cast<unsigned __int128>(lhs.data_[i]) < subtrahend;
+            lhs.data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs.data_[i]) - subtrahend);
+            borrow = next_borrow;
+        }
+        return carry != 0 || borrow != 0;
+    }
+
+    static void rem_add_divisor(integer & lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
+            lhs.data_[i] = static_cast<limb_type>(sum);
+            carry = sum >> 64;
+        }
+    }
+
+    static void rem_add_divisor_full_width(integer & lhs, const integer & divisor) noexcept
+    {
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
+            lhs.data_[i] = static_cast<limb_type>(sum);
+            carry = sum >> 64;
+        }
+    }
+
+    static integer rem_large_single_limb_quotient(integer lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        if (div_limbs < 2)
+            return lhs;
+
+        const limb_type q = rem_estimate_single_limb_quotient(lhs, divisor, div_limbs);
+        if (div_limbs == limbs)
+        {
+            if (rem_sub_mul_limb_full_width(lhs, divisor, q))
+                rem_add_divisor_full_width(lhs, divisor);
+        }
+        else if (rem_sub_mul_limb(lhs, divisor, div_limbs, q))
+        {
+            rem_add_divisor(lhs, divisor, div_limbs);
+        }
+        return lhs;
+    }
+#endif
+
+    static GINT_NOINLINE integer rem_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
+    {
+        size_t n = limbs;
+        while (n > 0 && lhs.data_[n - 1] == 0)
+            --n;
+        if (GINT_UNLIKELY(div_limbs == 0) || n < div_limbs)
+            return lhs;
+#if GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+        if (n == div_limbs)
+            return rem_large_single_limb_quotient(lhs, divisor, div_limbs);
+#endif
+
+        std::array<limb_type, limbs + 1> u = {};
+        std::array<limb_type, limbs> v = {};
+
+        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
+        limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
+        u[n] = carry;
+
+        carry = lshift_limbs_to(divisor.data_, div_limbs, v.data(), shift);
+
+        for (int j = static_cast<int>(n - div_limbs); j >= 0; --j)
+        {
+            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + div_limbs]) << 64) | u[j + div_limbs - 1];
+            unsigned __int128 qhat = numerator / v[div_limbs - 1];
+            unsigned __int128 rhat = numerator - qhat * v[div_limbs - 1];
+
+            while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[div_limbs - 2] > ((rhat << 64) | u[j + div_limbs - 2]))
+            {
+                --qhat;
+                rhat += v[div_limbs - 1];
+                if (rhat >= (static_cast<unsigned __int128>(1) << 64))
+                    break;
+            }
+
+            unsigned __int128 borrow = 0;
+            for (size_t i = 0; i < div_limbs; ++i)
+            {
+                unsigned __int128 p = qhat * v[i] + borrow;
+                if (u[j + i] < static_cast<limb_type>(p))
+                {
+                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            if (static_cast<unsigned __int128>(u[j + div_limbs]) < borrow)
+            {
+                unsigned __int128 carry2 = 0;
+                for (size_t i = 0; i < div_limbs; ++i)
+                {
+                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
+                    u[j + i] = static_cast<limb_type>(t2);
+                    carry2 = t2 >> 64;
+                }
+                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) + carry2);
+            }
+            else
+            {
+                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) - borrow);
+            }
+        }
+
+        integer result;
+        if (shift == 0)
+        {
+            for (size_t i = 0; i < div_limbs; ++i)
+                result.data_[i] = u[i];
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            for (size_t i = 0; i < div_limbs; ++i)
+            {
+                const limb_type next = (i + 1 < div_limbs) ? u[i + 1] : 0;
+                result.data_[i] = (u[i] >> shift) | (next << inv_shift);
+            }
+        }
+        return result;
     }
 
     // Optimized specialization: full-width 256-bit divisor (divisor_limbs == 4)
@@ -4744,6 +5333,8 @@ struct integer_test_access
 
     static Int div_large(Int lhs, const Int & rhs, size_t div_limbs) noexcept { return Int::div_large(lhs, rhs, div_limbs); }
 
+    static Int rem_large(Int lhs, const Int & rhs, size_t div_limbs) noexcept { return Int::rem_large(lhs, rhs, div_limbs); }
+
     static Int div_large_2(Int lhs, const Int & rhs) noexcept { return Int::div_large_2(lhs, rhs); }
 
     static Int div_large_3(Int lhs, const Int & rhs) noexcept { return Int::div_large_3(lhs, rhs); }
@@ -4976,21 +5567,32 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_X86_64_GCC_TUNED_PATHS
 #undef GINT_NON_X86_GCC_TUNED_PATHS
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
+#undef GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD
+#undef GINT_ENABLE_AARCH64_UINT128_SMALL_MOD
 #undef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
 #undef GINT_ENABLE_X86_64_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_SUB_INTRINSICS
 #undef GINT_GCC_TUNED_PATHS
 #undef GINT_CLANG_TUNED_PATHS
+#undef GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH
 #undef GINT_ENABLE_MUL4_LOW128_FASTPATH
 #undef GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH
 #undef GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH
 #undef GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH
 #undef GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH
 #undef GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH
+#undef GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH
+#undef GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH
 #undef GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH
 #undef GINT_ENABLE_X86_64_HW_SMALL_DIVMOD
 #undef GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH
 #undef GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH
 #undef GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH
+#undef GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH
+#undef GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH
+#undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#undef GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH
+#undef GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH
 #undef GINT_WIDE_SHIFT_INLINE

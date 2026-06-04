@@ -166,6 +166,17 @@ TEST(WideIntegerDivision, SignedMinDividedByItself)
     EXPECT_EQ(min % min, S128(0));
 }
 
+TEST(WideIntegerDivision, SignedNegative128OverLargerNegativeIsZero)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min = std::numeric_limits<S128>::min();
+    const S128 lhs = min + S128(12345);
+    const S128 rhs = min + S128(7);
+
+    EXPECT_EQ(lhs / rhs, S128(0));
+    EXPECT_EQ(lhs % rhs, lhs);
+}
+
 TEST(WideIntegerDivision, SignedSmallDivisorInt64Min)
 {
     using S256 = gint::integer<256, signed>;
@@ -611,6 +622,19 @@ TEST(WideIntegerDivision, Div128SingleLimbPath)
     EXPECT_EQ(TestAccess<U64>::div_128(a, z), U64(0));
 }
 
+TEST(WideIntegerDivision, Div128LargeDivisorSmallQuotient)
+{
+    using U128 = gint::integer<128, unsigned>;
+    const U128 divisor = (U128(1) << 126) + U128(7);
+
+    EXPECT_EQ(TestAccess<U128>::div_128(divisor - U128(1), divisor), U128(0));
+    for (uint64_t expected = 1; expected <= 3; ++expected)
+    {
+        const U128 lhs = divisor * U128(expected) + U128(11);
+        EXPECT_EQ(TestAccess<U128>::div_128(lhs, divisor), U128(expected));
+    }
+}
+
 TEST(WideIntegerDivision, DivLargeBreak)
 {
     using U512 = gint::integer<512, unsigned>;
@@ -914,6 +938,44 @@ TEST(WideIntegerDivision, DivLargeGenericConstructedAddbackBranch)
     EXPECT_EQ(lhs - q * divisor, divisor - U512(1));
 }
 
+TEST(WideIntegerDivision, RemLargeGenericMatchesQuotientRemainder)
+{
+    using U512 = gint::integer<512, unsigned>;
+
+    const U512 lhs = (U512(1) << 511) - U512(12345);
+    const U512 full_width_divisor = (U512(1) << 470) + U512(987654321);
+    const U512 seven_limb_divisor = (U512(1) << 436) + U512(123456789);
+
+    {
+        const U512 q = TestAccess<U512>::div_large(lhs, full_width_divisor, 8);
+        const U512 r = TestAccess<U512>::rem_large(lhs, full_width_divisor, 8);
+        EXPECT_EQ(q * full_width_divisor + r, lhs);
+        EXPECT_LT(r, full_width_divisor);
+    }
+
+    {
+        const U512 q = TestAccess<U512>::div_large(lhs, seven_limb_divisor, 7);
+        const U512 r = TestAccess<U512>::rem_large(lhs, seven_limb_divisor, 7);
+        EXPECT_EQ(q * seven_limb_divisor + r, lhs);
+        EXPECT_LT(r, seven_limb_divisor);
+    }
+}
+
+TEST(WideIntegerDivision, SignedLargeModuloMatchesQuotientRemainder)
+{
+    using I512 = gint::integer<512, signed>;
+
+    const I512 divisor = (I512(1) << 470) + I512(987654321);
+    const I512 magnitude = (I512(1) << 510) + I512(12345);
+    const I512 lhs = -magnitude;
+
+    const I512 q = lhs / divisor;
+    const I512 r = lhs % divisor;
+    EXPECT_EQ(q * divisor + r, lhs);
+    EXPECT_LT(r, I512(0));
+    EXPECT_GT(r, -divisor);
+}
+
 TEST(WideIntegerDivision, DivLarge3EarlyReturnWhenDividendShorter)
 {
     using U256 = gint::integer<256, unsigned>;
@@ -1001,13 +1063,15 @@ TEST(WideIntegerDivision, MinValueUnsignedPathSignCorrection)
 
     S256 q = min / divisor;
     S256 r = min % divisor;
-    EXPECT_TRUE(static_cast<int64_t>(TestAccess<S256>::limb(q, S256::limbs - 1) >> 63)); // quotient should be negative
+    const bool q_negative = static_cast<int64_t>(TestAccess<S256>::limb(q, S256::limbs - 1) >> 63) != 0;
+    EXPECT_TRUE(q_negative);
     EXPECT_EQ(q * divisor + r, min);
 
     S256 neg_divisor = -divisor;
     S256 q2 = min / neg_divisor;
     S256 r2 = min % neg_divisor;
-    EXPECT_FALSE(static_cast<int64_t>(TestAccess<S256>::limb(q2, S256::limbs - 1) >> 63)); // quotient should be non-negative
+    const bool q2_negative = static_cast<int64_t>(TestAccess<S256>::limb(q2, S256::limbs - 1) >> 63) != 0;
+    EXPECT_FALSE(q2_negative);
     EXPECT_EQ(q2 * neg_divisor + r2, min);
 }
 
