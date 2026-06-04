@@ -128,8 +128,17 @@
 #    define GINT_ENABLE_X86_64_ADD_INTRINSICS (GINT_ARCH_X86_64 && GINT_CLANG_TUNED_PATHS)
 #endif
 
+#ifndef GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
+#    define GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS (GINT_ARCH_X86_64 && (GINT_GCC_TUNED_PATHS || GINT_CLANG_TUNED_PATHS))
+#endif
+
 #ifndef GINT_ENABLE_X86_64_SUB_INTRINSICS
 #    define GINT_ENABLE_X86_64_SUB_INTRINSICS (GINT_ARCH_X86_64 && (GINT_GCC_TUNED_PATHS || GINT_CLANG_TUNED_PATHS))
+#endif
+
+#ifndef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+#    define GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS \
+        (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS && __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll))
 #endif
 
 #ifndef GINT_ENABLE_MUL4_LOW128_FASTPATH
@@ -347,7 +356,40 @@ GINT_CONSTEXPR14 inline void add_limbs_scalar(uint64_t * lhs, const uint64_t * r
 template <size_t L>
 GINT_FORCE_INLINE void add_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
+#if GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
+    unsigned char carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long r;
+        carry = _addcarry_u64(carry, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
+        lhs[i] = static_cast<uint64_t>(r);
+    }
+    return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long carry_out;
+        const unsigned long long r
+            = __builtin_addcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), carry, &carry_out);
+        lhs[i] = static_cast<uint64_t>(r);
+        carry = carry_out;
+    }
+    return;
+#endif
     add_limbs_scalar<L>(lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void add_limbs_runtime<1>(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    lhs[0] += rhs[0];
+}
+
+template <>
+GINT_FORCE_INLINE void add_limbs_runtime<2>(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    add_limbs_scalar<2>(lhs, rhs);
 }
 
 template <>
@@ -432,7 +474,34 @@ GINT_CONSTEXPR14 inline void sub_limbs_scalar(uint64_t * lhs, const uint64_t * r
 template <size_t L>
 GINT_FORCE_INLINE void sub_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) noexcept
 {
+#if GINT_ENABLE_X86_64_SUB_INTRINSICS
+    unsigned char borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long r;
+        borrow = _subborrow_u64(borrow, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
+        lhs[i] = static_cast<uint64_t>(r);
+    }
+    return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long borrow_out;
+        const unsigned long long r
+            = __builtin_subcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), borrow, &borrow_out);
+        lhs[i] = static_cast<uint64_t>(r);
+        borrow = borrow_out;
+    }
+    return;
+#endif
     sub_limbs_scalar<L>(lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void sub_limbs_runtime<2>(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    sub_limbs_scalar<2>(lhs, rhs);
 }
 
 template <>
@@ -516,7 +585,40 @@ GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
+#if GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
+    unsigned char carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long r;
+        carry = _addcarry_u64(carry, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
+        dst[i] = static_cast<uint64_t>(r);
+    }
+    return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long carry = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long carry_out;
+        const unsigned long long r
+            = __builtin_addcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), carry, &carry_out);
+        dst[i] = static_cast<uint64_t>(r);
+        carry = carry_out;
+    }
+    return;
+#endif
     add_limbs_copy_scalar<L>(dst, lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void add_limbs_copy_runtime<1>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    dst[0] = lhs[0] + rhs[0];
+}
+
+template <>
+GINT_FORCE_INLINE void add_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    add_limbs_copy_scalar<2>(dst, lhs, rhs);
 }
 
 template <>
@@ -601,7 +703,34 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
+#if GINT_ENABLE_X86_64_SUB_INTRINSICS
+    unsigned char borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long r;
+        borrow = _subborrow_u64(borrow, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
+        dst[i] = static_cast<uint64_t>(r);
+    }
+    return;
+#elif GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
+    unsigned long long borrow = 0;
+    for (size_t i = 0; i < L; ++i)
+    {
+        unsigned long long borrow_out;
+        const unsigned long long r
+            = __builtin_subcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), borrow, &borrow_out);
+        dst[i] = static_cast<uint64_t>(r);
+        borrow = borrow_out;
+    }
+    return;
+#endif
     sub_limbs_copy_scalar<L>(dst, lhs, rhs);
+}
+
+template <>
+GINT_FORCE_INLINE void sub_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    sub_limbs_copy_scalar<2>(dst, lhs, rhs);
 }
 
 template <>
@@ -1904,6 +2033,10 @@ public:
         }
 #endif
 
+        int positive_pow_bit;
+        if (positive_power_of_two_fastpath_divisor(rhs, positive_pow_bit))
+            return div_by_positive_power_of_two(lhs, positive_pow_bit);
+
         bool lhs_neg = false;
         bool rhs_neg = false;
         bool lhs_is_min = false;
@@ -2963,6 +3096,42 @@ private:
     }
 
     static GINT_FORCE_INLINE void negate_for_division(integer & v) noexcept { negate_in_place(v); }
+
+    static bool positive_power_of_two_value(const integer & v, int & bit_index) noexcept
+    {
+        if (std::is_same<Signed, signed>::value && (v.data_[limbs - 1] >> 63))
+            return false;
+        return is_power_of_two(v, bit_index);
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L >= 16), bool>::type
+    positive_power_of_two_fastpath_divisor(const integer & v, int & bit_index) noexcept
+    {
+        return v.data_[0] == 0 && positive_power_of_two_value(v, bit_index);
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L < 16), bool>::type
+    positive_power_of_two_fastpath_divisor(const integer &, int &) noexcept
+    {
+        return false;
+    }
+
+    static GINT_FORCE_INLINE integer div_by_positive_power_of_two(integer lhs, int pow_bit) noexcept
+    {
+        if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
+        {
+            const limb_type min_magnitude = static_cast<limb_type>(1ULL << 63);
+            if (GINT_UNLIKELY(lhs.data_[limbs - 1] == min_magnitude && is_min_value(lhs)))
+                return div_unsigned_path(lhs, integer(1) << pow_bit, true, false, true, false);
+            negate_for_division(lhs);
+            integer result = lhs >> pow_bit;
+            negate_for_division(result);
+            return result;
+        }
+        return lhs >> pow_bit;
+    }
 
     static integer div_by_positive_limb(integer lhs, limb_type divisor) noexcept
     {
@@ -4056,7 +4225,9 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_X86_64_GCC_TUNED_PATHS
 #undef GINT_NON_X86_GCC_TUNED_PATHS
 #undef GINT_ENABLE_AARCH64_LIMB_ASM
+#undef GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS
 #undef GINT_ENABLE_X86_64_ADD_INTRINSICS
+#undef GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS
 #undef GINT_ENABLE_X86_64_SUB_INTRINSICS
 #undef GINT_GCC_TUNED_PATHS
 #undef GINT_CLANG_TUNED_PATHS
