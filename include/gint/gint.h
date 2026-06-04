@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -1803,7 +1804,7 @@ private:
 
     template <size_t L = limbs>
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), integer>::type
-    shift_right_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
+    shift_right_int128_unsigned_value(const integer & lhs, size_t n) noexcept
     {
         if (GINT_LIKELY(n < 128U))
         {
@@ -2705,6 +2706,18 @@ public:
             int>::type
         = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_int128_unsigned_value(lhs, n);
+    }
+
+    template <
+        size_t L = limbs,
+        typename std::enable_if<
+            (GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH && L == 2 && std::is_same<Signed, signed>::value
+             && !std::is_same<size_t, unsigned>::value),
+            int>::type
+        = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, size_t n) noexcept
     {
         return shift_right_int128_unsigned_value(lhs, n);
     }
