@@ -73,6 +73,15 @@ TEST(WideIntegerBitwise, BitwiseNot)
     EXPECT_EQ(gint::to_string(b), "340282366920938463463374607431768211455");
 }
 
+TEST(WideIntegerBitwise, UInt128XorHighAndLowLimbs)
+{
+    using U = gint::integer<128, unsigned>;
+    const U high = U(1) << 64;
+    const U a = high | U(0xF0F0F0F0F0F0F0F0ULL);
+    const U b = high | U(0x0F0F0F0F0F0F0F0FULL);
+    EXPECT_EQ(a ^ b, U(0xFFFFFFFFFFFFFFFFULL));
+}
+
 TEST(WideIntegerBitwise, BitwiseAndShift256)
 {
     using U = gint::integer<256, unsigned>;
