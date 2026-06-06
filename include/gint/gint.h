@@ -128,22 +128,6 @@
 #    error "GINT_GCC_TUNED_PATHS and GINT_CLANG_TUNED_PATHS are mutually exclusive"
 #endif
 
-#if defined(GINT_ENABLE_X86_64_ADD_INTRINSICS) || defined(GINT_ENABLE_X86_64_WIDE_ADD_INTRINSICS) \
-    || defined(GINT_ENABLE_X86_64_SUB_INTRINSICS) || defined(GINT_ENABLE_AARCH64_WIDE_ADDSUB_BUILTINS) \
-    || defined(GINT_ENABLE_AARCH64_UINT128_SMALL_DIVMOD) || defined(GINT_ENABLE_AARCH64_UINT128_SMALL_MOD) \
-    || defined(GINT_ENABLE_MUL4_SMALL_OPERAND_FASTPATH) || defined(GINT_ENABLE_MUL4_LOW128_FASTPATH) \
-    || defined(GINT_ENABLE_MUL4_RHS_SINGLE_LIMB_FASTPATH) || defined(GINT_ENABLE_MUL4_LHS_SINGLE_LIMB_FASTPATH) \
-    || defined(GINT_ENABLE_X86_64_GCC_MUL4_U64_FASTPATH) || defined(GINT_ENABLE_WIDE_SINGLE_LIMB_MUL_FASTPATH) \
-    || defined(GINT_ENABLE_REM_QUOTIENT_MUL_FASTPATH) || defined(GINT_ENABLE_POSITIVE_LIMB_DIV_FASTPATH) \
-    || defined(GINT_ENABLE_WIDE_SINGLE_LIMB_QUOTIENT_DIV_FASTPATH) || defined(GINT_ENABLE_AARCH64_LIMB2_POSITIVE_LIMB_DIV_FASTPATH) \
-    || defined(GINT_ENABLE_POSITIVE_LIMB_REM_FASTPATH) || defined(GINT_ENABLE_X86_64_HW_SMALL_DIVMOD) \
-    || defined(GINT_ENABLE_AARCH64_TWO_LIMB_LARGE_DIVISOR_FASTPATH) || defined(GINT_ENABLE_AARCH64_INT128_NEGATIVE_ZERO_DIV_FASTPATH) \
-    || defined(GINT_ENABLE_AARCH64_TWO_LIMB_POSITIVE_POW2_DIV_FASTPATH) || defined(GINT_ENABLE_AARCH64_INT128_SIGNED_LIMB_DIV_FASTPATH) \
-    || defined(GINT_ENABLE_AARCH64_XOR16_UNROLL_FASTPATH) || defined(GINT_ENABLE_AARCH64_INT128_UNSIGNED_RIGHT_SHIFT_FASTPATH) \
-    || defined(GINT_ENABLE_AARCH64_GCC_WIDE_SHIFT_UNSIGNED_FASTPATH) || defined(GINT_ENABLE_AARCH64_GCC_REM_LARGE_DIRECT_FASTPATH)
-#    error "Fine-grained GINT_ENABLE_* fast-path override macros were removed; use GINT_GCC_TUNED_PATHS or GINT_CLANG_TUNED_PATHS."
-#endif
-
 #define GINT_DETAIL_X86_64_GCC (GINT_ARCH_X86_64 && GINT_GCC_TUNED_PATHS)
 #define GINT_DETAIL_X86_64_CLANG (GINT_ARCH_X86_64 && GINT_CLANG_TUNED_PATHS)
 #define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
@@ -1797,8 +1781,8 @@ public:
 private:
 #if GINT_DETAIL_AARCH64_GCC
     template <size_t L = limbs>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE
-        typename std::enable_if<(L == 2), integer>::type shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2), integer>::type
+    shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
     {
         if (GINT_LIKELY(n < 128U))
         {
@@ -1846,8 +1830,8 @@ private:
 
 #if GINT_DETAIL_AARCH64_GCC
     template <size_t L = limbs>
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE
-        typename std::enable_if<(L == 4), integer>::type shift_right_value4_by_size(const integer & value, size_t shift) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 4), integer>::type
+    shift_right_value4_by_size(const integer & value, size_t shift) noexcept
     {
         if (shift == 0)
             return value;
@@ -2064,8 +2048,8 @@ private:
 
 #if GINT_DETAIL_AARCH64_GCC
     template <size_t LimbShift>
-    static GINT_CONSTEXPR14
-        GINT_FORCE_INLINE integer shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer
+    shift_right_value_16_by_limb_shift(const integer & value, unsigned bit_shift, limb_type fill) noexcept
     {
 #    if __cplusplus >= 201402L
         integer result;
@@ -2722,7 +2706,8 @@ public:
         size_t L = limbs,
         typename std::enable_if<
             (GINT_DETAIL_AARCH64_CLANG && L == 2 && std::is_same<Signed, signed>::value && !std::is_same<size_t, unsigned>::value),
-            int>::type = 0>
+            int>::type
+        = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, size_t n) noexcept
     {
         return shift_right_int128_unsigned_value(lhs, n);
