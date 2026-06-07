@@ -6,12 +6,14 @@
 
 ## 环境口径
 
-- 本机（local）：指宿主机 macOS + AppleClang 工具链，构建与输出目录使用 `runs/local/`。
-- Docker/GCC：指 `gint:centos8` 容器内的 CentOS 8 + GCC/g++ 工具链，构建与输出目录使用 `runs/docker/`。Dockerfile 也安装 `clang`/`clangd` 作为开发辅助工具，但未显式设置 `CC`/`CXX` 时，CMake 默认使用 GCC/g++。
-- 两套结果用于验证不同 OS/编译器组合；性能报告应分别呈现，不直接混合横向比较。
+- 默认本机（local）：指当前 macOS + AppleClang 工具链，构建与输出目录使用 `runs/local/`。
+- 其他环境或编译器：使用独立 `runs/<scope>/` 和独立 `BENCH_BUILD_DIR`，例如本机 GCC、Linux GCC、Linux Clang 等。
+- 仓库内命令只假定已经位于当前执行环境；具体在哪里运行由外部编排决定。
+- 不同架构、OS、编译器结果应分别呈现，不直接混合横向比较。
+- 可复现验证环境的初始化方式见 [验证环境固化](VALIDATION_ENVIRONMENTS.md)。该文档只固化当前环境依赖，不固定具体测试项目、过滤器或位宽。
 
-## 当前本机 AppleClang 样本
-- 平台：Apple M4 Pro，macOS 26.4.1，arm64
+## 本机 AppleClang 样本（历史示例）
+- 采集平台：Apple M4 Pro，macOS 26.4.1，arm64
 - 核心数：12
 - 工具链：AppleClang 21.0.0，Google Benchmark v1.9.5
 - 编译：Release（`-O3 -DNDEBUG`）
@@ -20,7 +22,7 @@
 
 ## 通用提示
 - 本机 AppleClang 口径下，Makefile 默认构建目录位于 `runs/local/`：测试 `runs/local/build`，基准 `runs/local/build-bench`，覆盖率 `runs/local/build-coverage`。
-- Docker/GCC 验证需显式通过 `docker run ... gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench ...` 执行，产物放在 `runs/docker/`。
+- 非默认环境验证需显式指定独立 `BENCH_BUILD_DIR`，产物放在对应 `runs/<scope>/`。
 - 最短运行时间：建议加入 `--benchmark_min_time=0.2s`（单位必须为秒）。
 - 过滤子集：可用 `--benchmark_filter`（示例：`--benchmark_filter=^Div/SmallDivisor64/`）。
 - 完整矩阵：使用 `bench-full` 或 `bench-compare-full`，等价于给可执行传入 `--gint_full`。
@@ -34,7 +36,7 @@
 ### 用法
 - 本机 AppleClang 标准矩阵：`make bench BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 本机 AppleClang 完整矩阵：`make bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
-- Docker/GCC 完整矩阵：`docker run --rm -t -v "$PWD":/work -w /work gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 其他环境完整矩阵：`make BENCH_BUILD_DIR=runs/<scope>/build-bench bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 本机直接运行：`runs/local/build-bench/perf_benchmark_int256 --benchmark_min_time=0.2s`
 - 其他位宽：`make BENCH_BITS=512 bench-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 
@@ -50,7 +52,7 @@
 ### 用法
 - 本机 AppleClang 标准矩阵：`make bench-compare BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 本机 AppleClang 完整矩阵：`make bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
-- Docker/GCC 完整矩阵：`docker run --rm -t -v "$PWD":/work -w /work gint:centos8 make BENCH_BUILD_DIR=runs/docker/build-bench bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
+- 其他环境完整矩阵：`make BENCH_BUILD_DIR=runs/<scope>/build-bench bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 - 本机直接运行：`runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_min_time=0.2s`
 - 其他位宽：`make BENCH_BITS=1024 bench-compare-full BENCH_ARGS="--benchmark_min_time=0.2s"`
 
