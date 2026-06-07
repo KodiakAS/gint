@@ -2968,6 +2968,17 @@ public:
             return rem_unsigned_magnitude(lhs, rhs);
         }
 #else
+#    if GINT_CLANG_TUNED_PATHS
+        if (limbs >= 8)
+        {
+            if (std::is_same<Signed, signed>::value)
+            {
+                const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
+                return rem_signed_magnitude(lhs, rhs, rhs_neg);
+            }
+            return rem_unsigned_magnitude_with_large_direct(lhs, rhs);
+        }
+#    endif
         integer q = lhs / rhs;
         q *= rhs;
         lhs -= q;
@@ -4137,6 +4148,8 @@ private:
 
 #if GINT_DETAIL_AARCH64_GCC
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
+#elif GINT_CLANG_TUNED_PATHS
+        Unsigned rem_mag = rem_signed_magnitude_unsigned(lhs_mag, rhs_mag);
 #else
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude(lhs_mag, rhs_mag);
 #endif
@@ -4147,6 +4160,22 @@ private:
             negate_for_division(result);
         return result;
     }
+
+#if GINT_CLANG_TUNED_PATHS
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L >= 8), integer<Bits, unsigned>>::type
+    rem_signed_magnitude_unsigned(const integer<Bits, unsigned> & lhs_mag, const integer<Bits, unsigned> & rhs_mag) noexcept
+    {
+        return integer<Bits, unsigned>::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
+    }
+
+    template <size_t L = limbs>
+    static GINT_FORCE_INLINE typename std::enable_if<(L < 8), integer<Bits, unsigned>>::type
+    rem_signed_magnitude_unsigned(const integer<Bits, unsigned> & lhs_mag, const integer<Bits, unsigned> & rhs_mag) noexcept
+    {
+        return integer<Bits, unsigned>::rem_unsigned_magnitude(lhs_mag, rhs_mag);
+    }
+#endif
 
     static integer rem_unsigned_magnitude(const integer & lhs, const integer & divisor) noexcept
     {
@@ -4209,8 +4238,9 @@ private:
 
     static integer rem_unsigned_magnitude_with_large_direct(const integer & lhs, const integer & divisor) noexcept
     {
-#if GINT_DETAIL_AARCH64_GCC
-        if (limbs >= 4 && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
+#if GINT_DETAIL_AARCH64_GCC || GINT_CLANG_TUNED_PATHS
+        if (((GINT_DETAIL_AARCH64_GCC && limbs >= 4) || (GINT_CLANG_TUNED_PATHS && limbs >= 8))
+            && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
         {
             const size_t divisor_limbs = used_limbs(divisor);
             int pow_bit;
