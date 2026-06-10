@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <ios>
 #include <limits>
 #include <ostream>
 #include <stdexcept>
@@ -1365,6 +1366,12 @@ GINT_FORCE_INLINE void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
 //=== String and stream declarations =========================================
 template <size_t Bits, typename Signed>
 std::string to_string(const integer<Bits, Signed> & value);
+
+namespace detail
+{
+template <size_t Bits, typename Signed>
+std::string to_base_string(const integer<Bits, Signed> & value, unsigned base, bool uppercase);
+}
 
 template <size_t Bits, typename Signed>
 integer<Bits, Signed> from_string(const std::string & text, unsigned base = 0);
@@ -3368,6 +3375,7 @@ public:
     GINT_CONSTEXPR14 friend integer operator+(const integer & v) noexcept { return v; }
 
     friend std::string to_string<>(const integer & v);
+    friend std::string detail::to_base_string<>(const integer & v, unsigned base, bool uppercase);
 
 private:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
@@ -5636,6 +5644,114 @@ inline void detect_parse_base(const std::string & text, size_t & pos, unsigned &
     else if (base == 2 && pos + 1 < text.size() && text[pos] == '0' && (text[pos + 1] == 'b' || text[pos + 1] == 'B'))
         pos += 2;
 }
+
+inline char format_digit(unsigned digit, bool uppercase) noexcept
+{
+    return static_cast<char>((digit < 10) ? ('0' + digit) : ((uppercase ? 'A' : 'a') + (digit - 10)));
+}
+
+inline size_t stream_prefix_size(const std::string & text) noexcept
+{
+    if (text.empty())
+        return 0;
+    if (text[0] == '-' || text[0] == '+')
+        return 1;
+    if (text.size() >= 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
+        return 2;
+    return 0;
+}
+
+inline std::ostream & write_formatted_string(std::ostream & out, const std::string & text)
+{
+    const std::streamsize width = out.width(0);
+    const std::streamsize size = static_cast<std::streamsize>(text.size());
+    if (width <= size)
+        return out.write(text.data(), size);
+
+    const std::streamsize padding = width - size;
+    const char fill = out.fill();
+    const std::ios_base::fmtflags adjust = out.flags() & std::ios_base::adjustfield;
+    const size_t prefix = (adjust == std::ios_base::internal) ? stream_prefix_size(text) : 0;
+
+    if (adjust == std::ios_base::left)
+    {
+        out.write(text.data(), size);
+        for (std::streamsize i = 0; i < padding; ++i)
+            out.put(fill);
+        return out;
+    }
+
+    if (prefix)
+        out.write(text.data(), static_cast<std::streamsize>(prefix));
+    for (std::streamsize i = 0; i < padding; ++i)
+        out.put(fill);
+    out.write(text.data() + prefix, size - static_cast<std::streamsize>(prefix));
+    return out;
+}
+
+template <size_t Bits, typename Signed>
+inline std::string to_base_string(const integer<Bits, Signed> & value, unsigned base, bool uppercase)
+{
+    if (base == 10)
+        return to_string(value);
+
+    const unsigned bits_per_digit = (base == 16) ? 4 : 3;
+    const unsigned mask = (1u << bits_per_digit) - 1u;
+    const size_t digit_count = (Bits + bits_per_digit - 1) / bits_per_digit;
+    std::string out;
+    out.reserve(digit_count);
+
+    bool seen = false;
+    for (size_t digit_index = digit_count; digit_index-- > 0;)
+    {
+        const size_t bit = digit_index * bits_per_digit;
+        const size_t limb_index = bit / 64;
+        const unsigned shift = static_cast<unsigned>(bit % 64);
+        unsigned digit = static_cast<unsigned>((value.data_[limb_index] >> shift) & mask);
+        if (shift + bits_per_digit > 64 && limb_index + 1 < integer<Bits, Signed>::limbs)
+            digit |= static_cast<unsigned>(value.data_[limb_index + 1] << (64 - shift)) & mask;
+
+        const unsigned valid_bits = static_cast<unsigned>((Bits - bit < bits_per_digit) ? (Bits - bit) : bits_per_digit);
+        digit &= (1u << valid_bits) - 1u;
+
+        if (digit || seen)
+        {
+            out.push_back(format_digit(digit, uppercase));
+            seen = true;
+        }
+    }
+
+    return seen ? out : std::string("0");
+}
+
+template <size_t Bits, typename Signed>
+inline std::string format_stream_value(const integer<Bits, Signed> & value, const std::ios_base::fmtflags flags)
+{
+    const std::ios_base::fmtflags basefield = flags & std::ios_base::basefield;
+    const bool uppercase = (flags & std::ios_base::uppercase) != 0;
+    unsigned base = 10;
+    if (basefield == std::ios_base::hex)
+        base = 16;
+    else if (basefield == std::ios_base::oct)
+        base = 8;
+
+    std::string text = to_base_string(value, base, uppercase);
+    if (base == 10)
+    {
+        if ((flags & std::ios_base::showpos) && (text.empty() || text[0] != '-'))
+            text.insert(text.begin(), '+');
+        return text;
+    }
+
+    if ((flags & std::ios_base::showbase) && text != "0")
+    {
+        if (base == 16)
+            text.insert(0, uppercase ? "0X" : "0x");
+        else if (base == 8 && text[0] != '0')
+            text.insert(text.begin(), '0');
+    }
+    return text;
+}
 } // namespace detail
 
 template <size_t Bits, typename Signed>
@@ -5695,7 +5811,8 @@ inline Int from_string(const char * text, unsigned base)
 template <size_t Bits, typename Signed>
 inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed> & value)
 {
-    return out << to_string(value);
+    const std::string text = detail::format_stream_value(value, out.flags());
+    return detail::write_formatted_string(out, text);
 } // LCOV_EXCL_LINE
 
 } // namespace gint
@@ -5706,16 +5823,158 @@ namespace fmt
 template <size_t Bits, typename Signed>
 struct formatter<gint::integer<Bits, Signed>>
 {
+    char fill = ' ';
+    char align = '>';
+    char sign = 0;
+    bool alternate = false;
+    unsigned width = 0;
+    char presentation = 0;
+
     template <typename ParseContext>
-    constexpr auto parse(ParseContext & ctx) -> typename ParseContext::iterator
+    auto parse(ParseContext & ctx) -> typename ParseContext::iterator
     {
-        return ctx.begin();
+        auto it = ctx.begin();
+        const auto end = ctx.end();
+        if (it == end || *it == '}')
+            return it;
+
+        auto next = it;
+        ++next;
+        if (next != end && (*next == '<' || *next == '>' || *next == '^' || *next == '='))
+        {
+            fill = *it;
+            align = *next;
+            it = next;
+            ++it;
+        }
+        else if (*it == '<' || *it == '>' || *it == '^' || *it == '=')
+        {
+            align = *it;
+            ++it;
+        }
+
+        if (it != end && (*it == '+' || *it == '-' || *it == ' '))
+        {
+            sign = *it;
+            ++it;
+        }
+
+        if (it != end && *it == '#')
+        {
+            alternate = true;
+            ++it;
+        }
+
+        if (it != end && *it == '0')
+        {
+            if (align == '>')
+            {
+                align = '=';
+                fill = '0';
+            }
+            ++it;
+        }
+
+        while (it != end && *it >= '0' && *it <= '9')
+        {
+            width = width * 10u + static_cast<unsigned>(*it - '0');
+            ++it;
+        }
+
+        if (it != end && *it != '}')
+        {
+            presentation = *it;
+            if (presentation != 'd' && presentation != 'x' && presentation != 'X' && presentation != 'o')
+                throw fmt::format_error("invalid format specifier for gint::integer");
+            ++it;
+        }
+
+        if (it != end && *it != '}')
+            throw fmt::format_error("invalid format specifier for gint::integer");
+        return it;
     }
 
     template <typename FormatContext>
     auto format(const gint::integer<Bits, Signed> & value, FormatContext & ctx) const -> typename FormatContext::iterator
     {
-        return fmt::format_to(ctx.out(), "{}", gint::to_string(value));
+        using Int = gint::integer<Bits, Signed>;
+        unsigned base = 10;
+        bool uppercase = false;
+        if (presentation == 'x' || presentation == 'X')
+        {
+            base = 16;
+            uppercase = (presentation == 'X');
+        }
+        else if (presentation == 'o')
+        {
+            base = 8;
+        }
+
+        const bool negative = std::is_same<Signed, signed>::value && value < Int(0);
+        std::string prefix;
+        std::string digits;
+        if (base == 10)
+        {
+            digits = gint::to_string(value);
+            if (!digits.empty() && digits[0] == '-')
+            {
+                prefix = "-";
+                digits.erase(digits.begin());
+            }
+        }
+        else
+        {
+            const Int magnitude = negative ? -value : value;
+            digits = gint::detail::to_base_string(magnitude, base, uppercase);
+            if (negative)
+                prefix = "-";
+        }
+
+        if (prefix.empty())
+        {
+            if (sign == '+')
+                prefix = "+";
+            else if (sign == ' ')
+                prefix = " ";
+        }
+
+        if (alternate && digits != "0")
+        {
+            if (base == 16)
+                prefix += uppercase ? "0X" : "0x";
+            else if (base == 8 && digits[0] != '0')
+                prefix += "0";
+        }
+
+        std::string text = prefix + digits;
+        if (width > text.size())
+        {
+            const size_t padding = width - text.size();
+            if (align == '<')
+            {
+                text.append(padding, fill);
+            }
+            else if (align == '^')
+            {
+                const size_t left = padding / 2;
+                const size_t right = padding - left;
+                text.insert(0, left, fill);
+                text.append(right, fill);
+            }
+            else if (align == '=' && !prefix.empty())
+            {
+                text = prefix + std::string(padding, fill) + digits;
+            }
+            else
+            {
+                text.insert(0, padding, fill);
+            }
+        }
+
+        auto out = ctx.out();
+        for (size_t i = 0; i < text.size(); ++i)
+            *out++ = text[i];
+        return out;
     } // LCOV_EXCL_LINE
 };
 } // namespace fmt
