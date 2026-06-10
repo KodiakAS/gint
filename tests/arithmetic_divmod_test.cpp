@@ -533,6 +533,28 @@ TEST(WideIntegerDivision, S64DivByLimb)
     EXPECT_EQ(a % d, S64(ri));
 }
 
+TEST(WideIntegerDivision, S64UnsignedInteropAboveSignedRange)
+{
+    using S64 = gint::integer<64, signed>;
+
+    const S64 min = std::numeric_limits<S64>::min();
+    const uint64_t signed_min_magnitude = 1ULL << 63;
+    EXPECT_EQ(min / signed_min_magnitude, S64(-1));
+    EXPECT_EQ(min % signed_min_magnitude, S64(0));
+
+    const uint64_t larger_than_min_magnitude = signed_min_magnitude + 5;
+    EXPECT_EQ(min / larger_than_min_magnitude, S64(0));
+    EXPECT_EQ(min % larger_than_min_magnitude, min);
+
+    const unsigned __int128 huge = static_cast<unsigned __int128>(1) << 80;
+    EXPECT_EQ(S64(-123) / huge, S64(0));
+    EXPECT_EQ(S64(-123) % huge, S64(-123));
+
+    const uint64_t max_u64 = std::numeric_limits<uint64_t>::max();
+    EXPECT_EQ(max_u64 / S64(2), std::numeric_limits<S64>::max());
+    EXPECT_EQ(max_u64 % S64(2), S64(1));
+}
+
 TEST(WideIntegerDivision, SmallOverLarge)
 {
     using U256 = gint::integer<256, unsigned>;

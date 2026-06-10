@@ -6,7 +6,17 @@ TEST(WideIntegerNumericLimits, Basic)
 {
     using U = gint::integer<128, unsigned>;
     using S = gint::integer<128, signed>;
-    // general properties (compile-time checks avoid odr-use of static members)
+    constexpr U constexpr_umax = std::numeric_limits<U>::max();
+    constexpr S constexpr_smin = std::numeric_limits<S>::min();
+    constexpr S constexpr_smax = std::numeric_limits<S>::max();
+    static_assert(constexpr_umax == std::numeric_limits<U>::max(), "numeric_limits<U>::max must be constexpr");
+    static_assert(constexpr_smin == std::numeric_limits<S>::lowest(), "numeric_limits<S>::min must be constexpr");
+    static_assert(constexpr_smax == std::numeric_limits<S>::max(), "numeric_limits<S>::max must be constexpr");
+
+    const bool * specialized_ptr = &std::numeric_limits<S>::is_specialized;
+    EXPECT_TRUE(*specialized_ptr);
+
+    // general properties
     static_assert(std::numeric_limits<U>::is_specialized, "numeric_limits<U>::is_specialized");
     static_assert(std::numeric_limits<S>::is_specialized, "numeric_limits<S>::is_specialized");
     static_assert(std::numeric_limits<U>::is_integer, "numeric_limits<U>::is_integer");

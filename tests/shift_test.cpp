@@ -235,6 +235,22 @@ TEST(WideIntegerShift, Int128SizeTShiftAmountMatchesReference)
     }
 }
 
+TEST(WideIntegerShift, LongShiftAmountMatchesReference)
+{
+    using S128 = gint::integer<128, signed>;
+
+    S128 signed_value = patterned_value<S128>(0x1020304050607080ULL);
+    TestAccess<S128>::limb(signed_value, S128::limbs - 1) |= uint64_t(1) << 63;
+
+    const long shifts[] = {0, 1, 63, 64, 65, 127, 128};
+    for (std::size_t i = 0; i < sizeof(shifts) / sizeof(shifts[0]); ++i)
+    {
+        const long shift = shifts[i];
+        EXPECT_EQ(signed_value >> shift, reference_right_shift(signed_value, static_cast<std::size_t>(shift)))
+            << "signed right shift " << shift;
+    }
+}
+
 TEST(WideIntegerShift, UInt256ExactWholeLimbRightShifts)
 {
     using U256 = gint::integer<256, unsigned>;

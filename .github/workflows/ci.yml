@@ -6,10 +6,23 @@ on:
 
 jobs:
   build:
+    name: build (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: ubuntu-gcc
+            os: ubuntu-latest
+            cxx: g++
+          - name: ubuntu-clang
+            os: ubuntu-latest
+            cxx: clang++
+          - name: ubuntu-arm64-gcc
+            os: ubuntu-24.04-arm
+            cxx: g++
+          - name: macos-appleclang
+            os: macos-latest
+            cxx: c++
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +34,7 @@ jobs:
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends \
-              cmake build-essential libfmt-dev libgtest-dev
+              cmake build-essential clang libfmt-dev libgtest-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             # Avoid reinstalling preinstalled or pinned formulae on GitHub macOS runners
             (brew list cmake >/dev/null 2>&1) || brew install cmake
@@ -45,7 +58,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
       - name: Configure
-        run: cmake -S . -B runs/ci/build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: CXX=${{ matrix.cxx }} cmake -S . -B runs/ci/build -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build runs/ci/build --config Debug --parallel
       - name: Run tests
@@ -61,7 +74,7 @@ jobs:
               return static_cast<int>(static_cast<unsigned long long>(y));
           }
           CPP
-          c++ -std=c++11 -Wall -Wextra -Werror -Iinclude runs/ci/gint_header_warning_smoke.cpp -c -o runs/ci/gint_header_warning_smoke.o
+          ${{ matrix.cxx }} -std=c++11 -Wall -Wextra -Werror -Iinclude runs/ci/gint_header_warning_smoke.cpp -c -o runs/ci/gint_header_warning_smoke.o
 
   build-cxx17:
     name: build (ubuntu-latest-cxx17)
