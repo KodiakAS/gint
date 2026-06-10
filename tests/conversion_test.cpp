@@ -8,6 +8,38 @@
 // Compile-time convertibility checks (moved from removed compile_test.cpp)
 static_assert(std::is_convertible<int, gint::Int256>::value, "int should convert to Int256 implicitly");
 static_assert(!std::is_convertible<gint::Int256, int>::value, "Int256 should not implicitly convert to int");
+static_assert(std::is_constructible<gint::Int128, gint::UInt128>::value, "UInt128 should explicitly construct Int128");
+static_assert(std::is_constructible<gint::UInt256, gint::Int128>::value, "Int128 should explicitly construct UInt256");
+static_assert(!std::is_convertible<gint::UInt128, gint::Int128>::value, "integer signedness conversion should stay explicit");
+static_assert(std::is_assignable<gint::Int256 &, gint::UInt128>::value, "UInt128 should assign to Int256 explicitly");
+
+template <size_t SmallBits, size_t LargeBits>
+static void test_integer_conversion_width_pair()
+{
+    using USmall = gint::integer<SmallBits, unsigned>;
+    using SSmall = gint::integer<SmallBits, signed>;
+    using ULarge = gint::integer<LargeBits, unsigned>;
+    using SLarge = gint::integer<LargeBits, signed>;
+
+    const SSmall minus_one = SSmall(-1);
+    const SLarge sign_extended_signed = static_cast<SLarge>(minus_one);
+    const ULarge sign_extended_unsigned = static_cast<ULarge>(minus_one);
+    EXPECT_EQ(sign_extended_signed, SLarge(-1));
+    EXPECT_EQ(sign_extended_unsigned, std::numeric_limits<ULarge>::max());
+
+    const USmall small_max = std::numeric_limits<USmall>::max();
+    const ULarge zero_extended = static_cast<ULarge>(small_max);
+    EXPECT_EQ(gint::to_string(zero_extended), gint::to_string(small_max));
+
+    ULarge high_unsigned = static_cast<ULarge>(USmall(77));
+    high_unsigned += ULarge(1) << SmallBits;
+    EXPECT_EQ(static_cast<USmall>(high_unsigned), USmall(77));
+
+    SLarge high_signed = SLarge(1);
+    high_signed <<= SmallBits;
+    high_signed -= SLarge(123);
+    EXPECT_EQ(static_cast<SSmall>(high_signed), SSmall(-123));
+}
 
 TEST(WideIntegerConversion, Int128NegativeConversion)
 {
@@ -241,6 +273,52 @@ TEST(WideIntegerConversion, SignedConversionInt128)
     gint::integer<256, signed> negative = -1;
     auto neg_explicit = static_cast<__int128>(negative);
     EXPECT_TRUE(neg_explicit == static_cast<__int128>(-1));
+}
+
+TEST(WideIntegerConversion, SameWidthIntegerConversionPreservesBits)
+{
+    using S128 = gint::integer<128, signed>;
+    using U128 = gint::integer<128, unsigned>;
+
+    U128 sign_bit = U128(1);
+    sign_bit <<= 127;
+    const S128 min_value = static_cast<S128>(sign_bit);
+    EXPECT_EQ(min_value, std::numeric_limits<S128>::min());
+    EXPECT_EQ(static_cast<U128>(min_value), sign_bit);
+
+    const S128 negative = S128(-1);
+    EXPECT_EQ(static_cast<U128>(negative), std::numeric_limits<U128>::max());
+    EXPECT_EQ(static_cast<S128>(std::numeric_limits<U128>::max()), S128(-1));
+}
+
+TEST(WideIntegerConversion, CrossWidthIntegerConversionExtendsAndNarrows)
+{
+    test_integer_conversion_width_pair<64, 128>();
+    test_integer_conversion_width_pair<128, 256>();
+    test_integer_conversion_width_pair<256, 512>();
+    test_integer_conversion_width_pair<512, 1024>();
+}
+
+TEST(WideIntegerConversion, CrossWidthIntegerAssignment)
+{
+    using S128 = gint::integer<128, signed>;
+    using U128 = gint::integer<128, unsigned>;
+    using S256 = gint::integer<256, signed>;
+    using U256 = gint::integer<256, unsigned>;
+
+    S256 signed_assigned;
+    signed_assigned = S128(-42);
+    EXPECT_EQ(signed_assigned, S256(-42));
+
+    U256 unsigned_assigned;
+    unsigned_assigned = S128(-1);
+    EXPECT_EQ(unsigned_assigned, std::numeric_limits<U256>::max());
+
+    U128 high_unsigned = U128(1);
+    high_unsigned <<= 127;
+    S256 positive_assigned;
+    positive_assigned = high_unsigned;
+    EXPECT_EQ(positive_assigned, S256(1) << 127);
 }
 
 TEST(WideIntegerConversion, SignedNarrowWidthUnsignedComparisons)
