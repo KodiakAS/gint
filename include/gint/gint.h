@@ -3874,7 +3874,7 @@ private:
         return rem;
     }
 
-    static integer
+    static GINT_HIDDEN_VISIBILITY integer
     div_unsigned_path(const integer & lhs_value, const integer & rhs_value, bool lhs_neg, bool rhs_neg, bool lhs_is_min, bool rhs_is_min)
     {
         using Unsigned = integer<Bits, unsigned>;
