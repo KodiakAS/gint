@@ -5831,7 +5831,7 @@ struct formatter<gint::integer<Bits, Signed>>
     char presentation = 0;
 
     template <typename ParseContext>
-    auto parse(ParseContext & ctx) -> typename ParseContext::iterator
+    FMT_CONSTEXPR auto parse(ParseContext & ctx) -> typename ParseContext::iterator
     {
         auto it = ctx.begin();
         const auto end = ctx.end();
