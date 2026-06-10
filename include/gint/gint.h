@@ -1922,6 +1922,23 @@ private:
         return shifted_out_value(lhs);
     }
 
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && Bits == 128), integer>::type
+    shift_left_int128_unsigned_value(const integer & lhs, unsigned n) noexcept
+    {
+        if (GINT_LIKELY(n < 128U))
+        {
+            using u128 = unsigned __int128;
+            const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+            const u128 shifted = raw << n;
+            integer result(uninitialized_tag{});
+            result.data_[0] = static_cast<limb_type>(shifted);
+            result.data_[1] = static_cast<limb_type>(shifted >> 64);
+            return result;
+        }
+        return integer();
+    }
+
 #if !GINT_GCC_TUNED_PATHS
     template <size_t L = limbs>
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), integer>::type
@@ -2410,7 +2427,17 @@ public:
         return lhs;
     }
 
-    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept { return shift_left_unsigned_value(lhs, n); }
+    template <size_t L = limbs, typename std::enable_if<(L == 2 && Bits == 128), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_left_int128_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<!(L == 2 && Bits == 128), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_left_unsigned_value(lhs, n);
+    }
 
     template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
@@ -2431,6 +2458,15 @@ public:
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
     {
         return shift_right_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 4 && !std::is_same<size_t, unsigned>::value), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, size_t n) noexcept
+    {
+        integer result = lhs >> static_cast<unsigned>(n);
+        if (GINT_UNLIKELY(n >= Bits))
+            return shifted_out_value(lhs);
+        return result;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
@@ -2471,7 +2507,17 @@ public:
         return shift_right_value(lhs, n);
     }
 
-    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept { return shift_left_unsigned_value(lhs, n); }
+    template <size_t L = limbs, typename std::enable_if<(L == 2 && Bits == 128), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_left_int128_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<!(L == 2 && Bits == 128), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_left_unsigned_value(lhs, n);
+    }
 
     template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
@@ -2492,6 +2538,15 @@ public:
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
     {
         return shift_right_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 4 && !std::is_same<size_t, unsigned>::value), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, size_t n) noexcept
+    {
+        integer result = lhs >> static_cast<unsigned>(n);
+        if (GINT_UNLIKELY(n >= Bits))
+            return shifted_out_value(lhs);
+        return result;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
