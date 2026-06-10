@@ -1717,6 +1717,20 @@ public:
         return shift_left_assign_wide(limb_shift, static_cast<unsigned>(bit_shift));
     }
 
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
+    GINT_CONSTEXPR14 GINT_FORCE_INLINE integer & operator<<=(T n) noexcept
+    {
+        if (shift_amount_non_positive(n))
+            return *this;
+        if (shift_amount_reaches_width(n))
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                data_[i] = 0;
+            return *this;
+        }
+        return *this <<= static_cast<int>(n);
+    }
+
     GINT_CONSTEXPR14 GINT_FORCE_INLINE integer & operator>>=(int n) noexcept
     {
         if (n <= 0)
@@ -1835,7 +1849,165 @@ public:
         return shift_right_assign_wide(limb_shift, bit_shift, fill);
     }
 
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
+    GINT_CONSTEXPR14 GINT_FORCE_INLINE integer & operator>>=(T n) noexcept
+    {
+        if (shift_amount_non_positive(n))
+            return *this;
+        if (shift_amount_reaches_width(n))
+        {
+            const bool is_signed_t = std::is_same<Signed, signed>::value;
+            const bool neg = is_signed_t && (data_[limbs - 1] >> 63);
+            const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+            for (size_t i = 0; i < limbs; ++i)
+                data_[i] = fill;
+            return *this;
+        }
+        return *this >>= static_cast<int>(n);
+    }
+
 private:
+    template <typename T>
+    static GINT_CONSTEXPR14 typename std::enable_if<detail::is_signed<T>::value, bool>::type shift_amount_non_positive(T n) noexcept
+    {
+        return n <= 0;
+    }
+
+    template <typename T>
+    static GINT_CONSTEXPR14 typename std::enable_if<!detail::is_signed<T>::value, bool>::type shift_amount_non_positive(T) noexcept
+    {
+        return false;
+    }
+
+    template <typename T>
+    static GINT_CONSTEXPR14 typename std::enable_if<(sizeof(T) <= sizeof(size_t)), bool>::type shift_amount_reaches_width(T n) noexcept
+    {
+        return static_cast<size_t>(n) >= Bits;
+    }
+
+    template <typename T>
+    static GINT_CONSTEXPR14 typename std::enable_if<(sizeof(T) > sizeof(size_t)), bool>::type shift_amount_reaches_width(T n) noexcept
+    {
+        return static_cast<unsigned __int128>(n) >= static_cast<unsigned __int128>(Bits);
+    }
+
+    static GINT_CONSTEXPR14 integer shifted_out_value(const integer & value) noexcept
+    {
+        const bool is_signed_t = std::is_same<Signed, signed>::value;
+        const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
+        const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
+        integer result;
+        for (size_t i = 0; i < limbs; ++i)
+            result.data_[i] = fill;
+        return result;
+    }
+
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), integer>::type
+    shift_right_int128_unsigned_value(const integer & lhs, size_t n) noexcept
+    {
+        if (GINT_LIKELY(n < 128U))
+        {
+            using s128 = __int128;
+            using u128 = unsigned __int128;
+            const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
+            const s128 shifted = static_cast<s128>(raw) >> n;
+            const u128 shifted_raw = static_cast<u128>(shifted);
+            integer result(uninitialized_tag{});
+            result.data_[0] = static_cast<limb_type>(shifted_raw);
+            result.data_[1] = static_cast<limb_type>(shifted_raw >> 64);
+            return result;
+        }
+
+        return shifted_out_value(lhs);
+    }
+
+#if !GINT_GCC_TUNED_PATHS
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), integer>::type
+    shift_right_positive_value(const integer & lhs, size_t n) noexcept
+    {
+        return shift_right_int128_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs>
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<!(L == 2 && std::is_same<Signed, signed>::value), integer>::type
+    shift_right_positive_value(const integer & lhs, size_t n) noexcept
+    {
+        return shift_right_value(lhs, static_cast<int>(n));
+    }
+#endif
+
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_unsigned_value(const integer & lhs, unsigned n) noexcept
+    {
+        if (GINT_UNLIKELY(n >= Bits))
+            return integer();
+#if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
+        if (limbs <= 8)
+        {
+            integer result = lhs;
+            result <<= static_cast<int>(n);
+            return result;
+        }
+        return shift_left_value_by_size_in_range(lhs, n);
+#else
+        integer result = lhs;
+        result <<= static_cast<int>(n);
+        return result;
+#endif
+    }
+
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_unsigned_value(const integer & lhs, unsigned n) noexcept
+    {
+        if (GINT_UNLIKELY(n >= Bits))
+            return shifted_out_value(lhs);
+#if !GINT_GCC_TUNED_PATHS
+        return shift_right_positive_value(lhs, n);
+#else
+        integer result = lhs;
+        result >>= static_cast<int>(n);
+        return result;
+#endif
+    }
+
+    template <typename T>
+    static GINT_CONSTEXPR14 integer shift_left_integral_value(const integer & lhs, T n) noexcept
+    {
+        if (shift_amount_non_positive(n))
+            return lhs;
+        if (shift_amount_reaches_width(n))
+            return integer();
+#if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
+        if (limbs <= 8)
+        {
+            integer result = lhs;
+            result <<= static_cast<int>(n);
+            return result;
+        }
+        return shift_left_value(lhs, static_cast<int>(n));
+#else
+        integer result = lhs;
+        result <<= static_cast<int>(n);
+        return result;
+#endif
+    }
+
+    template <typename T>
+    static GINT_CONSTEXPR14 integer shift_right_integral_value(const integer & lhs, T n) noexcept
+    {
+        if (shift_amount_non_positive(n))
+            return lhs;
+        if (shift_amount_reaches_width(n))
+            return shifted_out_value(lhs);
+#if !GINT_GCC_TUNED_PATHS
+        return shift_right_positive_value(lhs, static_cast<size_t>(n));
+#else
+        integer result = lhs;
+        result >>= static_cast<int>(n);
+        return result;
+#endif
+    }
+
     GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE integer & shift_left_assign_wide(size_t limb_shift, unsigned bit_shift) noexcept
     {
         if (bit_shift)
@@ -1899,21 +2071,13 @@ private:
     }
 
 #if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size(const integer & value, size_t shift) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size_in_range(const integer & value, size_t shift) noexcept
     {
-        const size_t total_bits = limbs * 64;
 #    if __cplusplus >= 201402L
         integer result;
 #    else
         integer result(uninitialized_tag{});
 #    endif
-        if (shift >= total_bits)
-        {
-            for (size_t i = 0; i < limbs; ++i)
-                result.data_[i] = 0;
-            return result;
-        }
-
         const size_t limb_shift = shift / 64;
         const unsigned bit_shift = static_cast<unsigned>(shift % 64);
         if (bit_shift)
@@ -1939,6 +2103,14 @@ private:
                 result.data_[i] = value.data_[i - limb_shift];
         }
         return result;
+    }
+
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size(const integer & value, size_t shift) noexcept
+    {
+        const size_t total_bits = limbs * 64;
+        if (shift >= total_bits)
+            return integer();
+        return shift_left_value_by_size_in_range(value, shift);
     }
 
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value(const integer & value, int n) noexcept
@@ -2237,6 +2409,41 @@ public:
         lhs >>= n;
         return lhs;
     }
+
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept { return shift_left_unsigned_value(lhs, n); }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L <= 4 && !(L == 2 && std::is_same<Signed, signed>::value)), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(integer lhs, unsigned n) noexcept
+    {
+        lhs >>= static_cast<int>(n);
+        if (GINT_UNLIKELY(n >= Bits))
+            return shifted_out_value(lhs);
+        return lhs;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L > 4), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_unsigned_value(lhs, n);
+    }
+
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, T n) noexcept
+    {
+        return shift_left_integral_value(lhs, n);
+    }
+
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, T n) noexcept
+    {
+        return shift_right_integral_value(lhs, n);
+    }
 #else
     template <size_t L = limbs, typename std::enable_if<(L <= 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(integer lhs, int n) noexcept
@@ -2262,6 +2469,41 @@ public:
     GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, int n) noexcept
     {
         return shift_right_value(lhs, n);
+    }
+
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept { return shift_left_unsigned_value(lhs, n); }
+
+    template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_unsigned_value(lhs, n);
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L <= 4 && !(L == 2 && std::is_same<Signed, signed>::value)), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(integer lhs, unsigned n) noexcept
+    {
+        lhs >>= static_cast<int>(n);
+        if (GINT_UNLIKELY(n >= Bits))
+            return shifted_out_value(lhs);
+        return lhs;
+    }
+
+    template <size_t L = limbs, typename std::enable_if<(L > 4), int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, unsigned n) noexcept
+    {
+        return shift_right_unsigned_value(lhs, n);
+    }
+
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, T n) noexcept
+    {
+        return shift_left_integral_value(lhs, n);
+    }
+
+    template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
+    GINT_CONSTEXPR14 friend integer operator>>(const integer & lhs, T n) noexcept
+    {
+        return shift_right_integral_value(lhs, n);
     }
 #endif
 
