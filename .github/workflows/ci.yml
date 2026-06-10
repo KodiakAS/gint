@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -126,6 +129,23 @@ jobs:
         with:
           name: coverage-info
           path: runs/ci/coverage.info
+
+  sanitizers:
+    name: sanitizers (ubuntu-clang)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake build-essential clang \
+            libfmt-dev libgtest-dev
+      - name: Configure
+        run: CXX=clang++ cmake -S . -B runs/ci/build-sanitizers -DENABLE_SANITIZERS=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build runs/ci/build-sanitizers --config Debug --parallel
+      - name: Run tests
+        run: ctest --test-dir runs/ci/build-sanitizers --output-on-failure
 
   format:
     runs-on: ubuntu-latest
