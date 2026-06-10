@@ -5695,7 +5695,7 @@ inline std::string to_base_string(const integer<Bits, Signed> & value, unsigned 
     if (base == 10)
         return to_string(value);
 
-    const unsigned bits_per_digit = (base == 16) ? 4 : 3;
+    const unsigned bits_per_digit = (base == 16) ? 4 : (base == 8) ? 3 : 1;
     const unsigned mask = (1u << bits_per_digit) - 1u;
     const size_t digit_count = (Bits + bits_per_digit - 1) / bits_per_digit;
     std::string out;
@@ -5887,7 +5887,8 @@ struct formatter<gint::integer<Bits, Signed>>
         if (it != end && *it != '}')
         {
             presentation = *it;
-            if (presentation != 'd' && presentation != 'x' && presentation != 'X' && presentation != 'o')
+            if (presentation != 'd' && presentation != 'x' && presentation != 'X' && presentation != 'o' && presentation != 'b'
+                && presentation != 'B')
                 throw fmt::format_error("invalid format specifier for gint::integer");
             ++it;
         }
@@ -5911,6 +5912,11 @@ struct formatter<gint::integer<Bits, Signed>>
         else if (presentation == 'o')
         {
             base = 8;
+        }
+        else if (presentation == 'b' || presentation == 'B')
+        {
+            base = 2;
+            uppercase = (presentation == 'B');
         }
 
         const bool negative = std::is_same<Signed, signed>::value && value < Int(0);
@@ -5945,6 +5951,8 @@ struct formatter<gint::integer<Bits, Signed>>
         {
             if (base == 16)
                 prefix += uppercase ? "0X" : "0x";
+            else if (base == 2)
+                prefix += uppercase ? "0B" : "0b";
             else if (base == 8 && digits[0] != '0')
                 prefix += "0";
         }

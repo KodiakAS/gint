@@ -45,6 +45,8 @@ TEST(fmt_support, format_integer_base_specs)
     EXPECT_EQ(fmt::format("{:x}", value), "10000000000000002a");
     EXPECT_EQ(fmt::format("{:X}", value), "10000000000000002A");
     EXPECT_EQ(fmt::format("{:o}", U128(71)), "107");
+    EXPECT_EQ(fmt::format("{:b}", U128(42)), "101010");
+    EXPECT_EQ(fmt::format("{:B}", U128(42)), "101010");
     EXPECT_EQ(fmt::format("{:d}", value), "295147905179352825898");
 }
 
@@ -53,8 +55,11 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     using U128 = gint::integer<128, unsigned>;
 
     EXPECT_EQ(fmt::format("{:#X}", U128(42)), "0X2A");
+    EXPECT_EQ(fmt::format("{:#b}", U128(42)), "0b101010");
+    EXPECT_EQ(fmt::format("{:#B}", U128(42)), "0B101010");
     EXPECT_EQ(fmt::format("{:08x}", U128(42)), "0000002a");
     EXPECT_EQ(fmt::format("{:#08x}", U128(42)), "0x00002a");
+    EXPECT_EQ(fmt::format("{:#010b}", U128(42)), "0b00101010");
     EXPECT_EQ(fmt::format("{:>6d}", U128(42)), "    42");
     EXPECT_EQ(fmt::format("{:<6d}", U128(42)), "42    ");
     EXPECT_EQ(fmt::format("{:^6d}", U128(42)), "  42  ");
@@ -75,5 +80,6 @@ TEST(fmt_support, format_signed_integer_base_specs)
     const S128 value = -42;
 
     EXPECT_EQ(fmt::format("{:x}", value), "-2a");
+    EXPECT_EQ(fmt::format("{:#b}", value), "-0b101010");
     EXPECT_EQ(fmt::format("{:#08x}", value), "-0x0002a");
 }
