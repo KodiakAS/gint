@@ -329,6 +329,23 @@ inline unsigned __int128 mulhi_u128(unsigned __int128 a, unsigned __int128 b) no
     const unsigned __int128 t1 = a0 * b1;
     const unsigned __int128 t2 = a1 * b0;
     const unsigned __int128 t3 = a1 * b1;
+    const unsigned __int128 mid = (t0 >> 64) + static_cast<uint64_t>(t1) + static_cast<uint64_t>(t2);
+    return t3 + (t1 >> 64) + (t2 >> 64) + (mid >> 64);
+}
+
+// Fast high-half multiply for division reciprocal paths where the middle
+// accumulation is proven not to wrap modulo 2^128. Use mulhi_u128 for the
+// general 128x128->256 high-half contract.
+inline unsigned __int128 mulhi_u128_no_middle_wrap(unsigned __int128 a, unsigned __int128 b) noexcept
+{
+    const unsigned __int128 a0 = static_cast<uint64_t>(a);
+    const unsigned __int128 a1 = a >> 64;
+    const unsigned __int128 b0 = static_cast<uint64_t>(b);
+    const unsigned __int128 b1 = b >> 64;
+    const unsigned __int128 t0 = a0 * b0;
+    const unsigned __int128 t1 = a0 * b1;
+    const unsigned __int128 t2 = a1 * b0;
+    const unsigned __int128 t3 = a1 * b1;
     const unsigned __int128 s = (t0 >> 64) + t1 + t2;
     return t3 + (s >> 64);
 }
@@ -3017,15 +3034,23 @@ public:
         const int p = std::numeric_limits<T>::digits;
         int shift = hb - (p - 1);
         integer scaled = lhs_abs;
-        if (shift > 0)
-            scaled >>= shift;
-        else if (shift < 0)
-            scaled <<= -shift;
         unsigned __int128 sigA = 0;
         if (limbs >= 2)
-            sigA = (static_cast<unsigned __int128>(scaled.data_[1]) << 64) | scaled.data_[0];
+            sigA = (static_cast<unsigned __int128>(lhs_abs.data_[1]) << 64) | lhs_abs.data_[0];
         else
-            sigA = scaled.data_[0];
+            sigA = lhs_abs.data_[0];
+        if (shift > 0)
+        {
+            scaled >>= shift;
+            if (limbs >= 2)
+                sigA = (static_cast<unsigned __int128>(scaled.data_[1]) << 64) | scaled.data_[0];
+            else
+                sigA = scaled.data_[0];
+        }
+        else if (shift < 0)
+        {
+            sigA <<= -shift;
+        }
         if (p < 128)
             sigA &= ((static_cast<unsigned __int128>(1) << p) - 1);
         T scaled_rhs = std::ldexp(m, p);
@@ -3506,7 +3531,7 @@ private:
             {
                 case 1: {
                     u128 num = data_[0];
-                    u128 q = detail::mulhi_u128(num, inv);
+                    u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
                     u128 rem = num - q * div;
                     corr(q, rem);
                     quotient.data_[0] = static_cast<limb_type>(q);
@@ -3514,7 +3539,7 @@ private:
                 }
                 case 2: {
                     u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
-                    u128 q = detail::mulhi_u128(num, inv);
+                    u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
                     u128 rem = num - q * div;
                     corr(q, rem);
                     quotient.data_[0] = static_cast<limb_type>(q);
@@ -3524,17 +3549,17 @@ private:
                 case 3: {
                     u128 rem = 0;
                     u128 num = (rem << 64) | data_[2];
-                    u128 q2 = detail::mulhi_u128(num, inv);
+                    u128 q2 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q2 * div;
                     corr(q2, rem);
                     quotient.data_[2] = static_cast<limb_type>(q2);
                     num = (rem << 64) | data_[1];
-                    u128 q1 = detail::mulhi_u128(num, inv);
+                    u128 q1 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q1 * div;
                     corr(q1, rem);
                     quotient.data_[1] = static_cast<limb_type>(q1);
                     num = (rem << 64) | data_[0];
-                    u128 q0 = detail::mulhi_u128(num, inv);
+                    u128 q0 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q0 * div;
                     corr(q0, rem);
                     quotient.data_[0] = static_cast<limb_type>(q0);
@@ -3544,22 +3569,22 @@ private:
                 default: {
                     u128 rem = 0;
                     u128 num = (rem << 64) | data_[3];
-                    u128 q3 = detail::mulhi_u128(num, inv);
+                    u128 q3 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q3 * div;
                     corr(q3, rem);
                     quotient.data_[3] = static_cast<limb_type>(q3);
                     num = (rem << 64) | data_[2];
-                    u128 q2 = detail::mulhi_u128(num, inv);
+                    u128 q2 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q2 * div;
                     corr(q2, rem);
                     quotient.data_[2] = static_cast<limb_type>(q2);
                     num = (rem << 64) | data_[1];
-                    u128 q1 = detail::mulhi_u128(num, inv);
+                    u128 q1 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q1 * div;
                     corr(q1, rem);
                     quotient.data_[1] = static_cast<limb_type>(q1);
                     num = (rem << 64) | data_[0];
-                    u128 q0 = detail::mulhi_u128(num, inv);
+                    u128 q0 = detail::mulhi_u128_no_middle_wrap(num, inv);
                     rem = num - q0 * div;
                     corr(q0, rem);
                     quotient.data_[0] = static_cast<limb_type>(q0);
@@ -3572,7 +3597,7 @@ private:
         for (size_t i = n; i-- > 0;)
         {
             u128 num = (rem << 64) | data_[i];
-            u128 q = detail::mulhi_u128(num, inv);
+            u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
             rem = num - q * div;
             corr(q, rem);
             quotient.data_[i] = static_cast<limb_type>(q);
@@ -3652,7 +3677,7 @@ private:
         for (size_t i = n; i-- > 0;)
         {
             u128 num = (rem << 64) | data_[i];
-            u128 q = detail::mulhi_u128(num, inv);
+            u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
             rem = num - q * div;
             corr(q, rem);
         }
@@ -4872,7 +4897,7 @@ private:
                 limb_type & uj2 = u[j + 2];
                 u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
                 // 1) Initial estimate via reciprocal multiply
-                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128(numerator, inv128);
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
                 u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
                 // The reciprocal estimate cannot overshoot; correct only the
                 // possible one-step underestimate.
@@ -4949,7 +4974,7 @@ private:
                 limb_type & uj2 = u[j + 2];
                 u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
                 // 1) Initial estimate via reciprocal multiply
-                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128(numerator, inv128);
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
                 u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
                 if ((numerator - qhat_v1) >= v1)
                 {
