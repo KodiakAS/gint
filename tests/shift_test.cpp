@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace
@@ -233,6 +234,52 @@ TEST(WideIntegerShift, Int128SizeTShiftAmountMatchesReference)
         const std::size_t shift = shifts[i];
         EXPECT_EQ(signed_value >> shift, reference_right_shift(signed_value, shift)) << "signed right shift " << shift;
     }
+}
+
+TEST(WideIntegerShift, LongShiftAmountMatchesReference)
+{
+    using S128 = gint::integer<128, signed>;
+
+    S128 signed_value = patterned_value<S128>(0x1020304050607080ULL);
+    TestAccess<S128>::limb(signed_value, S128::limbs - 1) |= uint64_t(1) << 63;
+
+    const long shifts[] = {0, 1, 63, 64, 65, 127, 128};
+    for (std::size_t i = 0; i < sizeof(shifts) / sizeof(shifts[0]); ++i)
+    {
+        const long shift = shifts[i];
+        EXPECT_EQ(signed_value >> shift, reference_right_shift(signed_value, static_cast<std::size_t>(shift)))
+            << "signed right shift " << shift;
+    }
+}
+
+TEST(WideIntegerShift, NativeLargeUnsignedShiftAmountsDoNotNarrow)
+{
+    using U128 = gint::integer<128, unsigned>;
+    using S128 = gint::integer<128, signed>;
+
+    const std::size_t huge = std::numeric_limits<std::size_t>::max();
+    const unsigned huge_unsigned = std::numeric_limits<unsigned>::max();
+
+    EXPECT_EQ(U128(1) << huge, U128(0));
+    EXPECT_EQ(U128(1) >> huge, U128(0));
+    EXPECT_EQ(S128(-8) >> huge, S128(-1));
+    EXPECT_EQ(U128(1) << huge_unsigned, U128(0));
+    EXPECT_EQ(U128(1) >> huge_unsigned, U128(0));
+    EXPECT_EQ(S128(-8) >> huge_unsigned, S128(-1));
+
+    U128 unsigned_value = 1;
+    unsigned_value <<= huge;
+    EXPECT_EQ(unsigned_value, U128(0));
+    unsigned_value = 1;
+    unsigned_value >>= huge_unsigned;
+    EXPECT_EQ(unsigned_value, U128(0));
+
+    S128 signed_value = -8;
+    signed_value >>= huge;
+    EXPECT_EQ(signed_value, S128(-1));
+    signed_value = -8;
+    signed_value >>= huge_unsigned;
+    EXPECT_EQ(signed_value, S128(-1));
 }
 
 TEST(WideIntegerShift, UInt256ExactWholeLimbRightShifts)

@@ -223,6 +223,15 @@ TEST(WideIntegerConversion, SignedToUnsignedConversion)
     EXPECT_TRUE(neg_explicit == static_cast<unsigned __int128>(-1));
 }
 
+TEST(WideIntegerConversion, Signed64ToInt128SignExtends)
+{
+    using S64 = gint::integer<64, signed>;
+    S64 negative = -1;
+
+    EXPECT_TRUE(static_cast<__int128>(negative) == static_cast<__int128>(-1));
+    EXPECT_TRUE(static_cast<unsigned __int128>(negative) == ~static_cast<unsigned __int128>(0));
+}
+
 TEST(WideIntegerConversion, SignedConversionInt128)
 {
     gint::integer<256, signed> w = 123;
@@ -232,6 +241,35 @@ TEST(WideIntegerConversion, SignedConversionInt128)
     gint::integer<256, signed> negative = -1;
     auto neg_explicit = static_cast<__int128>(negative);
     EXPECT_TRUE(neg_explicit == static_cast<__int128>(-1));
+}
+
+TEST(WideIntegerConversion, SignedNarrowWidthUnsignedComparisons)
+{
+    using S64 = gint::integer<64, signed>;
+    using S128 = gint::integer<128, signed>;
+
+    const uint64_t u64_above_signed = 0x8000000000000005ULL;
+    EXPECT_TRUE(S64(0) < u64_above_signed);
+    EXPECT_TRUE(S64(0) <= u64_above_signed);
+    EXPECT_TRUE(u64_above_signed > S64(0));
+    EXPECT_TRUE(u64_above_signed >= S64(0));
+    EXPECT_FALSE(S64(0) >= u64_above_signed);
+    EXPECT_FALSE(S64(-1) == std::numeric_limits<uint64_t>::max());
+    EXPECT_TRUE(S64(-1) < std::numeric_limits<uint64_t>::max());
+    EXPECT_TRUE(S64(-1) <= std::numeric_limits<uint64_t>::max());
+
+    const unsigned __int128 u128_above_s64 = static_cast<unsigned __int128>(1) << 80;
+    EXPECT_TRUE(S64(0) < u128_above_s64);
+    EXPECT_TRUE(S64(0) <= u128_above_s64);
+    EXPECT_FALSE(u128_above_s64 < S64(0));
+    EXPECT_TRUE(u128_above_s64 >= S64(0));
+
+    const unsigned __int128 u128_above_s128 = (static_cast<unsigned __int128>(1) << 127) + 5;
+    EXPECT_TRUE(S128(0) < u128_above_s128);
+    EXPECT_TRUE(S128(0) <= u128_above_s128);
+    EXPECT_FALSE(u128_above_s128 < S128(0));
+    EXPECT_TRUE(u128_above_s128 >= S128(0));
+    EXPECT_FALSE(S128(0) >= u128_above_s128);
 }
 
 template <typename T>
