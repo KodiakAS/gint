@@ -5867,6 +5867,9 @@ struct formatter<gint::integer<Bits, Signed>>
 
         if (it != end && *it == '0')
         {
+#    if FMT_VERSION < 120000
+            fill = '0';
+#    endif
             if (align == '>')
             {
                 align = '=';

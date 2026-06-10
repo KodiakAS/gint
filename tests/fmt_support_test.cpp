@@ -58,6 +58,15 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_EQ(fmt::format("{:>6d}", U128(42)), "    42");
     EXPECT_EQ(fmt::format("{:<6d}", U128(42)), "42    ");
     EXPECT_EQ(fmt::format("{:^6d}", U128(42)), "  42  ");
+#if FMT_VERSION < 120000
+    EXPECT_EQ(fmt::format("{:<08d}", U128(42)), "42000000");
+    EXPECT_EQ(fmt::format("{:^08d}", U128(42)), "00042000");
+    EXPECT_EQ(fmt::format("{:x<08d}", U128(42)), "42000000");
+#else
+    EXPECT_EQ(fmt::format("{:<08d}", U128(42)), "42      ");
+    EXPECT_EQ(fmt::format("{:^08d}", U128(42)), "   42   ");
+    EXPECT_EQ(fmt::format("{:x<08d}", U128(42)), "42xxxxxx");
+#endif
 }
 
 TEST(fmt_support, format_signed_integer_base_specs)
