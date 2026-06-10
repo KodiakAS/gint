@@ -5947,7 +5947,7 @@ struct formatter<gint::integer<Bits, Signed>>
                 prefix = " ";
         }
 
-        if (alternate && digits != "0")
+        if (alternate && (digits != "0" || base == 16 || base == 2))
         {
             if (base == 16)
                 prefix += uppercase ? "0X" : "0x";

@@ -57,6 +57,11 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_EQ(fmt::format("{:#X}", U128(42)), "0X2A");
     EXPECT_EQ(fmt::format("{:#b}", U128(42)), "0b101010");
     EXPECT_EQ(fmt::format("{:#B}", U128(42)), "0B101010");
+    EXPECT_EQ(fmt::format("{:#x}", U128(0)), "0x0");
+    EXPECT_EQ(fmt::format("{:#X}", U128(0)), "0X0");
+    EXPECT_EQ(fmt::format("{:#b}", U128(0)), "0b0");
+    EXPECT_EQ(fmt::format("{:#B}", U128(0)), "0B0");
+    EXPECT_EQ(fmt::format("{:#o}", U128(0)), "0");
     EXPECT_EQ(fmt::format("{:08x}", U128(42)), "0000002a");
     EXPECT_EQ(fmt::format("{:#08x}", U128(42)), "0x00002a");
     EXPECT_EQ(fmt::format("{:#010b}", U128(42)), "0b00101010");
