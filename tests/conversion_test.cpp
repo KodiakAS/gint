@@ -1,4 +1,5 @@
 #include <array>
+#include <cfenv>
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -122,6 +123,46 @@ TEST(WideIntegerConversion, DoubleConversionAvoidsLongDoubleDoubleRounding)
     signed_wide = -signed_wide;
     const __int128 signed_native = -static_cast<__int128>(native);
     EXPECT_EQ(static_cast<double>(signed_wide), static_cast<double>(signed_native));
+}
+
+TEST(WideIntegerConversion, DoubleConversionRespectsCurrentRoundingMode)
+{
+    struct RoundingGuard
+    {
+        int old_round;
+        RoundingGuard()
+            : old_round(std::fegetround())
+        {
+        }
+        ~RoundingGuard() { std::fesetround(old_round); }
+    } guard;
+
+    using U128 = gint::integer<128, unsigned>;
+    using S128 = gint::integer<128, signed>;
+    const double base = std::ldexp(1.0, 53);
+    U128 positive = U128(1);
+    positive <<= 53;
+    positive += U128(3);
+    S128 negative = S128(1);
+    negative <<= 53;
+    negative += S128(3);
+    negative = -negative;
+
+    ASSERT_EQ(std::fesetround(FE_DOWNWARD), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 2.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 4.0));
+
+    ASSERT_EQ(std::fesetround(FE_UPWARD), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 4.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 2.0));
+
+    ASSERT_EQ(std::fesetround(FE_TOWARDZERO), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 2.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 2.0));
+
+    ASSERT_EQ(std::fesetround(FE_TONEAREST), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 4.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 4.0));
 }
 
 TEST(WideIntegerConversion, FloatConversionAvoidsLongDoubleDoubleRounding)

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cassert>
+#include <cfenv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -3427,7 +3428,27 @@ private:
         limb_type significand = low_limb_after_logical_right_shift(mag, scale);
         const bool guard = test_bit(mag, scale - 1);
         const bool sticky = has_any_bit_below(mag, scale - 1);
-        if (guard && (sticky || (significand & 1)))
+        const bool discarded = guard || sticky;
+        bool increment = false;
+        switch (std::fegetround())
+        {
+            case FE_TONEAREST:
+                increment = guard && (sticky || (significand & 1));
+                break;
+            case FE_UPWARD:
+                increment = !neg && discarded;
+                break;
+            case FE_DOWNWARD:
+                increment = neg && discarded;
+                break;
+            case FE_TOWARDZERO:
+                increment = false;
+                break;
+            default:
+                increment = guard && (sticky || (significand & 1));
+                break;
+        }
+        if (increment)
         {
             ++significand;
             if (significand == (limb_type(1) << digits))
