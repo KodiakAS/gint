@@ -13,6 +13,18 @@ static_assert(std::is_constructible<gint::UInt256, gint::Int128>::value, "Int128
 static_assert(!std::is_convertible<gint::UInt128, gint::Int128>::value, "integer signedness conversion should stay explicit");
 static_assert(std::is_assignable<gint::Int256 &, gint::UInt128>::value, "UInt128 should assign to Int256 explicitly");
 
+#if __cplusplus >= 201402L
+constexpr bool constexpr_integer_conversion_works()
+{
+    constexpr gint::UInt128 one = 1;
+    constexpr gint::Int256 widened(one);
+    constexpr gint::Int128 minus_one = -1;
+    constexpr gint::UInt256 sign_extended(minus_one);
+    return widened == gint::Int256(1) && sign_extended == std::numeric_limits<gint::UInt256>::max();
+}
+static_assert(constexpr_integer_conversion_works(), "integer conversion constructors should be constexpr in C++14+");
+#endif
+
 template <size_t SmallBits, size_t LargeBits>
 static void test_integer_conversion_width_pair()
 {
