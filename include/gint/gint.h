@@ -1553,9 +1553,9 @@ public:
         return neg ? -res : res;
     }
 
-    explicit operator double() const noexcept { return static_cast<double>(static_cast<long double>(*this)); }
+    explicit operator double() const noexcept { return to_binary_float<double>(); }
 
-    explicit operator float() const noexcept { return static_cast<float>(static_cast<long double>(*this)); }
+    explicit operator float() const noexcept { return to_binary_float<float>(); }
 
     GINT_CONSTEXPR14 explicit operator bool() const noexcept { return !is_zero(); }
 
@@ -3362,6 +3362,83 @@ private:
                 return i * 64 + 63 - __builtin_clzll(data_[i]);
         }
         return -1;
+    }
+
+    static bool test_bit(const integer & value, int bit) noexcept
+    {
+        return bit >= 0 && bit < static_cast<int>(Bits) && ((value.data_[static_cast<size_t>(bit) / 64] >> (bit % 64)) & 1);
+    }
+
+    static bool has_any_bit_below(const integer & value, int bit) noexcept
+    {
+        if (bit <= 0)
+            return false;
+        size_t full_limbs = static_cast<size_t>(bit) / 64;
+        const unsigned rem = static_cast<unsigned>(bit % 64);
+        if (full_limbs > limbs)
+            full_limbs = limbs;
+        for (size_t i = 0; i < full_limbs; ++i)
+            if (value.data_[i])
+                return true;
+        if (full_limbs < limbs && rem != 0)
+        {
+            const limb_type mask = (limb_type(1) << rem) - 1;
+            return (value.data_[full_limbs] & mask) != 0;
+        }
+        return false;
+    }
+
+    static limb_type low_limb_after_logical_right_shift(const integer & value, int shift) noexcept
+    {
+        const size_t limb_shift = static_cast<size_t>(shift) / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        if (limb_shift >= limbs)
+            return 0;
+
+        limb_type result = value.data_[limb_shift] >> bit_shift;
+        if (bit_shift != 0 && limb_shift + 1 < limbs)
+            result |= value.data_[limb_shift + 1] << (64 - bit_shift);
+        return result;
+    }
+
+    template <typename Float>
+    Float to_binary_float() const noexcept
+    {
+        static_assert(std::numeric_limits<Float>::digits < 64, "binary float conversion expects fewer than 64 significand bits");
+        if (is_zero())
+            return Float(0);
+
+        const bool neg = std::is_same<Signed, signed>::value && (data_[limbs - 1] >> 63);
+        integer mag = neg ? -*this : *this;
+        const int hb = mag.highest_bit();
+        const int digits = std::numeric_limits<Float>::digits;
+        if (hb < digits)
+        {
+            Float res = 0;
+            for (size_t i = limbs; i-- > 0;)
+            {
+                res = std::ldexp(res, 64);
+                res += static_cast<Float>(mag.data_[i]);
+            }
+            return neg ? -res : res;
+        }
+
+        int scale = hb - (digits - 1);
+        limb_type significand = low_limb_after_logical_right_shift(mag, scale);
+        const bool guard = test_bit(mag, scale - 1);
+        const bool sticky = has_any_bit_below(mag, scale - 1);
+        if (guard && (sticky || (significand & 1)))
+        {
+            ++significand;
+            if (significand == (limb_type(1) << digits))
+            {
+                significand >>= 1;
+                ++scale;
+            }
+        }
+
+        const Float res = std::ldexp(static_cast<Float>(significand), scale);
+        return neg ? -res : res;
     }
 
     template <size_t L = limbs>
