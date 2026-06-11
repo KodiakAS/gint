@@ -4,6 +4,7 @@ project(gint LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
+option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer for tests" OFF)
 option(GINT_BUILD_TESTS "Build test suite" ON)
 option(GINT_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
@@ -18,6 +19,16 @@ if(ENABLE_COVERAGE)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         list(APPEND GINT_TEST_OPTIONS --coverage)
         set(GINT_TEST_LINK_OPTIONS --coverage)
+    endif()
+endif()
+
+if(ENABLE_SANITIZERS)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        list(APPEND GINT_TEST_OPTIONS -fsanitize=address,undefined -fno-omit-frame-pointer)
+        list(APPEND GINT_TEST_LINK_OPTIONS -fsanitize=address,undefined)
+    else()
+        message(FATAL_ERROR "ENABLE_SANITIZERS requires GCC or Clang")
     endif()
 endif()
 
@@ -55,6 +66,7 @@ if(GINT_BUILD_TESTS)
         tests/float_interop_edge_test.cpp
         tests/fmt_support_test.cpp
         tests/numeric_limits_test.cpp
+        tests/property_test.cpp
         tests/shift_test.cpp
         tests/stream_test.cpp
     )
