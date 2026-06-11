@@ -48,7 +48,8 @@
    - `breaking-change.md`：`break: <简要描述>`
    - 默认模板：`<类型>: <简要描述>`，其中 `<类型>` 必须来自上面的类型集合。
 3. 必须使用 PR 模板：
-   - 使用 `.github/PULL_REQUEST_TEMPLATE/` 下的模板创建 PR。
+   - 默认模板为 `.github/pull_request_template.md`；专用模板位于 `.github/PULL_REQUEST_TEMPLATE/`。
+   - 创建 PR 时必须套用默认模板或最合适的专用模板。
    - 请选择最合适的专用模板：`feature.md`、`bugfix.md`、`perf.md`、`refactor.md`、`docs.md`、`breaking-change.md`。
    - 若不属于以上任一类别，再使用默认模板。
    - PR 正文只保留与本次变更直接相关的信息；删除空段落、占位符和不适用项，避免把流程说明留在正文里。

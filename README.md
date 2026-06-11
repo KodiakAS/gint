@@ -13,28 +13,28 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Performance
 
-Local AppleClang microbenchmark sample: Apple M4 Pro, macOS 26.4.1, AppleClang 21.0.0, Release/O3, Google Benchmark (`--benchmark_min_time=0.2s`). Numbers are `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed 256-bit inputs. Use them for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
+Local AppleClang microbenchmark sample (commit `eae8c0b`, collected 2026-06-11): Apple M4 Pro, macOS 26.5.1, AppleClang 21.0.0, Release/O3, Google Benchmark v1.9.5 (`BENCH_BITS=256 --gint_full --benchmark_min_time=0.2s`). Numbers are `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed 256-bit inputs. Use them for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
 
 Arithmetic & ToString — 256-bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
-| Add/NoCarry            | 0.677 |       1.84 |  4.90 |
-| Add/FullCarry          | 0.682 |       2.07 |  1.91 |
-| Sub/NoBorrow           | 0.683 |       1.63 |  4.99 |
-| Sub/FullBorrow         | 0.686 |       1.82 |  2.09 |
-| Mul/U64xU64            | 1.86 |       2.89 |  2.34 |
-| Mul/HighxHigh          | 1.83 |       2.85 | 10.7 |
-| Div/SmallDivisor32     | 11.5 |       14.7 | 20.8 |
-| Div/Pow2Divisor        | 6.00 |        316 | 68.8 |
-| Div/SimilarMagnitude   | 13.4 |        237 | 69.3 |
-| ToString/Base10        |  128 |        298 |  148 |
+| Add/NoCarry            | 0.666 |       1.11 |  4.37 |
+| Add/FullCarry          | 0.695 |       1.62 |  1.88 |
+| Sub/NoBorrow           | 0.691 |      0.944 |  4.38 |
+| Sub/FullBorrow         | 0.691 |       1.62 |  1.52 |
+| Mul/U64xU64            | 1.80 |       1.89 |  2.28 |
+| Mul/HighxHigh          | 1.83 |       2.79 | 11.5 |
+| Div/SmallDivisor32     | 10.8 |       14.0 | 20.2 |
+| Div/Pow2Divisor        | 4.85 |        310 | 67.4 |
+| Div/SimilarMagnitude   | 13.0 |        226 | 68.0 |
+| ToString/Base10        |  106 |        294 |  146 |
 
 Highlights
-- Add/Sub: ~2.4-3.0x faster vs ClickHouse; ~2.8-7.3x vs Boost.
-- Mul: faster than ClickHouse and Boost on the listed 256-bit cases, with the largest gain on high x high.
+- Add/Sub: faster than ClickHouse on the listed cases by ~1.4-2.3x, and faster than Boost by ~2.2-6.6x.
+- Mul: slightly faster on U64 x U64 and materially faster on high x high.
 - Div: large wins for power-of-two and similar-magnitude divisors; still faster on 32-bit small divisors.
-- ToString: ~1.1x faster vs Boost; ~2.3x vs ClickHouse.
+- ToString: ~1.4x faster vs Boost; ~2.8x vs ClickHouse.
 
 Full matrices and methodology: see `docs/BENCHMARKS.md`.
 
@@ -85,14 +85,19 @@ image with `COVERAGE_DIR=runs/docker/build-coverage`.
 
 - Technical spec: `docs/TECH_SPEC.md`
 - Benchmarks: `docs/BENCHMARKS.md`
+- Validation environments: `docs/VALIDATION_ENVIRONMENTS.md`
+
+## License
+
+Apache License 2.0. See `LICENSE`.
 
 ## Development Environment
 
 A dedicated Dockerfile sets up a CentOS 8 Linux/GCC validation environment
 with all build dependencies preinstalled. It also installs `clang`/`clangd`
-for development tooling, but unless `CC`/`CXX` is explicitly overridden, CMake
-uses GCC/g++ inside the container. The repository's `Makefile` provides a
-target to build this image:
+for development tooling and Google Benchmark v1.9.5 for benchmark binaries.
+Unless `CC`/`CXX` is explicitly overridden, CMake uses GCC/g++ inside the
+container. The repository's `Makefile` provides a target to build this image:
 
 ```bash
 make image

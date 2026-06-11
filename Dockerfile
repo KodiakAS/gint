@@ -39,11 +39,11 @@ RUN git clone --depth 1 --branch release-1.10.0 https://github.com/google/google
      && cmake --install /tmp/googletest/build \
      && rm -rf /tmp/googletest
 
-# ---- 安装 Google Benchmark v1.8.3（仍以 C++11 构建）----
+# ---- 安装 Google Benchmark v1.9.5（benchmark 工具链使用 C++17；库本体仍以 C++11 验证）----
 # 关闭其自测/依赖，避免不必要的 GTest/LibPFM 约束；安装共享库与 CMake config
-RUN git clone --depth 1 --branch v1.8.3 https://github.com/google/benchmark.git /tmp/benchmark \
+RUN git clone --depth 1 --branch v1.9.5 https://github.com/google/benchmark.git /tmp/benchmark \
      && cmake -S /tmp/benchmark -B /tmp/benchmark/build \
-     -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=11 \
+     -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
      -DBENCHMARK_ENABLE_TESTING=OFF -DBENCHMARK_ENABLE_GTEST_TESTS=OFF \
      -DBENCHMARK_ENABLE_LIBPFM=OFF -DBUILD_SHARED_LIBS=ON \
      && cmake --build /tmp/benchmark/build -j"$(nproc)" \
