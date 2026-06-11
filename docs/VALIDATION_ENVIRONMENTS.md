@@ -48,7 +48,7 @@ scripts/bootstrap-validation-env.sh --scope "${SCOPE}"
 脚本做三件事：
 
 - 在 Ubuntu/Debian 上安装基础包，其他系统可用 `--skip-packages` 跳过包安装；
-- 在 `runs/<scope>/deps/` 下为每个编译器构建 Release 版 Google Benchmark；
+- 在 `runs/<scope>/deps/` 下为每个编译器构建 Release 版 Google Benchmark（默认 v1.9.5，可用 `--benchmark-version` 覆盖）；
 - 在 `runs/<scope>/env/` 下生成 env 文件。
 
 脚本不会运行任何项目测试或 benchmark。
@@ -73,7 +73,7 @@ rsync
 tar
 ```
 
-不要依赖发行版 `libbenchmark-dev` 做性能结论；本项目用脚本在 `runs/` 下构建固定版本 Release `google-benchmark`，避免发行版包构建类型污染结果。
+不要依赖发行版 `libbenchmark-dev` 做性能结论；本项目用脚本在 `runs/` 下构建固定版本 Release `google-benchmark`，避免发行版包构建类型污染结果。Google Benchmark v1.9.5 本身按 C++17 工具链构建；这只影响 benchmark 工具二进制，不改变库本体和单元测试的 C++11 兼容性目标。
 
 非 Ubuntu/Debian 且依赖已安装的环境可显式跳过包安装，只构建当前编译器对应的 `google-benchmark`：
 

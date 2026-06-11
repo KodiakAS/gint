@@ -7,6 +7,7 @@
 - 高性能：针对常见位宽与路径做了专门优化（如 128/256 位乘除）
 - 良好互操作性：与原生整数、`__int128`、浮点数进行双向转换与混合运算（浮点混合算术经截断，见“浮点互操作”）
 - 可选的运行时检查：按需开启除零检查
+- 标准库集成：提供 `std::numeric_limits` 与 `std::hash` 专用化
 
 
 ## 2. 核心类型与模板参数
@@ -62,17 +63,17 @@
 
 ## 8. 移位运算
 
-- 左/右移：`<<`, `>>` 及其复合赋值，位移量类型为 `int`。
+- 左/右移：`<<`, `>>` 及其复合赋值；位移量支持内建整数类型以及 `__int128`/`unsigned __int128`。
 - 语义：
-  - 位移量 <= 0：不改变（no-op）。
+  - 位移量为 0：不改变（no-op）。
+  - 有符号位移量 < 0：不改变（no-op）。
   - 位移量 >= 位宽：
     - 左移：结果为零。
     - 右移：无符号为零；有符号按算术右移填充（负数为 -1，非负为 0）。
 - 右移：
   - `Signed = signed` 时为算术右移（符号扩展）。
   - `Signed = unsigned` 时为逻辑右移（零扩展）。
-- 位移量为负：保持不变（no-op）。
-  - 左移丢弃高位，按模 `2^Bits` 包裹。
+- 左移丢弃高位，按模 `2^Bits` 包裹。
 
 测试参考：`tests/shift_test.cpp`。
 
@@ -90,10 +91,10 @@
 
 - `gint::to_string()`：十进制字符串表示；负数以 `-` 前缀。
 - `gint::from_string()` 与显式字符串构造：按给定位宽解析字符串；默认自动识别十进制、`0x`/`0X` 十六进制、`0b`/`0B` 二进制和前导 `0` 八进制，也可显式传入 2..36 的进制。结果按固定宽度累积，超出位宽时按模 `2^Bits` 包裹；无效输入抛出 `std::invalid_argument`。
-- `operator<<`：输出十进制表示。
-- `fmt` 支持：定义 `GINT_ENABLE_FMT` 宏后，提供 `fmt::formatter<gint::integer<...>>`。
+- `operator<<`：默认输出十进制表示，并遵循 `std::hex`、`std::oct`、`std::showbase`、`std::showpos`、`std::uppercase`、宽度、填充和对齐等 stream 格式标志。
+- `fmt` 支持：定义 `GINT_ENABLE_FMT` 宏后，提供 `fmt::formatter<gint::integer<...>>`，支持十进制、十六进制、八进制、二进制、字符展示、符号、替代格式、宽度、动态宽度和本地化分组等常用整数格式项。
 
-测试参考：`tests/fmt_support_test.cpp`。
+测试参考：`tests/stream_test.cpp`、`tests/fmt_support_test.cpp`。
 
 ## 11. 与原生类型的互操作
 
@@ -106,13 +107,14 @@
 
 测试参考：`tests/conversion_test.cpp`。
 
-## 12. 数值极值与 `numeric_limits` 专用化
+## 12. 数值极值、`numeric_limits` 与 `std::hash`
 
 - `digits = Bits - (is_signed ? 1 : 0)`；`radix = 2`；`is_exact = true`；`is_modulo = true`；`round_style = round_toward_zero`。
 - `min()`：无符号为 0；有符号为最小负值（仅最高位为 1）。
 - `max()`：无符号为全 1；有符号为按补码的最大正值。
+- `std::hash<gint::integer<Bits, Signed>>`：按所有 limb 组合哈希值，满足默认构造与 `noexcept` 调用要求。
 
-测试参考：`tests/numeric_limits_test.cpp`。
+测试参考：`tests/numeric_limits_test.cpp`、`tests/hash_test.cpp`。
 
 ## 13. 异常与错误语义
 
@@ -158,14 +160,14 @@
     - 2 的幂：直接转化为右移得到商、按掩码取余。
   - 2‑limb（128 位）快速路径：`div_128` 基于 `__int128` 进行 128/128→128 的除法，返回 128 位商。
   - 多 limb 除数（一般情况）Knuth 算法 D：
-    - 通用实现 `div_large`：只做一次 128/64 除法并以“乘回求余”代替取模，减少除法使用；规范化左移通过内部工具函数 `lshift_limbs_to()` 复用，消除重复代码。
+    - 通用实现 `div_large`：每个估商步骤只做一次 128/64 除法并以“乘回求余”代替取模，减少除法使用；规范化左移通过内部工具函数 `lshift_limbs_to()` 复用，消除重复代码。
     - 两肢专用 `div_large_2`：定长内核，基于最高 limb 估商，校正最多两次；乘回复用 `qhat*v1 = numerator - rhat` 消去一处乘法。
     - 三肢专用 `div_large_3`：定长内核，复用 `qhat*v[2] = numerator - rhat` 优化；保持 Algorithm D 的估商修正与借位补偿流程。
-    - 四肢专用 `div_large_4`：针对 256 位满宽除数（`divisor_limbs == 4`）且商最多为单 limb 的场景，定长展开规范化、估商修正和乘回减法；`operator/` 与 GCC-tuned 的多 limb `operator%` 路径都会复用该内核。
+    - 四肢专用 `div_large_4`：针对 256 位满宽除数（`divisor_limbs == 4`）且商最多为单 limb 的场景，定长展开规范化、估商修正和乘回减法；`operator/` 使用该内核。x86_64/GCC 的无符号满宽 `operator%` 走直接求余的 `rem_large_4`，避免先生成商再乘回。
 - 字符串转换（to_string）：
   - 采用十进制 10^19 分块法：每次除以 10^19 收集一段 19 位十进制块（低位到高位），最后一次性拼接输出（首块不补零，其余块左零填充）。
   - 相较逐位除以 10 并在字符串头部插入，避免 O(n^2) 内存移动，整体近似 O(n)。
- 
+
 
 ## 16. 浮点互操作
 
