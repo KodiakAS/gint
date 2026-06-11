@@ -31,6 +31,8 @@ TEST(WideIntegerNumericLimits, Basic)
     static_assert(!std::numeric_limits<S>::has_quiet_NaN, "numeric_limits<S>::has_quiet_NaN");
     static_assert(!std::numeric_limits<U>::has_signaling_NaN, "numeric_limits<U>::has_signaling_NaN");
     static_assert(!std::numeric_limits<S>::has_signaling_NaN, "numeric_limits<S>::has_signaling_NaN");
+    static_assert(std::numeric_limits<U>::has_denorm == std::denorm_absent, "numeric_limits<U>::has_denorm");
+    static_assert(std::numeric_limits<S>::has_denorm == std::denorm_absent, "numeric_limits<S>::has_denorm");
     static_assert(!std::numeric_limits<U>::has_denorm_loss, "numeric_limits<U>::has_denorm_loss");
     static_assert(!std::numeric_limits<S>::has_denorm_loss, "numeric_limits<S>::has_denorm_loss");
     static_assert(std::numeric_limits<U>::round_style == std::round_toward_zero, "round_style U");

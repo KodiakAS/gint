@@ -2,6 +2,21 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#if __cplusplus >= 201402L
+constexpr gint::integer<128, unsigned> constexpr_u5(5);
+constexpr gint::integer<128, unsigned> constexpr_u10(10);
+constexpr gint::integer<128, signed> constexpr_sneg(-1);
+constexpr gint::integer<128, signed> constexpr_spos(1);
+static_assert(constexpr_u5 < constexpr_u10, "integer < integer should be constexpr");
+static_assert(constexpr_u10 > constexpr_u5, "integer > integer should be constexpr");
+static_assert(constexpr_u5 <= constexpr_u5, "integer <= integer should be constexpr");
+static_assert(constexpr_u10 >= constexpr_u5, "integer >= integer should be constexpr");
+static_assert(constexpr_sneg < constexpr_spos, "signed integer comparison should be constexpr");
+static_assert(gint::integer<128, signed>(5) < 6, "mixed integer < should be constexpr");
+static_assert(6 > gint::integer<128, signed>(5), "mixed integer > should be constexpr");
+static_assert(gint::integer<64, signed>(0) < 0x8000000000000005ULL, "promoted mixed comparison should be constexpr");
+#endif
+
 TEST(WideIntegerComparison, UnsignedBasic)
 {
     gint::integer<128, unsigned> a = 5;

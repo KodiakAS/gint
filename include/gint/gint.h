@@ -3084,7 +3084,7 @@ public:
         return !(lhs == rhs);
     }
 
-    friend bool operator<(const integer & lhs, const integer & rhs) noexcept
+    GINT_CONSTEXPR14 friend bool operator<(const integer & lhs, const integer & rhs) noexcept
     {
         if (std::is_same<Signed, signed>::value)
         {
@@ -3101,11 +3101,11 @@ public:
         return false;
     }
 
-    friend bool operator>(const integer & lhs, const integer & rhs) noexcept { return rhs < lhs; }
+    GINT_CONSTEXPR14 friend bool operator>(const integer & lhs, const integer & rhs) noexcept { return rhs < lhs; }
 
-    friend bool operator<=(const integer & lhs, const integer & rhs) noexcept { return !(rhs < lhs); }
+    GINT_CONSTEXPR14 friend bool operator<=(const integer & lhs, const integer & rhs) noexcept { return !(rhs < lhs); }
 
-    friend bool operator>=(const integer & lhs, const integer & rhs) noexcept { return !(lhs < rhs); }
+    GINT_CONSTEXPR14 friend bool operator>=(const integer & lhs, const integer & rhs) noexcept { return !(lhs < rhs); }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_CONSTEXPR14 bool operator<(const integer & lhs, T rhs) noexcept
@@ -5198,6 +5198,7 @@ public:
     static constexpr bool has_infinity = false;
     static constexpr bool has_quiet_NaN = false;
     static constexpr bool has_signaling_NaN = false;
+    static constexpr std::float_denorm_style has_denorm = std::denorm_absent;
     static constexpr bool has_denorm_loss = false;
     static constexpr std::float_round_style round_style = std::round_toward_zero;
     static constexpr bool is_iec559 = false;
@@ -5241,6 +5242,8 @@ template <size_t Bits, typename Signed>
 constexpr bool numeric_limits<gint::integer<Bits, Signed>>::has_quiet_NaN;
 template <size_t Bits, typename Signed>
 constexpr bool numeric_limits<gint::integer<Bits, Signed>>::has_signaling_NaN;
+template <size_t Bits, typename Signed>
+constexpr std::float_denorm_style numeric_limits<gint::integer<Bits, Signed>>::has_denorm;
 template <size_t Bits, typename Signed>
 constexpr bool numeric_limits<gint::integer<Bits, Signed>>::has_denorm_loss;
 template <size_t Bits, typename Signed>
