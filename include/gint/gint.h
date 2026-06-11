@@ -5828,6 +5828,7 @@ struct formatter<gint::integer<Bits, Signed>>
     char sign = 0;
     bool alternate = false;
     unsigned width = 0;
+    int dynamic_width_arg_id = -1;
     char presentation = 0;
 
     template <typename ParseContext>
@@ -5838,18 +5839,21 @@ struct formatter<gint::integer<Bits, Signed>>
         if (it == end || *it == '}')
             return it;
 
+        bool explicit_align = false;
         auto next = it;
         ++next;
         if (next != end && (*next == '<' || *next == '>' || *next == '^' || *next == '='))
         {
             fill = *it;
             align = *next;
+            explicit_align = true;
             it = next;
             ++it;
         }
         else if (*it == '<' || *it == '>' || *it == '^' || *it == '=')
         {
             align = *it;
+            explicit_align = true;
             ++it;
         }
 
@@ -5867,14 +5871,17 @@ struct formatter<gint::integer<Bits, Signed>>
 
         if (it != end && *it == '0')
         {
-#    if FMT_VERSION < 120000
-            fill = '0';
-#    endif
-            if (align == '>')
+            if (align == '>' && !explicit_align)
             {
                 align = '=';
                 fill = '0';
             }
+#    if FMT_VERSION < 120000
+            else
+            {
+                fill = '0';
+            }
+#    endif
             ++it;
         }
 
@@ -5882,6 +5889,32 @@ struct formatter<gint::integer<Bits, Signed>>
         {
             width = width * 10u + static_cast<unsigned>(*it - '0');
             ++it;
+        }
+
+        if (it != end && *it == '{')
+        {
+            ++it;
+            if (it != end && *it == '}')
+            {
+                dynamic_width_arg_id = ctx.next_arg_id();
+                ++it;
+            }
+            else
+            {
+                int arg_id = 0;
+                bool has_arg_id = false;
+                while (it != end && *it >= '0' && *it <= '9')
+                {
+                    has_arg_id = true;
+                    arg_id = arg_id * 10 + static_cast<int>(*it - '0');
+                    ++it;
+                }
+                if (!has_arg_id || it == end || *it != '}')
+                    throw fmt::format_error("invalid format specifier for gint::integer");
+                ctx.check_arg_id(arg_id);
+                dynamic_width_arg_id = arg_id;
+                ++it;
+            }
         }
 
         if (it != end && *it != '}')
@@ -5896,6 +5929,49 @@ struct formatter<gint::integer<Bits, Signed>>
         if (it != end && *it != '}')
             throw fmt::format_error("invalid format specifier for gint::integer");
         return it;
+    }
+
+    struct dynamic_width_visitor
+    {
+        unsigned operator()(int value) const { return from_signed(value); }
+        unsigned operator()(long value) const { return from_signed(value); }
+        unsigned operator()(long long value) const { return from_signed(value); }
+        unsigned operator()(unsigned value) const { return value; }
+        unsigned operator()(unsigned long value) const { return from_unsigned(value); }
+        unsigned operator()(unsigned long long value) const { return from_unsigned(value); }
+
+        template <typename T>
+        unsigned operator()(const T &) const
+        {
+            throw fmt::format_error("width is not integer");
+        }
+
+    private:
+        template <typename T>
+        static unsigned from_signed(T value)
+        {
+            if (value < 0)
+                throw fmt::format_error("negative width");
+            return from_unsigned(static_cast<typename std::make_unsigned<T>::type>(value));
+        }
+
+        template <typename T>
+        static unsigned from_unsigned(T value)
+        {
+            if (value > static_cast<T>((std::numeric_limits<unsigned>::max)()))
+                throw fmt::format_error("width is too large");
+            return static_cast<unsigned>(value);
+        }
+    };
+
+    template <typename FormatArg>
+    static unsigned visit_dynamic_width_arg(const FormatArg & arg)
+    {
+#    if FMT_VERSION >= 120000
+        return arg.visit(dynamic_width_visitor{});
+#    else
+        return fmt::visit_format_arg(dynamic_width_visitor{}, arg);
+#    endif
     }
 
     template <typename FormatContext>
@@ -5958,9 +6034,12 @@ struct formatter<gint::integer<Bits, Signed>>
         }
 
         std::string text = prefix + digits;
-        if (width > text.size())
+        unsigned resolved_width = width;
+        if (dynamic_width_arg_id >= 0)
+            resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_id));
+        if (resolved_width > text.size())
         {
-            const size_t padding = width - text.size();
+            const size_t padding = resolved_width - text.size();
             if (align == '<')
             {
                 text.append(padding, fill);
