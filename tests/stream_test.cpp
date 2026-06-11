@@ -1,3 +1,4 @@
+#include <iomanip>
 #include <sstream>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
@@ -24,6 +25,61 @@ TEST(WideIntegerStream, OutputZero)
     std::ostringstream oss;
     oss << v;
     EXPECT_EQ(oss.str(), "0");
+}
+
+TEST(WideIntegerStream, HonorsIntegerBaseFlags)
+{
+    using U128 = gint::integer<128, unsigned>;
+    const U128 value = (U128(1) << 68) + U128(0x2a);
+
+    {
+        std::ostringstream oss;
+        oss << std::hex << value;
+        EXPECT_EQ(oss.str(), "10000000000000002a");
+    }
+
+    {
+        std::ostringstream oss;
+        oss << std::showbase << std::uppercase << std::hex << value;
+        EXPECT_EQ(oss.str(), "0X10000000000000002A");
+    }
+
+    {
+        std::ostringstream oss;
+        oss << std::oct << U128(71);
+        EXPECT_EQ(oss.str(), "107");
+    }
+}
+
+TEST(WideIntegerStream, FormatsSignedNegativeHexAsBitPattern)
+{
+    gint::integer<128, signed> value = -42;
+    std::ostringstream oss;
+    oss << std::hex << value;
+    EXPECT_EQ(oss.str(), "ffffffffffffffffffffffffffffffd6");
+}
+
+TEST(WideIntegerStream, HonorsWidthFillAndSigns)
+{
+    using U128 = gint::integer<128, unsigned>;
+
+    {
+        std::ostringstream oss;
+        oss << std::showpos << U128(42);
+        EXPECT_EQ(oss.str(), "+42");
+    }
+
+    {
+        std::ostringstream oss;
+        oss << std::showbase << std::hex << std::internal << std::setw(8) << std::setfill('0') << U128(42);
+        EXPECT_EQ(oss.str(), "0x00002a");
+    }
+
+    {
+        std::ostringstream oss;
+        oss << std::left << std::setw(5) << U128(42);
+        EXPECT_EQ(oss.str(), "42   ");
+    }
 }
 
 TEST(WideIntegerStream, OutputAdditionalWidths)
