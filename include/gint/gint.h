@@ -1399,6 +1399,35 @@ private:
     };
     explicit integer(uninitialized_tag) noexcept { }
 
+    template <size_t OtherBits, typename OtherSigned>
+    GINT_CONSTEXPR14 void assign_integer(const integer<OtherBits, OtherSigned> & other) noexcept
+    {
+        const size_t src_limbs = integer<OtherBits, OtherSigned>::limbs;
+        const size_t common_limbs = limbs < src_limbs ? limbs : src_limbs;
+        for (size_t i = 0; i < common_limbs; ++i)
+            data_[i] = other.data_[i];
+
+        const bool source_negative = std::is_same<OtherSigned, signed>::value && (other.data_[src_limbs - 1] >> 63);
+        const limb_type fill = source_negative ? ~limb_type(0) : limb_type(0);
+        for (size_t i = common_limbs; i < limbs; ++i)
+            data_[i] = fill;
+    }
+
+    template <size_t I, size_t OtherBits, typename OtherSigned>
+    static constexpr typename std::enable_if<(I < integer<OtherBits, OtherSigned>::limbs), limb_type>::type
+    limb_from_integer(const integer<OtherBits, OtherSigned> & other) noexcept
+    {
+        return other.data_[I];
+    }
+
+    template <size_t I, size_t OtherBits, typename OtherSigned>
+    static constexpr typename std::enable_if<(I >= integer<OtherBits, OtherSigned>::limbs), limb_type>::type
+    limb_from_integer(const integer<OtherBits, OtherSigned> & other) noexcept
+    {
+        return std::is_same<OtherSigned, signed>::value && (other.data_[integer<OtherBits, OtherSigned>::limbs - 1] >> 63) ? ~limb_type(0)
+                                                                                                                           : limb_type(0);
+    }
+
 public:
     // Constructors
     constexpr integer() noexcept
@@ -1408,9 +1437,28 @@ public:
     constexpr integer(const integer &) noexcept = default;
     constexpr integer(integer &&) noexcept = default;
 
+    template <
+        size_t OtherBits,
+        typename OtherSigned,
+        typename std::enable_if<!(OtherBits == Bits && std::is_same<OtherSigned, Signed>::value), int>::type = 0>
+    GINT_CONSTEXPR14 explicit integer(const integer<OtherBits, OtherSigned> & other) noexcept
+        : integer(other, typename detail::make_index_sequence<limbs>::type())
+    {
+    }
+
     // Assignment operators
     GINT_CONSTEXPR14 integer & operator=(const integer &) noexcept = default;
     GINT_CONSTEXPR14 integer & operator=(integer &&) noexcept = default;
+
+    template <
+        size_t OtherBits,
+        typename OtherSigned,
+        typename std::enable_if<!(OtherBits == Bits && std::is_same<OtherSigned, Signed>::value), int>::type = 0>
+    GINT_CONSTEXPR14 integer & operator=(const integer<OtherBits, OtherSigned> & other) noexcept
+    {
+        assign_integer(other);
+        return *this;
+    }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     constexpr integer(T v) noexcept
@@ -1426,6 +1474,12 @@ public:
     }
 
 private:
+    template <size_t OtherBits, typename OtherSigned, size_t... I>
+    constexpr integer(const integer<OtherBits, OtherSigned> & other, detail::index_sequence<I...>) noexcept
+        : data_{limb_from_integer<I>(other)...}
+    {
+    }
+
     template <typename T, size_t... I>
     constexpr integer(T v, detail::index_sequence<I...>) noexcept
         : data_{limb_from<T, I>(v)...}
