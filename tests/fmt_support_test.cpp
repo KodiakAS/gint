@@ -81,6 +81,8 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_EQ(fmt::format("{:{}x}", U128(42), 6), "    2a");
     EXPECT_EQ(fmt::format("{0:>{1}}", U128(42), 6), "    42");
     EXPECT_EQ(fmt::format("{:0>{}}", U128(42), 6), "000042");
+    EXPECT_EQ(fmt::format("{:{w}}", U128(42), fmt::arg("w", 6)), "    42");
+    EXPECT_EQ(fmt::format("{:>{w}}", U128(42), fmt::arg("w", 6)), "    42");
 }
 
 TEST(fmt_support, format_signed_integer_base_specs)

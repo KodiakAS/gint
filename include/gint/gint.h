@@ -5829,7 +5829,13 @@ struct formatter<gint::integer<Bits, Signed>>
     bool alternate = false;
     unsigned width = 0;
     int dynamic_width_arg_id = -1;
+    basic_string_view<char> dynamic_width_arg_name;
+    bool dynamic_width_is_named = false;
     char presentation = 0;
+
+    static FMT_CONSTEXPR bool is_name_start(char ch) { return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_'; }
+
+    static FMT_CONSTEXPR bool is_name_char(char ch) { return is_name_start(ch) || (ch >= '0' && ch <= '9'); }
 
     template <typename ParseContext>
     FMT_CONSTEXPR auto parse(ParseContext & ctx) -> typename ParseContext::iterator
@@ -5897,6 +5903,19 @@ struct formatter<gint::integer<Bits, Signed>>
             if (it != end && *it == '}')
             {
                 dynamic_width_arg_id = ctx.next_arg_id();
+                ++it;
+            }
+            else if (it != end && is_name_start(*it))
+            {
+                const auto name_begin = it;
+                ++it;
+                while (it != end && is_name_char(*it))
+                    ++it;
+                if (it == end || *it != '}')
+                    throw fmt::format_error("invalid format specifier for gint::integer");
+                dynamic_width_arg_name = basic_string_view<char>(&*name_begin, static_cast<size_t>(it - name_begin));
+                dynamic_width_is_named = true;
+                ctx.check_arg_id(dynamic_width_arg_name);
                 ++it;
             }
             else
@@ -6037,6 +6056,8 @@ struct formatter<gint::integer<Bits, Signed>>
         unsigned resolved_width = width;
         if (dynamic_width_arg_id >= 0)
             resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_id));
+        else if (dynamic_width_is_named)
+            resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_name));
         if (resolved_width > text.size())
         {
             const size_t padding = resolved_width - text.size();
