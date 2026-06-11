@@ -4,6 +4,36 @@
 template <typename Int>
 using TestAccess = gint::detail::integer_test_access<Int::bits, typename Int::signed_tag>;
 
+namespace
+{
+using u128 = unsigned __int128;
+
+u128 mulhi_u128_reference(u128 a, u128 b)
+{
+    const u128 a0 = static_cast<uint64_t>(a);
+    const u128 a1 = a >> 64;
+    const u128 b0 = static_cast<uint64_t>(b);
+    const u128 b1 = b >> 64;
+    const u128 t0 = a0 * b0;
+    const u128 t1 = a0 * b1;
+    const u128 t2 = a1 * b0;
+    const u128 t3 = a1 * b1;
+    const u128 mid = (t0 >> 64) + static_cast<uint64_t>(t1) + static_cast<uint64_t>(t2);
+    return t3 + (t1 >> 64) + (t2 >> 64) + (mid >> 64);
+}
+} // namespace
+
+TEST(WideIntegerDivision, MulHiU128HandlesMiddleCarry)
+{
+    const u128 all_bits = ~u128(0);
+    const u128 got = gint::detail::mulhi_u128(all_bits, all_bits);
+    const u128 expected = mulhi_u128_reference(all_bits, all_bits);
+
+    EXPECT_EQ(got, expected);
+    EXPECT_EQ(static_cast<uint64_t>(got >> 64), UINT64_MAX);
+    EXPECT_EQ(static_cast<uint64_t>(got), UINT64_MAX - 1);
+}
+
 TEST(WideIntegerDivision, SmallDivMod)
 {
     using UInt256 = gint::integer<256, unsigned>;

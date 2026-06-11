@@ -298,6 +298,36 @@ TEST(FloatInteropEdges, CompareWithLongDouble_PrecisionBoundary)
     EXPECT_FALSE(a2 == d);
 }
 
+TEST(FloatInteropEdges, CompareInteger64WithLongDouble)
+{
+    using S64 = gint::integer<64, signed>;
+    using U64 = gint::integer<64, unsigned>;
+
+    U64 u = 5;
+    const long double five = 5.0L;
+    EXPECT_TRUE(u == five);
+    EXPECT_FALSE(u != five);
+    EXPECT_FALSE(u < five);
+    EXPECT_TRUE(u <= five);
+    EXPECT_FALSE(u > five);
+    EXPECT_TRUE(u >= five);
+    EXPECT_TRUE(five == u);
+    EXPECT_FALSE(five < u);
+    EXPECT_TRUE(five <= u);
+
+    S64 s = -7;
+    const long double neg_seven = -7.0L;
+    EXPECT_TRUE(s == neg_seven);
+    EXPECT_FALSE(s != neg_seven);
+    EXPECT_FALSE(s < neg_seven);
+    EXPECT_TRUE(s <= neg_seven);
+    EXPECT_FALSE(s > neg_seven);
+    EXPECT_TRUE(s >= neg_seven);
+    EXPECT_TRUE(neg_seven == s);
+    EXPECT_FALSE(neg_seven > s);
+    EXPECT_TRUE(neg_seven >= s);
+}
+
 TEST(FloatInteropEdges, ConstructFromNonFiniteValues)
 {
     using S256 = gint::integer<256, signed>;
