@@ -65,6 +65,7 @@ if(GINT_BUILD_TESTS)
         tests/conversion_test.cpp
         tests/float_interop_edge_test.cpp
         tests/fmt_support_test.cpp
+        tests/hash_test.cpp
         tests/numeric_limits_test.cpp
         tests/property_test.cpp
         tests/shift_test.cpp

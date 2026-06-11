@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <ostream>
 #include <stdexcept>
@@ -1381,6 +1382,7 @@ public:
     template <size_t, typename>
     friend class integer;
     friend class std::numeric_limits<integer<Bits, Signed>>;
+    friend struct std::hash<integer<Bits, Signed>>;
 #ifdef GINT_TEST_ACCESS
     friend struct detail::integer_test_access<Bits, Signed>;
 #endif
@@ -5274,6 +5276,22 @@ template <size_t Bits, typename Signed>
 constexpr bool numeric_limits<gint::integer<Bits, Signed>>::traps;
 template <size_t Bits, typename Signed>
 constexpr bool numeric_limits<gint::integer<Bits, Signed>>::tinyness_before;
+
+template <size_t Bits, typename Signed>
+struct hash<gint::integer<Bits, Signed>>
+{
+    size_t operator()(const gint::integer<Bits, Signed> & value) const noexcept
+    {
+        using Int = gint::integer<Bits, Signed>;
+        size_t seed = 0;
+        for (size_t i = 0; i < Int::limbs; ++i)
+        {
+            const size_t h = std::hash<typename Int::limb_type>()(value.data_[i]);
+            seed ^= h + static_cast<size_t>(0x9e3779b97f4a7c15ULL) + (seed << 6) + (seed >> 2);
+        }
+        return seed;
+    }
+};
 } // namespace std
 
 namespace gint
