@@ -1381,6 +1381,18 @@ template <size_t Bits, typename Signed>
 std::string to_string(const integer<Bits, Signed> & value);
 
 template <size_t Bits, typename Signed>
+integer<Bits, Signed> from_string(const std::string & text, unsigned base = 0);
+
+template <size_t Bits, typename Signed>
+integer<Bits, Signed> from_string(const char * text, unsigned base = 0);
+
+template <typename Int>
+Int from_string(const std::string & text, unsigned base = 0);
+
+template <typename Int>
+Int from_string(const char * text, unsigned base = 0);
+
+template <size_t Bits, typename Signed>
 std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed> & value);
 
 //=== Core integer type ======================================================
@@ -1491,6 +1503,10 @@ public:
         assign_float(v);
     }
 
+    explicit integer(const std::string & text) { *this = from_string<Bits, Signed>(text); }
+
+    explicit integer(const char * text) { *this = from_string<Bits, Signed>(text); }
+
 private:
     template <size_t OtherBits, typename OtherSigned, size_t... I>
     constexpr integer(const integer<OtherBits, OtherSigned> & other, detail::index_sequence<I...>) noexcept
@@ -1566,6 +1582,18 @@ public:
     integer & operator=(T v) noexcept
     {
         assign_float(v);
+        return *this;
+    }
+
+    integer & operator=(const std::string & text)
+    {
+        *this = from_string<Bits, Signed>(text);
+        return *this;
+    }
+
+    integer & operator=(const char * text)
+    {
+        *this = from_string<Bits, Signed>(text);
         return *this;
     }
 
@@ -5574,6 +5602,108 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     if (neg)
         out.insert(out.begin(), '-');
     return out;
+}
+
+namespace detail
+{
+inline unsigned string_digit_value(char c) noexcept
+{
+    if (c >= '0' && c <= '9')
+        return static_cast<unsigned>(c - '0');
+    if (c >= 'a' && c <= 'z')
+        return static_cast<unsigned>(c - 'a') + 10u;
+    if (c >= 'A' && c <= 'Z')
+        return static_cast<unsigned>(c - 'A') + 10u;
+    return 36u;
+}
+
+inline void detect_parse_base(const std::string & text, size_t & pos, unsigned & base)
+{
+    if (base != 0 && (base < 2 || base > 36))
+        throw std::invalid_argument("gint::from_string invalid base");
+
+    if (base == 0)
+    {
+        if (pos + 1 < text.size() && text[pos] == '0' && (text[pos + 1] == 'x' || text[pos + 1] == 'X'))
+        {
+            base = 16;
+            pos += 2;
+        }
+        else if (pos + 1 < text.size() && text[pos] == '0' && (text[pos + 1] == 'b' || text[pos + 1] == 'B'))
+        {
+            base = 2;
+            pos += 2;
+        }
+        else if (pos + 1 < text.size() && text[pos] == '0')
+        {
+            base = 8;
+        }
+        else
+        {
+            base = 10;
+        }
+        return;
+    }
+
+    if (base == 16 && pos + 1 < text.size() && text[pos] == '0' && (text[pos + 1] == 'x' || text[pos + 1] == 'X'))
+        pos += 2;
+    else if (base == 2 && pos + 1 < text.size() && text[pos] == '0' && (text[pos + 1] == 'b' || text[pos + 1] == 'B'))
+        pos += 2;
+}
+} // namespace detail
+
+template <size_t Bits, typename Signed>
+inline integer<Bits, Signed> from_string(const std::string & text, unsigned base)
+{
+    if (text.empty())
+        throw std::invalid_argument("gint::from_string empty string");
+
+    size_t pos = 0;
+    bool negative = false;
+    if (text[pos] == '+' || text[pos] == '-')
+    {
+        negative = text[pos] == '-';
+        ++pos;
+        if (pos == text.size())
+            throw std::invalid_argument("gint::from_string sign without digits");
+    }
+
+    detail::detect_parse_base(text, pos, base);
+    if (pos == text.size())
+        throw std::invalid_argument("gint::from_string prefix without digits");
+
+    integer<Bits, Signed> result = 0;
+    const integer<Bits, Signed> wide_base = base;
+    for (; pos < text.size(); ++pos)
+    {
+        const unsigned digit = detail::string_digit_value(text[pos]);
+        if (digit >= base)
+            throw std::invalid_argument("gint::from_string invalid digit");
+        result *= wide_base;
+        result += integer<Bits, Signed>(digit);
+    }
+
+    return negative ? -result : result;
+}
+
+template <size_t Bits, typename Signed>
+inline integer<Bits, Signed> from_string(const char * text, unsigned base)
+{
+    if (!text)
+        throw std::invalid_argument("gint::from_string null string");
+    return from_string<Bits, Signed>(std::string(text), base);
+}
+
+template <typename Int>
+inline Int from_string(const std::string & text, unsigned base)
+{
+    return from_string<Int::bits, typename Int::signed_tag>(text, base);
+}
+
+template <typename Int>
+inline Int from_string(const char * text, unsigned base)
+{
+    return from_string<Int::bits, typename Int::signed_tag>(text, base);
 }
 
 template <size_t Bits, typename Signed>

@@ -89,6 +89,7 @@
 ## 10. 字符串、流与格式化
 
 - `gint::to_string()`：十进制字符串表示；负数以 `-` 前缀。
+- `gint::from_string()` 与显式字符串构造：按给定位宽解析字符串；默认自动识别十进制、`0x`/`0X` 十六进制、`0b`/`0B` 二进制和前导 `0` 八进制，也可显式传入 2..36 的进制。结果按固定宽度累积，超出位宽时按模 `2^Bits` 包裹；无效输入抛出 `std::invalid_argument`。
 - `operator<<`：输出十进制表示。
 - `fmt` 支持：定义 `GINT_ENABLE_FMT` 宏后，提供 `fmt::formatter<gint::integer<...>>`。
 

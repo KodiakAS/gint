@@ -14,6 +14,9 @@ static_assert(std::is_constructible<gint::Int128, gint::UInt128>::value, "UInt12
 static_assert(std::is_constructible<gint::UInt256, gint::Int128>::value, "Int128 should explicitly construct UInt256");
 static_assert(!std::is_convertible<gint::UInt128, gint::Int128>::value, "integer signedness conversion should stay explicit");
 static_assert(std::is_assignable<gint::Int256 &, gint::UInt128>::value, "UInt128 should assign to Int256 explicitly");
+static_assert(std::is_constructible<gint::UInt128, const char *>::value, "UInt128 should be constructible from string literals");
+static_assert(std::is_constructible<gint::UInt128, std::string>::value, "UInt128 should be constructible from std::string");
+static_assert(!std::is_convertible<const char *, gint::UInt128>::value, "string construction should be explicit");
 
 #if __cplusplus >= 201402L
 constexpr bool constexpr_integer_conversion_works()
@@ -262,6 +265,55 @@ TEST(WideIntegerConversion, ToStringZero)
 {
     EXPECT_EQ(gint::to_string(gint::integer<128, unsigned>(0)), "0");
     EXPECT_EQ(gint::to_string(gint::integer<128, signed>(0)), "0");
+}
+
+TEST(WideIntegerConversion, FromStringDecimal)
+{
+    const auto max_u128 = gint::from_string<gint::UInt128>("340282366920938463463374607431768211455");
+    EXPECT_EQ(max_u128, std::numeric_limits<gint::UInt128>::max());
+
+    const auto min_s128 = gint::from_string<gint::Int128>("-170141183460469231731687303715884105728");
+    EXPECT_EQ(min_s128, std::numeric_limits<gint::Int128>::min());
+    EXPECT_EQ(gint::to_string(min_s128), "-170141183460469231731687303715884105728");
+}
+
+TEST(WideIntegerConversion, FromStringPrefixesAndBases)
+{
+    EXPECT_EQ((gint::from_string<128, unsigned>("0xffffffffffffffffffffffffffffffff")), std::numeric_limits<gint::UInt128>::max());
+    EXPECT_EQ(gint::from_string<gint::UInt128>("0b101010"), gint::UInt128(42));
+    EXPECT_EQ(gint::from_string<gint::UInt128>("0107"), gint::UInt128(71));
+    EXPECT_EQ(gint::from_string<gint::UInt128>("ff", 16), gint::UInt128(255));
+    EXPECT_EQ(gint::from_string<gint::UInt128>("0xff", 16), gint::UInt128(255));
+}
+
+TEST(WideIntegerConversion, FromStringWrapsToFixedWidth)
+{
+    EXPECT_EQ(gint::from_string<gint::UInt128>("340282366920938463463374607431768211456"), gint::UInt128(0));
+    EXPECT_EQ(gint::from_string<gint::UInt128>("-1"), std::numeric_limits<gint::UInt128>::max());
+}
+
+TEST(WideIntegerConversion, StringConstructorsAndAssignments)
+{
+    gint::UInt256 value("12345678901234567890");
+    EXPECT_EQ(gint::to_string(value), "12345678901234567890");
+
+    gint::UInt256 assigned;
+    assigned = std::string("0x10000000000000000");
+    EXPECT_EQ(assigned, gint::UInt256(1) << 64);
+
+    assigned = "0b1001";
+    EXPECT_EQ(assigned, gint::UInt256(9));
+}
+
+TEST(WideIntegerConversion, FromStringRejectsInvalidInput)
+{
+    EXPECT_THROW(gint::from_string<gint::UInt128>(""), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<gint::UInt128>("-"), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<gint::UInt128>("0x"), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<gint::UInt128>("12z", 10), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<gint::UInt128>("2", 2), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<gint::UInt128>("123", 1), std::invalid_argument);
+    EXPECT_THROW((gint::from_string<128, unsigned>(nullptr)), std::invalid_argument);
 }
 
 TEST(WideIntegerConversion, FloatingDivisionBothWays)
