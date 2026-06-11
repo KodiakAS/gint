@@ -1,4 +1,6 @@
 #include <array>
+#include <cfenv>
+#include <cmath>
 #include <limits>
 #include <sstream>
 #include <type_traits>
@@ -144,6 +146,96 @@ TEST(WideIntegerConversion, FloatingPoint)
     double d2 = -789.0;
     gint::integer<128, signed> s = d2;
     EXPECT_EQ(s, -789);
+}
+
+TEST(WideIntegerConversion, DoubleConversionAvoidsLongDoubleDoubleRounding)
+{
+    using U128 = gint::integer<128, unsigned>;
+    const unsigned __int128 native = (static_cast<unsigned __int128>(1) << 64) + (1ULL << 11) + 1;
+    U128 wide = U128(1);
+    wide <<= 64;
+    wide += U128(1ULL << 11);
+    wide += U128(1);
+
+    EXPECT_EQ(static_cast<double>(wide), static_cast<double>(native));
+
+    using S128 = gint::integer<128, signed>;
+    S128 signed_wide = S128(1);
+    signed_wide <<= 64;
+    signed_wide += S128(1ULL << 11);
+    signed_wide += S128(1);
+    signed_wide = -signed_wide;
+    const __int128 signed_native = -static_cast<__int128>(native);
+    EXPECT_EQ(static_cast<double>(signed_wide), static_cast<double>(signed_native));
+}
+
+TEST(WideIntegerConversion, DoubleConversionRespectsCurrentRoundingMode)
+{
+    struct RoundingGuard
+    {
+        int old_round;
+        RoundingGuard()
+            : old_round(std::fegetround())
+        {
+        }
+        ~RoundingGuard() { std::fesetround(old_round); }
+    } guard;
+
+    using U128 = gint::integer<128, unsigned>;
+    using S128 = gint::integer<128, signed>;
+    const double base = std::ldexp(1.0, 53);
+    U128 positive = U128(1);
+    positive <<= 53;
+    positive += U128(3);
+    S128 negative = S128(1);
+    negative <<= 53;
+    negative += S128(3);
+    negative = -negative;
+
+    ASSERT_EQ(std::fesetround(FE_DOWNWARD), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 2.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 4.0));
+
+    ASSERT_EQ(std::fesetround(FE_UPWARD), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 4.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 2.0));
+
+    ASSERT_EQ(std::fesetround(FE_TOWARDZERO), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 2.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 2.0));
+
+    ASSERT_EQ(std::fesetround(FE_TONEAREST), 0);
+    EXPECT_EQ(static_cast<double>(positive), base + 4.0);
+    EXPECT_EQ(static_cast<double>(negative), -(base + 4.0));
+}
+
+TEST(WideIntegerConversion, FloatConversionAvoidsLongDoubleDoubleRounding)
+{
+    using U128 = gint::integer<128, unsigned>;
+    const unsigned __int128 native = (static_cast<unsigned __int128>(1) << 64) + (static_cast<unsigned __int128>(1) << 40) + 1;
+    U128 wide = U128(1);
+    wide <<= 64;
+    wide += U128(1) << 40;
+    wide += U128(1);
+
+    EXPECT_EQ(static_cast<float>(wide), static_cast<float>(native));
+
+    using S128 = gint::integer<128, signed>;
+    S128 signed_wide = S128(1);
+    signed_wide <<= 64;
+    signed_wide += S128(1) << 40;
+    signed_wide += S128(1);
+    signed_wide = -signed_wide;
+    const __int128 signed_native = -static_cast<__int128>(native);
+    EXPECT_EQ(static_cast<float>(signed_wide), static_cast<float>(signed_native));
+}
+
+TEST(WideIntegerConversion, FloatConversionSignedMinMagnitude)
+{
+    using S128 = gint::integer<128, signed>;
+    const S128 min128 = std::numeric_limits<S128>::min();
+    EXPECT_EQ(static_cast<double>(min128), -std::ldexp(1.0, 127));
+    EXPECT_EQ(static_cast<float>(min128), -std::ldexp(1.0f, 127));
 }
 
 TEST(WideIntegerConversion, FloatCtorAndAssignLongDouble)
