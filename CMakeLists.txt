@@ -135,6 +135,44 @@ if(GINT_BUILD_TESTS)
         DISCOVERY_TIMEOUT 60
     )
 
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_library(gint_divzero_checked_dso SHARED tests/divzero_dso_library.cpp)
+        target_include_directories(gint_divzero_checked_dso PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        set_target_properties(gint_divzero_checked_dso PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        target_compile_options(gint_divzero_checked_dso PRIVATE ${GINT_TEST_OPTIONS})
+        target_compile_definitions(gint_divzero_checked_dso PRIVATE GINT_ENABLE_DIVZERO_CHECKS)
+        if(GINT_TEST_LINK_OPTIONS)
+            target_link_options(gint_divzero_checked_dso PRIVATE ${GINT_TEST_LINK_OPTIONS})
+        endif()
+
+        add_library(gint_divzero_unchecked_dso SHARED tests/divzero_dso_library.cpp)
+        target_include_directories(gint_divzero_unchecked_dso PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        set_target_properties(gint_divzero_unchecked_dso PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        target_compile_options(gint_divzero_unchecked_dso PRIVATE ${GINT_TEST_OPTIONS})
+        if(GINT_TEST_LINK_OPTIONS)
+            target_link_options(gint_divzero_unchecked_dso PRIVATE ${GINT_TEST_LINK_OPTIONS})
+        endif()
+
+        add_executable(gint_tests_divzero_dso tests/divzero_dso_loader_test.cpp)
+        target_compile_definitions(gint_tests_divzero_dso
+            PRIVATE
+                GINT_DSO_CHECKED_PATH="$<TARGET_FILE:gint_divzero_checked_dso>"
+                GINT_DSO_UNCHECKED_PATH="$<TARGET_FILE:gint_divzero_unchecked_dso>"
+        )
+        set_target_properties(gint_tests_divzero_dso PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        target_compile_options(gint_tests_divzero_dso PRIVATE ${GINT_TEST_OPTIONS})
+        if(GINT_TEST_LINK_OPTIONS)
+            target_link_options(gint_tests_divzero_dso PRIVATE ${GINT_TEST_LINK_OPTIONS})
+        endif()
+        target_link_libraries(gint_tests_divzero_dso PRIVATE GTest::gtest_main ${CMAKE_DL_LIBS})
+        add_dependencies(gint_tests_divzero_dso gint_divzero_checked_dso gint_divzero_unchecked_dso)
+        gtest_discover_tests(gint_tests_divzero_dso
+            TEST_PREFIX divzero_dso.
+            NO_PRETTY_VALUES
+            DISCOVERY_TIMEOUT 60
+        )
+    endif()
+
     add_executable(gint_tests_gcc_tuned_fastpaths tests/gcc_tuned_fastpaths_test.cpp)
     target_include_directories(gint_tests_gcc_tuned_fastpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     set_target_properties(gint_tests_gcc_tuned_fastpaths PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)

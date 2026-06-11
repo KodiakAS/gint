@@ -118,7 +118,10 @@
 
 - 除零检查（可选）：
   - 宏 `GINT_ENABLE_DIVZERO_CHECKS` 未定义（默认）：不抛异常；除零返回 0，模零返回被除数本身。该行为用于避免 unchecked 路径触发底层除法 UB。
-  - 宏已定义（需在包含头文件前定义）：除零或模零抛出 `std::domain_error`。这是运行时全局策略；同一可执行/库 target 内不支持混用开启和未开启的翻译单元，建议通过 target 级编译定义统一配置。
+  - 宏已定义（需在包含头文件前定义）：当前翻译单元中的除零或模零调用点抛出 `std::domain_error`。
+  - 该策略按编译目标配置，不再通过进程级运行时 flag 传播；`dlopen` 进来的共享库不会改变宿主或其它共享库中已编译调用点的行为。
+  - 除法/取模相关 inline 符号在支持 ELF/Mach-O 可见性的编译器上使用隐藏可见性，避免跨共享库边界绑定到另一种除零策略的 weak inline 实例。
+  - 同一可执行/库 target 内仍不支持混用开启和未开启的翻译单元，建议通过 target 级编译定义统一配置，避免同一 target 内调用点行为不一致。
 - 其它操作（溢出、下溢、移位越界等）：不抛异常，按模或规则处理（见 §6、§8）。
 
 测试参考：`tests/exceptions_overflow_test.cpp`。
@@ -220,7 +223,7 @@ void demo() {
 
 ## 19. 配置开关
 
-- `GINT_ENABLE_DIVZERO_CHECKS`：启用除零/模零抛出 `std::domain_error` 的运行时全局检查；应在包含 `gint/gint.h` 前定义，并在同一 target 内统一配置。
+- `GINT_ENABLE_DIVZERO_CHECKS`：启用除零/模零抛出 `std::domain_error` 的编译期策略；应在包含 `gint/gint.h` 前定义，并在同一 target 内统一配置。
 - `GINT_ENABLE_FMT`：启用 `fmt` 的格式化适配（需要链接/可用 `fmt`）。
 - `GINT_GCC_TUNED_PATHS` / `GINT_CLANG_TUNED_PATHS`：编译器相关优化路径选择；默认按当前编译器自动选择，两个宏互斥。普通使用不需要手动配置。
 - `GINT_ENABLE_AARCH64_LIMB_ASM`：控制 AArch64 limb 级内联汇编路径；默认在 `__aarch64__` 下开启、其它平台关闭，可用 `-DGINT_ENABLE_AARCH64_LIMB_ASM=0/1` 覆盖。

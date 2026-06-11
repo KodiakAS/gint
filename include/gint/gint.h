@@ -42,17 +42,26 @@
 #if defined(__GNUC__) || defined(__clang__)
 #    define GINT_NOINLINE __attribute__((noinline))
 #    define GINT_COLD __attribute__((cold))
+#    define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
 #else
 #    define GINT_NOINLINE
 #    define GINT_COLD
+#    define GINT_HIDDEN_VISIBILITY
 #endif
 
-#define GINT_ZERO_CHECK(cond, msg) \
-    do \
-    { \
-        if (GINT_UNLIKELY(cond) && ::gint::detail::divzero_checks_enabled()) \
-            throw std::domain_error(msg); \
-    } while (false)
+#if defined(GINT_ENABLE_DIVZERO_CHECKS)
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+            if (GINT_UNLIKELY(cond)) \
+                throw std::domain_error(msg); \
+        } while (false)
+#else
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+        } while (false)
+#endif
 #define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
 #define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
 
@@ -183,29 +192,6 @@ using UInt256 = integer<256, unsigned>;
 //=== Internal helper utilities ==============================================
 namespace detail
 {
-GINT_FORCE_INLINE bool & divzero_checks_flag() noexcept
-{
-    static bool enabled = false;
-    return enabled;
-}
-
-GINT_FORCE_INLINE bool divzero_checks_enabled() noexcept
-{
-    return divzero_checks_flag();
-}
-
-#if defined(GINT_ENABLE_DIVZERO_CHECKS)
-struct divzero_checks_registrar
-{
-    divzero_checks_registrar() noexcept { divzero_checks_flag() = true; }
-};
-
-namespace
-{
-static const divzero_checks_registrar k_divzero_checks_registrar;
-}
-#endif
-
 #ifdef GINT_TEST_ACCESS
 template <size_t Bits, typename Signed>
 struct integer_test_access;
@@ -1682,14 +1668,14 @@ public:
     }
 
     // Note: /= is not constexpr because of optional zero-checks and complexity
-    integer & operator/=(const integer & rhs)
+    GINT_HIDDEN_VISIBILITY integer & operator/=(const integer & rhs)
     {
         *this = *this / rhs;
         return *this;
     }
 
     // Note: %= is not constexpr because of optional zero-checks and complexity
-    integer & operator%=(const integer & rhs)
+    GINT_HIDDEN_VISIBILITY integer & operator%=(const integer & rhs)
     {
         *this = *this % rhs;
         return *this;
@@ -2713,7 +2699,7 @@ public:
         return rhs;
     }
 
-    friend integer operator/(integer lhs, const integer & rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, const integer & rhs)
     {
 #if GINT_GCC_TUNED_PATHS
         limb_type positive_limb_divisor;
@@ -2830,7 +2816,7 @@ public:
         return result;
     }
 
-    friend integer operator/(integer lhs, limb_type rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, limb_type rhs)
     {
         GINT_DIVZERO_CHECK(rhs == 0);
         if (needs_unsigned_signed_promotion(rhs))
@@ -2840,7 +2826,7 @@ public:
         return lhs / integer(rhs);
     }
 
-    friend integer operator/(integer lhs, signed_limb_type rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, signed_limb_type rhs)
     {
         GINT_DIVZERO_CHECK(rhs == 0);
         if (GINT_UNLIKELY(rhs == 0))
@@ -2853,14 +2839,14 @@ public:
         return q;
     }
 
-    friend integer operator/(limb_type lhs, integer rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(limb_type lhs, integer rhs)
     {
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) / promote_signed_self(rhs));
         return integer(lhs) / rhs;
     }
 
-    friend integer operator%(integer lhs, const integer & rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
 #if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
@@ -2937,7 +2923,7 @@ public:
 #endif
     }
 
-    friend integer operator%(integer lhs, limb_type rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, limb_type rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
         if (needs_unsigned_signed_promotion(rhs))
@@ -2947,7 +2933,7 @@ public:
         return lhs % integer(rhs);
     }
 
-    friend integer operator%(integer lhs, signed_limb_type rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, signed_limb_type rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
         if (GINT_UNLIKELY(rhs == 0))
@@ -2960,7 +2946,7 @@ public:
         return integer(r);
     }
 
-    friend integer operator%(limb_type lhs, integer rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(limb_type lhs, integer rhs)
     {
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) % promote_signed_self(rhs));
@@ -2968,7 +2954,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator/(integer lhs, T rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, T rhs)
     {
         GINT_DIVZERO_CHECK(rhs == 0);
         if (needs_unsigned_signed_promotion(rhs))
@@ -2980,7 +2966,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator/(T lhs, integer rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(T lhs, integer rhs)
     {
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) / promote_signed_self(rhs));
@@ -2988,7 +2974,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator/(integer lhs, T rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, T rhs)
     {
         if (std::isnan(rhs))
             throw std::domain_error("division by NaN");
@@ -3000,7 +2986,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator/(T lhs, integer rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(T lhs, integer rhs)
     {
         if (std::isnan(lhs))
             throw std::domain_error("division by NaN");
@@ -3011,7 +2997,7 @@ public:
     } // LCOV_EXCL_LINE
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator%(integer lhs, T rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, T rhs)
     {
         GINT_MODZERO_CHECK(rhs == 0);
         if (GINT_UNLIKELY(rhs == 0))
@@ -3032,7 +3018,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator%(T lhs, integer rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(T lhs, integer rhs)
     {
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) % promote_signed_self(rhs));
@@ -3040,7 +3026,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator%(integer lhs, T rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, T rhs)
     {
         if (std::isnan(rhs))
             throw std::domain_error("modulo by NaN");
@@ -3052,7 +3038,7 @@ public:
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
-    friend integer operator%(T lhs, integer rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator%(T lhs, integer rhs)
     {
         if (std::isnan(lhs))
             throw std::domain_error("modulo by NaN");
@@ -3888,7 +3874,7 @@ private:
         return rem;
     }
 
-    static integer
+    static GINT_HIDDEN_VISIBILITY integer
     div_unsigned_path(const integer & lhs_value, const integer & rhs_value, bool lhs_neg, bool rhs_neg, bool lhs_is_min, bool rhs_is_min)
     {
         using Unsigned = integer<Bits, unsigned>;
@@ -5747,6 +5733,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_CLANG_NOINLINE
 #undef GINT_NOINLINE
 #undef GINT_COLD
+#undef GINT_HIDDEN_VISIBILITY
 #undef GINT_RESTRICT
 #undef GINT_HAS_IS_CONSTANT_EVALUATED
 #undef GINT_ARCH_AARCH64
