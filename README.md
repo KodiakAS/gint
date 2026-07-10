@@ -13,26 +13,26 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Performance
 
-Local AppleClang microbenchmark sample (commit `eae8c0b`, collected 2026-06-11): Apple M4 Pro, macOS 26.5.1, AppleClang 21.0.0, Release/O3, Google Benchmark v1.9.5 (`BENCH_BITS=256 --gint_full --benchmark_min_time=0.2s`). Numbers are `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed 256-bit inputs. Use them for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
+Local AppleClang microbenchmark sample (commit `3649c33b`, collected 2026-07-10): Apple M4 Pro, macOS 26.5.2, AppleClang 21.0.0, Release/O3, Google Benchmark v1.9.5 (`BENCH_BITS=256 --gint_full --benchmark_min_time=0.2s --benchmark_repetitions=3`). Numbers are median `real_time` ns/op (lower is better) for hot, in-cache operator throughput on fixed 256-bit inputs. The comparison matrix uses unsigned fixed-width types so every generated bit pattern maps to the same non-negative mathematical value in gint, ClickHouse, and Boost; native object layout remains library-specific. Use the results for same-toolchain regression tracking; Docker/GCC and real workload results should be reported separately.
 
 Arithmetic & ToString — 256-bit
 
 | Case                   | gint | ClickHouse | Boost |
 | ---------------------- | ---: | ---------: | ----: |
-| Add/NoCarry            | 0.666 |       1.11 |  4.37 |
-| Add/FullCarry          | 0.695 |       1.62 |  1.88 |
-| Sub/NoBorrow           | 0.691 |      0.944 |  4.38 |
-| Sub/FullBorrow         | 0.691 |       1.62 |  1.52 |
-| Mul/U64xU64            | 1.80 |       1.89 |  2.28 |
-| Mul/HighxHigh          | 1.83 |       2.79 | 11.5 |
-| Div/SmallDivisor32     | 10.8 |       14.0 | 20.2 |
-| Div/Pow2Divisor        | 4.85 |        310 | 67.4 |
-| Div/SimilarMagnitude   | 13.0 |        226 | 68.0 |
-| ToString/Base10        |  106 |        294 |  146 |
+| Add/NoCarry            | 0.672 |       1.02 |  3.05 |
+| Add/FullCarry          | 0.699 |       1.60 |  3.56 |
+| Sub/NoBorrow           | 0.697 |      0.960 |  4.40 |
+| Sub/FullBorrow         | 0.694 |       1.64 |  3.80 |
+| Mul/U64xU64            |  1.86 |       1.62 |  1.91 |
+| Mul/HighxHigh          |  1.82 |       1.60 |  10.7 |
+| Div/SmallDivisor32     |  8.61 |       11.4 |  19.0 |
+| Div/Pow2Divisor        |  3.14 |        316 |  64.3 |
+| Div/SimilarMagnitude   |  12.7 |        222 |  64.9 |
+| ToString/Base10        |   107 |        297 |   146 |
 
 Highlights
-- Add/Sub: faster than ClickHouse on the listed cases by ~1.4-2.3x, and faster than Boost by ~2.2-6.6x.
-- Mul: slightly faster on U64 x U64 and materially faster on high x high.
+- Add/Sub: faster than ClickHouse on the listed cases by ~1.4-2.4x, and faster than Boost by ~4.5-6.3x.
+- Mul: within ~2-15% of ClickHouse on the listed cases, and ~1.0-5.9x faster than Boost.
 - Div: large wins for power-of-two and similar-magnitude divisors; still faster on 32-bit small divisors.
 - ToString: ~1.4x faster vs Boost; ~2.8x vs ClickHouse.
 
