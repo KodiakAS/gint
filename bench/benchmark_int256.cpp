@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <iostream>
 #include <random>
 #include <string>
 #include <vector>
@@ -22,14 +23,19 @@ constexpr size_t kBenchBits = GINT_BENCH_BITS;
 static_assert(kBenchBits % 64 == 0, "benchmark widths must be limb-aligned");
 static_assert(kBenchBits >= 128, "benchmark widths must be at least 128 bits");
 
-using WInt = gint::integer<kBenchBits, signed>;
+// Keep the shared comparison matrix in one mathematical value domain. gint and
+// ClickHouse use two's-complement signed integers, while Boost's fixed signed
+// backend uses signed-magnitude. Feeding the same raw words to those signed
+// representations can therefore produce opposite signs. Unsigned fixed-width
+// types preserve the same non-negative value for every generated bit pattern.
+using WInt = gint::integer<kBenchBits, unsigned>;
 #ifdef GINT_ENABLE_CH_COMPARE
-using CInt = wide::integer<kBenchBits, signed>;
+using CInt = wide::integer<kBenchBits, unsigned>;
 #endif
 #ifdef GINT_ENABLE_BOOST_COMPARE
 using BInt = boost::multiprecision::number<
     boost::multiprecision::
-        cpp_int_backend<kBenchBits, kBenchBits, boost::multiprecision::signed_magnitude, boost::multiprecision::unchecked, void>>;
+        cpp_int_backend<kBenchBits, kBenchBits, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>>;
 #endif
 
 inline std::string to_string_convert(const WInt & x)
@@ -85,6 +91,32 @@ inline Int random_wide_with_low_limb(std::mt19937_64 & rng, uint64_t low_limb)
         words[i] = rng();
     return assemble_words<Int>(words);
 }
+
+#if defined(GINT_ENABLE_CH_COMPARE) && defined(GINT_ENABLE_BOOST_COMPARE)
+bool comparison_values_match(const char * label, const std::array<uint64_t, kBenchLimbs> & words)
+{
+    const std::string gint_value = to_string_convert(assemble_words<WInt>(words));
+    const std::string clickhouse_value = to_string_convert(assemble_words<CInt>(words));
+    const std::string boost_value = to_string_convert(assemble_words<BInt>(words));
+    if (gint_value == clickhouse_value && gint_value == boost_value)
+        return true;
+
+    std::cerr << "comparison value-domain mismatch for " << label << ": gint=" << gint_value << ", ClickHouse=" << clickhouse_value
+              << ", Boost=" << boost_value << '\n';
+    return false;
+}
+
+bool verify_comparison_value_domain()
+{
+    std::array<uint64_t, kBenchLimbs> words{};
+    words[kBenchLimbs - 1] = uint64_t(1) << 63;
+    if (!comparison_values_match("top bit", words))
+        return false;
+
+    words.fill(~uint64_t(0));
+    return comparison_values_match("all bits set", words);
+}
+#endif
 
 } // namespace
 
@@ -151,7 +183,7 @@ static void Add_FullCarry(benchmark::State & state)
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
         for (size_t i = 0; i < kDataN; ++i)
-            d[i] = {Int{-1}, Int{1}};
+            d[i] = {~Int{0}, Int{1}};
         return d;
     }();
     size_t i = 0;
@@ -733,6 +765,10 @@ static void Div_SimilarMagnitude2(benchmark::State & state)
 
 int main(int argc, char ** argv)
 {
+#if defined(GINT_ENABLE_CH_COMPARE) && defined(GINT_ENABLE_BOOST_COMPARE)
+    if (!verify_comparison_value_domain())
+        return 2;
+#endif
     bool full_matrix = parse_full_matrix_flag(argc, argv);
     // Addition
     REG_CASE("Add/NoCarry", Add_NoCarry);
