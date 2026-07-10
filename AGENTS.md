@@ -73,6 +73,7 @@
     - 可通过 `BENCH_ARGS` 传递 Google Benchmark 参数（示例：`--benchmark_min_time=0.2s`）。
   - 对比测试（Comparison）：在相同用例上对比 ClickHouse 与 Boost。
     - 命令：`make bench-compare`（标准矩阵）/ `make bench-compare-full`（完整矩阵，等价传入 `--gint_full`）。
+    - 三方共享矩阵必须使用能够表示同一数学值的类型与输入：bit-pattern 场景统一使用 unsigned 固定位宽类型；若未来增加 signed comparison，必须从统一数学值构造并在计时前校验三方值相等，禁止把同一 raw words 直接解释为补码 signed 与 signed-magnitude。
 
 - 术语定义
   - 目标用例：指一个或一组“具体 Benchmark 用例”，其命名遵循统一模式：
