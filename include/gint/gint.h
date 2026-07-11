@@ -4410,8 +4410,8 @@ private:
 #endif
 
     template <bool WantRemainder>
-    static GINT_NOINLINE
-        integer div_or_rem_large_core(integer lhs, const integer & divisor, size_t div_limbs, size_t dividend_limbs) noexcept
+    static GINT_NOINLINE integer
+    div_or_rem_large_core(integer lhs, const integer & divisor, size_t div_limbs, size_t dividend_limbs) noexcept
     {
         integer result;
         if (GINT_UNLIKELY(div_limbs == 0) || dividend_limbs < div_limbs)
