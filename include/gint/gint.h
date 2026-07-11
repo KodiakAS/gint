@@ -78,11 +78,13 @@
 #    define GINT_RESTRICT
 #endif
 
-#ifndef __has_builtin
-#    define __has_builtin(x) 0
+#ifdef __has_builtin
+#    define GINT_DETAIL_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#    define GINT_DETAIL_HAS_BUILTIN(x) 0
 #endif
 
-#if __has_builtin(__builtin_is_constant_evaluated)
+#if GINT_DETAIL_HAS_BUILTIN(__builtin_is_constant_evaluated)
 #    define GINT_HAS_IS_CONSTANT_EVALUATED 1
 #else
 #    define GINT_HAS_IS_CONSTANT_EVALUATED 0
@@ -375,94 +377,6 @@ template <>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept;
 
 template <size_t L>
-GINT_CONSTEXPR14 inline void add_limbs_scalar(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    add_limbs_copy_scalar<L>(lhs, lhs, rhs);
-}
-
-template <size_t L>
-GINT_FORCE_INLINE void add_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    add_limbs_copy_runtime<L>(lhs, lhs, rhs);
-}
-
-template <>
-GINT_FORCE_INLINE void add_limbs_runtime<1>(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    add_limbs_copy_runtime<1>(lhs, lhs, rhs);
-}
-
-template <>
-GINT_FORCE_INLINE void add_limbs_runtime<2>(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    add_limbs_copy_runtime<2>(lhs, lhs, rhs);
-}
-
-template <>
-GINT_FORCE_INLINE void add_limbs_runtime<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    add_limbs_copy_runtime<4>(lhs, lhs, rhs);
-}
-
-template <size_t L>
-GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
-    if (__builtin_is_constant_evaluated())
-    {
-        add_limbs_scalar<L>(lhs, rhs);
-        return;
-    }
-    add_limbs_runtime<L>(lhs, rhs);
-#elif __cplusplus >= 201402L
-    add_limbs_scalar<L>(lhs, rhs);
-#else
-    add_limbs_runtime<L>(lhs, rhs);
-#endif
-}
-
-template <size_t L>
-GINT_CONSTEXPR14 inline void sub_limbs_scalar(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    sub_limbs_copy_scalar<L>(lhs, lhs, rhs);
-}
-
-template <size_t L>
-GINT_FORCE_INLINE void sub_limbs_runtime(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    sub_limbs_copy_runtime<L>(lhs, lhs, rhs);
-}
-
-template <>
-GINT_FORCE_INLINE void sub_limbs_runtime<2>(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    sub_limbs_copy_runtime<2>(lhs, lhs, rhs);
-}
-
-template <>
-GINT_FORCE_INLINE void sub_limbs_runtime<4>(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-    sub_limbs_copy_runtime<4>(lhs, lhs, rhs);
-}
-
-template <size_t L>
-GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
-{
-#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
-    if (__builtin_is_constant_evaluated())
-    {
-        sub_limbs_scalar<L>(lhs, rhs);
-        return;
-    }
-    sub_limbs_runtime<L>(lhs, rhs);
-#elif __cplusplus >= 201402L
-    sub_limbs_scalar<L>(lhs, rhs);
-#else
-    sub_limbs_runtime<L>(lhs, rhs);
-#endif
-}
-
-template <size_t L>
 GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 carry = 0;
@@ -486,7 +400,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         dst[i] = static_cast<uint64_t>(r);
     }
     return;
-#elif GINT_DETAIL_AARCH64_CLANG && __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll)
+#elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
     unsigned long long carry = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -580,6 +494,12 @@ GINT_CONSTEXPR14 inline void add_limbs_copy(uint64_t * dst, const uint64_t * lhs
 }
 
 template <size_t L>
+GINT_CONSTEXPR14 inline void add_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    add_limbs_copy<L>(lhs, lhs, rhs);
+}
+
+template <size_t L>
 GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     unsigned __int128 borrow = 0;
@@ -604,7 +524,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         dst[i] = static_cast<uint64_t>(r);
     }
     return;
-#elif GINT_DETAIL_AARCH64_CLANG && __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll)
+#elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
     unsigned long long borrow = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -689,6 +609,12 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs
 #else
     sub_limbs_copy_runtime<L>(dst, lhs, rhs);
 #endif
+}
+
+template <size_t L>
+GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    sub_limbs_copy<L>(lhs, lhs, rhs);
 }
 
 template <size_t L>
@@ -960,9 +886,8 @@ inline GINT_NOINLINE GINT_COLD void mul_limbs4_u64(uint64_t * GINT_RESTRICT res,
 }
 #endif
 
-// Perform 128-bit multiplication using a straightforward schoolbook
-// method. The operands are split into low/high 64-bit limbs and cross
-// multiplied with 128-bit intermediates to produce a 256-bit result.
+// Perform fixed-width multiplication using the generic schoolbook method.
+// Only the low L limbs are retained.
 template <size_t L>
 GINT_FORCE_INLINE void mul_limbs(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
@@ -979,8 +904,8 @@ GINT_FORCE_INLINE void mul_limbs(uint64_t * res, const uint64_t * lhs, const uin
     }
 }
 
-// Fast path for 128-bit (2-limb) multiplication: leverage the dedicated
-// 128x128->256 routine and keep the low 128 bits (fixed-width semantics).
+// Fast path for 128-bit (2-limb) multiplication that directly computes the
+// low 128 bits required by fixed-width semantics.
 template <>
 GINT_FORCE_INLINE void mul_limbs<2>(uint64_t * res, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
@@ -1605,7 +1530,7 @@ public:
     {
         if (n <= 0)
             return *this; // negative and zero shifts are no-ops by design
-        size_t total_bits = limbs * 64;
+        size_t total_bits = Bits;
         size_t shift = static_cast<size_t>(n);
         if (shift >= total_bits)
         {
@@ -1718,7 +1643,7 @@ public:
             return *this; // negative and zero shifts are no-ops by design
         const bool is_signed_t = std::is_same<Signed, signed>::value;
         const bool neg = is_signed_t && (data_[limbs - 1] >> 63);
-        size_t total_bits = limbs * 64;
+        size_t total_bits = Bits;
         size_t shift = static_cast<size_t>(n);
         if (shift >= total_bits)
         {
@@ -2105,7 +2030,7 @@ private:
 
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size(const integer & value, size_t shift) noexcept
     {
-        const size_t total_bits = limbs * 64;
+        const size_t total_bits = Bits;
         if (shift >= total_bits)
             return integer();
         return shift_left_value_by_size_in_range(value, shift);
@@ -2142,7 +2067,7 @@ private:
         const bool is_signed_t = std::is_same<Signed, signed>::value;
         const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
         const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
-        const size_t total_bits = limbs * 64;
+        const size_t total_bits = Bits;
         const size_t shift = static_cast<size_t>(n);
 #    if __cplusplus >= 201402L
         integer result;
@@ -3258,11 +3183,8 @@ private:
         const limb_type fill = sign_fill ? ~limb_type(0) : limb_type(0);
         wide_unsigned val = sign_fill ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v);
 
-        if (limbs > 0)
-        {
-            data_[0] = static_cast<limb_type>(val);
-            val >>= 64;
-        }
+        data_[0] = static_cast<limb_type>(val);
+        val >>= 64;
         if (limbs > 1)
             data_[1] = static_cast<limb_type>(val);
         for (size_t i = 2; i < limbs; ++i)
@@ -3787,9 +3709,7 @@ private:
         }
 
         Unsigned quotient_mag;
-        size_t divisor_limbs = limbs;
-        while (divisor_limbs > 0 && divisor_mag.data_[divisor_limbs - 1] == 0)
-            --divisor_limbs;
+        size_t divisor_limbs = Unsigned::used_limbs(divisor_mag);
         GINT_DIVZERO_CHECK(divisor_limbs == 0);
         if (divisor_limbs == 1)
         {
@@ -4510,24 +4430,15 @@ private:
     }
 
 #if GINT_DETAIL_AARCH64_GCC
-    GINT_FORCE_INLINE static limb_type rem_left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
-    {
-        limb_type cur = src[i];
-        if (shift == 0)
-            return cur;
-        limb_type prev = i == 0 ? 0 : src[i - 1];
-        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
-    }
-
     static limb_type rem_estimate_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         using u128 = unsigned __int128;
         const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
-        const limb_type vtop = rem_left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
-        const limb_type vnext = rem_left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
+        const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
+        const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
         const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
-        const limb_type unext = rem_left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
-        const limb_type uthird = rem_left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
+        const limb_type unext = left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
+        const limb_type uthird = left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
 
         u128 numerator = (static_cast<u128>(utop) << 64) | unext;
         u128 qhat = numerator / vtop;
@@ -5998,6 +5909,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_COLD
 #undef GINT_HIDDEN_VISIBILITY
 #undef GINT_RESTRICT
+#undef GINT_DETAIL_HAS_BUILTIN
 #undef GINT_HAS_IS_CONSTANT_EVALUATED
 #undef GINT_ARCH_AARCH64
 #undef GINT_ARCH_X86_64

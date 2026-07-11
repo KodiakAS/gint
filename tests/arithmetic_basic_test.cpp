@@ -2,6 +2,22 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#if __cplusplus >= 201402L
+constexpr bool constexpr_add_sub_works()
+{
+    using U = gint::integer<128, unsigned>;
+    U value = (U(1) << 64) - U(1);
+    const U one = 1;
+    const U sum = value + one;
+    const U difference = sum - one;
+    value += one;
+    value -= one;
+    return sum == (U(1) << 64) && difference == ((U(1) << 64) - U(1)) && value == difference;
+}
+
+static_assert(constexpr_add_sub_works(), "Add/Sub APIs should remain constexpr in C++14+");
+#endif
+
 enum class ArithOp
 {
     Add,
