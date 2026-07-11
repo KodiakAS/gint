@@ -18,6 +18,27 @@ static_assert(std::is_constructible<gint::UInt128, const char *>::value, "UInt12
 static_assert(std::is_constructible<gint::UInt128, std::string>::value, "UInt128 should be constructible from std::string");
 static_assert(!std::is_convertible<const char *, gint::UInt128>::value, "string construction should be explicit");
 
+namespace
+{
+char digit_character(unsigned digit)
+{
+    return static_cast<char>(digit < 10 ? '0' + digit : 'a' + (digit - 10));
+}
+
+template <typename Int>
+Int parse_string_digit_by_digit(const std::string & text, unsigned base)
+{
+    Int result;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        const unsigned digit = text[i] <= '9' ? static_cast<unsigned>(text[i] - '0') : static_cast<unsigned>(text[i] - 'a') + 10;
+        result = result * static_cast<uint64_t>(base);
+        result += Int(digit);
+    }
+    return result;
+}
+}
+
 #if __cplusplus >= 201402L
 constexpr bool constexpr_integer_conversion_works()
 {
@@ -290,6 +311,27 @@ TEST(WideIntegerConversion, FromStringWrapsToFixedWidth)
 {
     EXPECT_EQ(gint::from_string<gint::UInt128>("340282366920938463463374607431768211456"), gint::UInt128(0));
     EXPECT_EQ(gint::from_string<gint::UInt128>("-1"), std::numeric_limits<gint::UInt128>::max());
+}
+
+TEST(WideIntegerConversion, FromStringChunkedMatchesDigitByDigitReference)
+{
+    const unsigned bases[] = {2, 3, 10, 16, 36};
+    for (size_t base_index = 0; base_index < sizeof(bases) / sizeof(bases[0]); ++base_index)
+    {
+        const unsigned base = bases[base_index];
+        std::string text(317, '0');
+        for (size_t i = 0; i < text.size(); ++i)
+            text[i] = digit_character(static_cast<unsigned>((i * 17 + 5) % base));
+        text[0] = '1';
+
+        EXPECT_EQ(gint::from_string<gint::UInt256>(text, base), parse_string_digit_by_digit<gint::UInt256>(text, base));
+        EXPECT_EQ(
+            (gint::from_string<1024, unsigned>(text, base)), (parse_string_digit_by_digit<gint::integer<1024, unsigned>>(text, base)));
+    }
+
+    const std::string negative = "-12345678901234567890123456789012345678901234567890";
+    using Int1024 = gint::integer<1024, signed>;
+    EXPECT_EQ((gint::from_string<Int1024>(negative, 10)), -parse_string_digit_by_digit<Int1024>(negative.substr(1), 10));
 }
 
 TEST(WideIntegerConversion, StringConstructorsAndAssignments)
