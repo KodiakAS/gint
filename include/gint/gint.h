@@ -4468,42 +4468,41 @@ private:
 #    endif
 
     template <bool WantRemainder>
-    static GINT_NOINLINE
-        integer div_or_rem_large_core(integer lhs, const integer & divisor, size_t div_limbs, size_t dividend_limbs) noexcept
+    static GINT_NOINLINE integer div_or_rem_large_core(integer lhs, const integer & divisor, size_t v_limbs, size_t u_limbs) noexcept
     {
         integer result;
-        if (GINT_UNLIKELY(div_limbs == 0) || dividend_limbs < div_limbs)
+        if (GINT_UNLIKELY(v_limbs == 0) || u_limbs < v_limbs)
             return WantRemainder ? lhs : result;
 
         std::array<limb_type, limbs + 1> u;
         std::array<limb_type, limbs + 1> v;
 
-        int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
-        limb_type carry = lshift_limbs_to(lhs.data_, dividend_limbs, u.data(), shift);
-        u[dividend_limbs] = carry;
+        int shift = __builtin_clzll(divisor.data_[v_limbs - 1]);
+        limb_type carry = lshift_limbs_to(lhs.data_, u_limbs, u.data(), shift);
+        u[u_limbs] = carry;
 
-        carry = lshift_limbs_to(divisor.data_, div_limbs, v.data(), shift);
+        carry = lshift_limbs_to(divisor.data_, v_limbs, v.data(), shift);
 
-        for (int j = static_cast<int>(dividend_limbs - div_limbs); j >= 0; --j)
+        for (int j = static_cast<int>(u_limbs - v_limbs); j >= 0; --j)
         {
-            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + div_limbs]) << 64) | u[j + div_limbs - 1];
+            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + v_limbs]) << 64) | u[j + v_limbs - 1];
             // Single 128/64 division: compute quotient, derive remainder by multiply-back
-            unsigned __int128 qhat = numerator / v[div_limbs - 1];
-            unsigned __int128 rhat = numerator - qhat * v[div_limbs - 1];
+            unsigned __int128 qhat = numerator / v[v_limbs - 1];
+            unsigned __int128 rhat = numerator - qhat * v[v_limbs - 1];
 
-            if (div_limbs > 1)
+            if (v_limbs > 1)
             {
-                while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[div_limbs - 2] > ((rhat << 64) | u[j + div_limbs - 2]))
+                while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[v_limbs - 2] > ((rhat << 64) | u[j + v_limbs - 2]))
                 {
                     --qhat;
-                    rhat += v[div_limbs - 1];
+                    rhat += v[v_limbs - 1];
                     if (rhat >= (static_cast<unsigned __int128>(1) << 64))
                         break;
                 }
             }
 
             unsigned __int128 borrow = 0;
-            for (size_t i = 0; i < div_limbs; ++i)
+            for (size_t i = 0; i < v_limbs; ++i)
             {
                 unsigned __int128 p = qhat * v[i] + borrow;
                 if (u[j + i] < static_cast<limb_type>(p))
@@ -4517,21 +4516,21 @@ private:
                     borrow = p >> 64;
                 }
             }
-            if (static_cast<unsigned __int128>(u[j + div_limbs]) < borrow)
+            if (static_cast<unsigned __int128>(u[j + v_limbs]) < borrow)
             {
                 unsigned __int128 carry2 = 0;
-                for (size_t i = 0; i < div_limbs; ++i)
+                for (size_t i = 0; i < v_limbs; ++i)
                 {
                     unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
                     u[j + i] = static_cast<limb_type>(t2);
                     carry2 = t2 >> 64;
                 }
-                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) + carry2);
+                u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) + carry2);
                 --qhat;
             }
             else
             {
-                u[j + div_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + div_limbs]) - borrow);
+                u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) - borrow);
             }
             if (!WantRemainder)
                 result.data_[j] = static_cast<limb_type>(qhat);
@@ -4541,15 +4540,15 @@ private:
         {
             if (shift == 0)
             {
-                for (size_t i = 0; i < div_limbs; ++i)
+                for (size_t i = 0; i < v_limbs; ++i)
                     result.data_[i] = u[i];
             }
             else
             {
                 const int inv_shift = 64 - shift;
-                for (size_t i = 0; i < div_limbs; ++i)
+                for (size_t i = 0; i < v_limbs; ++i)
                 {
-                    const limb_type next = (i + 1 < div_limbs) ? u[i + 1] : 0;
+                    const limb_type next = (i + 1 < v_limbs) ? u[i + 1] : 0;
                     result.data_[i] = (u[i] >> shift) | (next << inv_shift);
                 }
             }
