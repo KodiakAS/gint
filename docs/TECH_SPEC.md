@@ -211,8 +211,13 @@
 ## 17. 平台与兼容性
 
 - 依赖：GCC/Clang 扩展（如 `__int128`、`__builtin_clzll` 等）。
-- 已在 Clang/AppleClang/GCC 上验证。MSVC 对 `__int128` 支持缺失，暂不保证可用性。
+- 正式支持 GCC、LLVM Clang（GNU-compatible driver）与 AppleClang；源码 CMake
+  集成和安装后的 `find_package` 都会拒绝其他 compiler frontend。
+- MSVC 与 `clang-cl` 明确不支持；直接包含头文件时也会给出针对性编译错误。
 - 语言级别：C++11 起；部分 `constexpr` 能力在 C++14 提升。
+- 单头文件公开 `GINT_VERSION_MAJOR`、`GINT_VERSION_MINOR`、
+  `GINT_VERSION_PATCH` 与 `GINT_VERSION`，不依赖生成头。
+- 正式 OS、架构与已实测编译器 baseline 见 `docs/SUPPORT.md`。
 
 
 ## 18. 示例

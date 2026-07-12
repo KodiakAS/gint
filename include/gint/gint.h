@@ -1,3 +1,22 @@
+#if defined(_MSC_VER)
+#    error "gint does not support MSVC or clang-cl; use GCC or Clang with the GNU ABI"
+#elif !defined(__GNUC__) && !defined(__clang__)
+#    error "gint requires GCC, Clang, or AppleClang"
+#endif
+
+#if __cplusplus < 201103L
+#    error "gint requires C++11 or later"
+#endif
+
+#if !defined(__SIZEOF_INT128__)
+#    error "gint requires compiler support for __int128"
+#endif
+
+#define GINT_VERSION_MAJOR 0
+#define GINT_VERSION_MINOR 9
+#define GINT_VERSION_PATCH 0
+#define GINT_VERSION (GINT_VERSION_MAJOR * 10000 + GINT_VERSION_MINOR * 100 + GINT_VERSION_PATCH)
+
 #include <array>
 #include <cassert>
 #include <cfenv>
@@ -193,8 +212,10 @@
 //   and large-direct remainder paths. Recheck Div/ and Mod/ together.
 #    if GINT_DETAIL_X86_64_GCC
 #        define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
+#        define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
 #    else
 #        define GINT_WIDE_SHIFT_INLINE GINT_FORCE_INLINE
+#        define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
 #    endif
 
 #    if GINT_GCC_TUNED_PATHS
@@ -3492,8 +3513,10 @@ private:
             }
         }
 
-        const Float res = std::ldexp(static_cast<Float>(significand), scale);
-        return neg ? -res : res;
+        // Apply the sign before ldexp so directed overflow is rounded in the
+        // direction of the signed result and still raises the usual fenv flags.
+        const Float signed_significand = neg ? -static_cast<Float>(significand) : static_cast<Float>(significand);
+        return std::ldexp(signed_significand, scale);
     }
 
     template <size_t L = limbs>
@@ -5422,6 +5445,18 @@ struct hash<gint::integer<Bits, Signed>>
 // recreate the small subset needed by the string/stream/fmt extension pass.
 #    ifndef GINT_DETAIL_HEADER_PASS_ACTIVE
 #        define GINT_DETAIL_HEADER_PASS_ACTIVE
+#        if defined(__GNUC__) || defined(__clang__)
+#            define GINT_FORCE_INLINE inline __attribute__((always_inline))
+#            define GINT_NOINLINE __attribute__((noinline))
+#        else
+#            define GINT_FORCE_INLINE inline
+#            define GINT_NOINLINE
+#        endif
+#        if defined(__x86_64__) && GINT_GCC_TUNED_PATHS
+#            define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
+#        else
+#            define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
+#        endif
 #        if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 #            define GINT_DETAIL_EXCEPTIONS_ENABLED 1
 #            define GINT_THROW(exception) throw exception
@@ -5538,6 +5573,26 @@ inline unsigned string_digit_value(char c) noexcept
         return decimal;
     const unsigned alpha = (value | 0x20u) - static_cast<unsigned>('a');
     return alpha < 26u ? alpha + 10u : 36u;
+}
+
+inline unsigned hexadecimal_digit_value(unsigned value) noexcept
+{
+    // Full byte-domain table keeps validation and decoding to one load and one
+    // range check. Constant initialization emits read-only data with no guard.
+    static const unsigned char digits[256] = {
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0,    1,    2,    3,    4,    5,    6,    7,    8,    9,    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 10,
+        11,   12,   13,   14,   15,   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 10,   11,   12,   13,   14,   15,   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    return digits[value];
 }
 
 inline void detect_parse_base(const char * end, const char *& pos, unsigned & base)
@@ -5683,7 +5738,7 @@ inline std::string format_stream_value(const integer<Bits, Signed> & value, cons
 }
 
 template <unsigned BitsPerDigit, size_t Bits, typename Signed>
-inline integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end)
+GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end)
 {
     using Int = integer<Bits, Signed>;
     using limb_type = typename Int::limb_type;
@@ -5704,9 +5759,7 @@ inline integer<Bits, Signed> parse_power_of_two_range(const char * begin, const 
         for (size_t i = 0; i < current_chunk_digits; ++i)
         {
             const unsigned value = static_cast<unsigned>(static_cast<unsigned char>(*cursor++));
-            unsigned digit = value - static_cast<unsigned>('0');
-            if (BitsPerDigit != 1u && digit > 9u)
-                digit = (value | 0x20u) - static_cast<unsigned>('a') + 10u;
+            const unsigned digit = BitsPerDigit == 4u ? hexadecimal_digit_value(value) : value - static_cast<unsigned>('0');
             if (digit >= base)
                 GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
             chunk = (chunk << BitsPerDigit) | digit;
@@ -5755,6 +5808,27 @@ inline integer<Bits, Signed> parse_power_of_two_range(const char * begin, const 
     return result;
 }
 
+template <unsigned BitsPerDigit, size_t Bits, typename Signed>
+GINT_WIDE_PARSE_INLINE integer<Bits, Signed> parse_wide_power_of_two_range(const char * begin, const char * end)
+{
+    // GCC/x86 is sensitive to the layout of this large parser when it is
+    // merged into parse_string_range. Keep wide power-of-two parsing in its
+    // own code-generation unit; other compiler/architecture pairs inline it.
+    return parse_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end);
+}
+
+template <unsigned BitsPerDigit, size_t Bits, typename Signed>
+GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range_selected(const char * begin, const char * end, std::false_type)
+{
+    return parse_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end);
+}
+
+template <unsigned BitsPerDigit, size_t Bits, typename Signed>
+GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range_selected(const char * begin, const char * end, std::true_type)
+{
+    return parse_wide_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end);
+}
+
 template <size_t Bits, typename Signed>
 inline integer<Bits, Signed> parse_string_range(const char * begin, const char * end, unsigned base)
 {
@@ -5783,17 +5857,17 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
     // so over-width input naturally wraps modulo 2^Bits.
     if (base == 2)
     {
-        Int result = parse_power_of_two_range<1, Bits, Signed>(pos, end);
+        Int result = parse_power_of_two_range_selected<1, Bits, Signed>(pos, end, std::integral_constant<bool, (Int::limbs > 4)>());
         return negative ? -result : result;
     }
     if (base == 8)
     {
-        Int result = parse_power_of_two_range<3, Bits, Signed>(pos, end);
+        Int result = parse_power_of_two_range_selected<3, Bits, Signed>(pos, end, std::integral_constant<bool, (Int::limbs > 4)>());
         return negative ? -result : result;
     }
     if (base == 16)
     {
-        Int result = parse_power_of_two_range<4, Bits, Signed>(pos, end);
+        Int result = parse_power_of_two_range_selected<4, Bits, Signed>(pos, end, std::integral_constant<bool, (Int::limbs > 4)>());
         return negative ? -result : result;
     }
 
@@ -6259,6 +6333,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #    undef GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE
 #    undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
 #    undef GINT_WIDE_SHIFT_INLINE
+#    undef GINT_WIDE_PARSE_INLINE
 #    undef GINT_DETAIL_GCC_TUNED_POLICY
 #    undef GINT_DETAIL_CLANG_TUNED_POLICY
 #    undef GINT_DETAIL_AARCH64_ASM_POLICY

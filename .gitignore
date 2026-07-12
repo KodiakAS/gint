@@ -38,6 +38,8 @@
 .cache/
 .vscode/
 .devcontainer/
+__pycache__/
+*.py[cod]
 
 # Local run artifacts
 /runs/

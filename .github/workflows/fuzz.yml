@@ -1,0 +1,102 @@
+name: Differential and fuzz
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1,4"
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: Deep fuzz duration in seconds
+        required: true
+        default: "300"
+        type: choice
+        options:
+          - "120"
+          - "300"
+          - "600"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gint-fuzz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The independent oracle is intentionally compiled as C++11 on both supported
+  # Linux architectures and with both supported compiler families.
+  differential:
+    name: deterministic differential (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64-gcc
+            os: ubuntu-24.04
+            cxx: g++
+          - name: x86_64-clang
+            os: ubuntu-24.04
+            cxx: clang++
+          - name: aarch64-gcc
+            os: ubuntu-24.04-arm
+            cxx: g++
+          - name: aarch64-clang
+            os: ubuntu-24.04-arm
+            cxx: clang++
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install GCC and Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ clang
+      - name: Install libFuzzer runtime and symbolizer
+        if: matrix.name == 'x86_64-clang'
+        run: sudo apt-get install -y --no-install-recommends libclang-rt-18-dev llvm-18
+      - name: Run C++11 deterministic differential checks
+        env:
+          CXX: ${{ matrix.cxx }}
+          GINT_DIFFERENTIAL_ITERATIONS: "512"
+        run: scripts/run-differential.sh
+      - name: Run short libFuzzer smoke
+        if: matrix.name == 'x86_64-clang' && (github.event_name == 'pull_request' || github.event_name == 'push')
+        env:
+          CXX: clang++
+        run: scripts/run-fuzz.sh 10
+
+  deep-fuzz:
+    # Keep sanitizer fuzzing on Linux x86_64, where GitHub's Clang package ships
+    # a stable libFuzzer runtime. AppleClang remains covered by the main CI suite.
+    name: scheduled Clang libFuzzer
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-18-dev llvm-18
+      - name: Restore accumulated fuzz corpus
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: runs/fuzz/corpus/
+          key: gint-fuzz-corpus-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gint-fuzz-corpus-${{ runner.os }}-
+      - name: Run sanitizer-backed differential fuzzing
+        env:
+          CXX: clang++
+          GINT_FUZZ_SECONDS: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_seconds || '300' }}
+        run: scripts/run-fuzz.sh
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gint-fuzz-crashes
+          path: runs/fuzz/artifacts/
+          if-no-files-found: ignore
