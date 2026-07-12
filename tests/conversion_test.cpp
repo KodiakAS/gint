@@ -282,6 +282,74 @@ TEST(WideIntegerConversion, LongDoubleConversion256)
     EXPECT_EQ(static_cast<long double>(n), -123.0L);
 }
 
+TEST(WideIntegerConversion, LongDoubleConversionRoundsOnce)
+{
+    struct RoundingGuard
+    {
+        int old_round;
+        RoundingGuard()
+            : old_round(std::fegetround())
+        {
+        }
+        ~RoundingGuard() { std::fesetround(old_round); }
+    } guard;
+
+    ASSERT_EQ(std::fesetround(FE_TONEAREST), 0);
+    const int digits = std::numeric_limits<long double>::digits;
+    ASSERT_TRUE(digits == 53 || digits == 64 || digits == 113);
+
+    using U256 = gint::integer<256, unsigned>;
+    using S256 = gint::integer<256, signed>;
+    const U256 value = (U256(1) << (digits + 127)) + (U256(1) << 127) + U256(1);
+    const long double significand = std::ldexp(1.0L, digits - 1) + 1.0L;
+    const long double expected = std::ldexp(significand, 128);
+
+    EXPECT_EQ(static_cast<long double>(value), expected);
+    EXPECT_EQ(static_cast<long double>(-S256(value)), -expected);
+}
+
+TEST(WideIntegerConversion, LongDoubleConversionRespectsAllRoundingModesAroundTie)
+{
+    struct RoundingGuard
+    {
+        int old_round;
+        RoundingGuard()
+            : old_round(std::fegetround())
+        {
+        }
+        ~RoundingGuard() { std::fesetround(old_round); }
+    } guard;
+
+    ASSERT_EQ(std::fesetround(FE_TONEAREST), 0);
+    const int digits = std::numeric_limits<long double>::digits;
+    ASSERT_TRUE(digits == 53 || digits == 64 || digits == 113);
+
+    using S256 = gint::integer<256, signed>;
+    const S256 base = S256(1) << (digits + 1);
+    const S256 positive[] = {base + S256(1), base + S256(2), base + S256(3)};
+    const S256 negative[] = {-positive[0], -positive[1], -positive[2]};
+    const long double lower = std::ldexp(1.0L, digits + 1);
+    const long double upper = std::nextafter(lower, std::numeric_limits<long double>::infinity());
+    ASSERT_EQ(upper - lower, 4.0L);
+
+    const int modes[] = {FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO};
+    for (size_t mode_index = 0; mode_index < sizeof(modes) / sizeof(modes[0]); ++mode_index)
+    {
+        const int mode = modes[mode_index];
+        ASSERT_EQ(std::fesetround(mode), 0);
+        for (size_t offset_index = 0; offset_index < 3; ++offset_index)
+        {
+            SCOPED_TRACE(testing::Message() << "rounding mode=" << mode << ", tie offset=" << offset_index);
+            const long double positive_expected = mode == FE_UPWARD ? upper : (mode == FE_TONEAREST && offset_index == 2) ? upper : lower;
+            const long double negative_expected = mode == FE_DOWNWARD ? -upper
+                : (mode == FE_TONEAREST && offset_index == 2)         ? -upper
+                                                                      : -lower;
+            EXPECT_EQ(static_cast<long double>(positive[offset_index]), positive_expected);
+            EXPECT_EQ(static_cast<long double>(negative[offset_index]), negative_expected);
+        }
+    }
+}
+
 TEST(WideIntegerConversion, ToStringZero)
 {
     EXPECT_EQ(gint::to_string(gint::integer<128, unsigned>(0)), "0");
@@ -315,7 +383,7 @@ TEST(WideIntegerConversion, FromStringWrapsToFixedWidth)
 
 TEST(WideIntegerConversion, FromStringChunkedMatchesDigitByDigitReference)
 {
-    const unsigned bases[] = {2, 3, 10, 16, 36};
+    const unsigned bases[] = {2, 3, 8, 10, 16, 36};
     for (size_t base_index = 0; base_index < sizeof(bases) / sizeof(bases[0]); ++base_index)
     {
         const unsigned base = bases[base_index];
@@ -332,6 +400,75 @@ TEST(WideIntegerConversion, FromStringChunkedMatchesDigitByDigitReference)
     const std::string negative = "-12345678901234567890123456789012345678901234567890";
     using Int1024 = gint::integer<1024, signed>;
     EXPECT_EQ((gint::from_string<Int1024>(negative, 10)), -parse_string_digit_by_digit<Int1024>(negative.substr(1), 10));
+}
+
+TEST(WideIntegerConversion, FromStringStringAndCStrPathsMatch)
+{
+    using U1024 = gint::integer<1024, unsigned>;
+    struct Case
+    {
+        const char * text;
+        unsigned base;
+    };
+    const Case cases[] = {
+        {"+0b101010", 0},
+        {"0B1111000011110000", 0},
+        {"0777777777777777777777", 0},
+        {"0xFEDCBA9876543210", 0},
+        {"0Xabcdef0123456789", 16},
+        {"1010101010101010", 2},
+        {"7654321076543210", 8},
+        {"12345678901234567890", 10},
+        {"deadBEEF01234567", 16},
+        {"zyxwvutsrqponmlkjihgfedcba9876543210", 36},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i)
+    {
+        const std::string text(cases[i].text);
+        EXPECT_EQ(gint::from_string<U1024>(text, cases[i].base), gint::from_string<U1024>(text.c_str(), cases[i].base));
+    }
+
+    const std::string negative = "-0x123456789abcdef0123456789abcdef";
+    EXPECT_EQ(gint::from_string<gint::Int256>(negative), gint::from_string<gint::Int256>(negative.c_str()));
+}
+
+TEST(WideIntegerConversion, FromStringPowerOfTwoWrapAndValidation)
+{
+    using U128 = gint::UInt128;
+    using U1024 = gint::integer<1024, unsigned>;
+
+    std::string binary(2051, '0');
+    for (size_t i = 0; i < binary.size(); ++i)
+        binary[i] = static_cast<char>('0' + ((i * 5u + 1u) & 1u));
+    EXPECT_EQ(gint::from_string<U128>(binary, 2), parse_string_digit_by_digit<U128>(binary, 2));
+    EXPECT_EQ(gint::from_string<U1024>(binary.c_str(), 2), parse_string_digit_by_digit<U1024>(binary, 2));
+
+    std::string octal(701, '0');
+    for (size_t i = 0; i < octal.size(); ++i)
+        octal[i] = digit_character(static_cast<unsigned>((i * 7u + 3u) % 8u));
+    EXPECT_EQ(gint::from_string<U128>(octal.c_str(), 8), parse_string_digit_by_digit<U128>(octal, 8));
+    EXPECT_EQ(gint::from_string<U1024>(octal, 8), parse_string_digit_by_digit<U1024>(octal, 8));
+
+    std::string hexadecimal(513, '0');
+    for (size_t i = 0; i < hexadecimal.size(); ++i)
+        hexadecimal[i] = digit_character(static_cast<unsigned>((i * 11u + 9u) % 16u));
+    EXPECT_EQ(gint::from_string<U128>(hexadecimal, 16), parse_string_digit_by_digit<U128>(hexadecimal, 16));
+    EXPECT_EQ(gint::from_string<U1024>(hexadecimal.c_str(), 16), parse_string_digit_by_digit<U1024>(hexadecimal, 16));
+
+    std::string invalid_high_digit = "z" + std::string(300, '0');
+    EXPECT_THROW(gint::from_string<U128>(invalid_high_digit, 16), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<U128>(invalid_high_digit.c_str(), 16), std::invalid_argument);
+}
+
+TEST(WideIntegerConversion, FromStringPreservesEmbeddedNullSemantics)
+{
+    const std::string with_null(
+        "123\0"
+        "456",
+        7);
+    EXPECT_THROW(gint::from_string<gint::UInt128>(with_null, 10), std::invalid_argument);
+    EXPECT_EQ(gint::from_string<gint::UInt128>(with_null.c_str(), 10), gint::UInt128(123));
 }
 
 TEST(WideIntegerConversion, StringConstructorsAndAssignments)

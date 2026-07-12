@@ -104,6 +104,13 @@ void expect_shift_matches_reference(const Int & value)
 }
 } // namespace
 
+#if __cplusplus >= 201402L
+constexpr gint::integer<512, unsigned> constexpr_shift_512 = gint::integer<512, unsigned>(1) << 511;
+constexpr gint::integer<1024, unsigned> constexpr_shift_1024 = gint::integer<1024, unsigned>(1) << 1000;
+static_assert((constexpr_shift_512 >> 511) == gint::integer<512, unsigned>(1), "512-bit right shift should stay constexpr");
+static_assert((constexpr_shift_1024 >> 999) == gint::integer<1024, unsigned>(2), "1024-bit right shift should stay constexpr");
+#endif
+
 TEST(WideIntegerShift, Basic)
 {
     gint::integer<128, unsigned> a = 1;

@@ -49,9 +49,35 @@ int main() {
     gint::integer<256, unsigned> b = 2;
     auto c = (a << 128) + b;
     auto low = static_cast<std::uint64_t>(c);
+    auto qr = gint::divmod(c, b); // computes quotient and remainder together
     // ...
 }
 ```
+
+For CMake consumers, use the header-only target directly when the repository is
+added with `add_subdirectory`/`FetchContent`, or after installing the package:
+
+```cmake
+find_package(gint CONFIG REQUIRED)
+target_link_libraries(my_target PRIVATE gint::gint)
+```
+
+`gint::checked` enables `GINT_ENABLE_DIVZERO_CHECKS` target-wide and otherwise
+has the same header-only interface. Configuration switches that affect semantics
+or generated code are encoded in gint's inline namespace, so translation units
+compiled with incompatible policies cannot silently select one another's inline
+definitions based on link order.
+
+Arithmetic-only translation units may include `<gint/core.h>` instead of the
+umbrella header. It exposes the same integer types, operators,
+`std::numeric_limits`, and `std::hash`, while omitting string, stream, and fmt
+implementation parsing. Including `<gint/gint.h>` later in the same translation
+unit upgrades that translation unit with the omitted facilities.
+
+Exception-free consumers may compile ordinary arithmetic with
+`-fno-exceptions`. Invalid parsing, non-finite floating-point division/modulo,
+and enabled division-by-zero checks terminate with `std::abort` when language
+exceptions are unavailable.
 
 ## Building Tests
 

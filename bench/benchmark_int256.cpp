@@ -476,30 +476,50 @@ static void ToString(benchmark::State & state)
 }
 
 #if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
-template <typename Int>
-static void FromString_Base10(benchmark::State & state)
+template <unsigned Base>
+static std::array<std::string, kDataN> make_from_string_data()
 {
-    static std::array<std::string, kDataN> data = []
+    std::array<std::string, kDataN> data{};
+    std::mt19937_64 rng(kSeedBase ^ 0x46524F4D535452ull ^ Base);
+    const size_t digit_count = Base == 2 ? kBenchBits
+        : Base == 8                      ? (kBenchBits + 2u) / 3u
+        : Base == 16                     ? (kBenchBits + 3u) / 4u
+                                         : (kBenchBits * 30103u) / 100000u + 1u;
+    static const char alphabet[] = "0123456789abcdef";
+    for (size_t i = 0; i < kDataN; ++i)
     {
-        std::array<std::string, kDataN> d{};
-        std::mt19937_64 rng(kSeedBase ^ 0x46524F4D535452ull);
-        const size_t digit_count = (kBenchBits * 30103u) / 100000u + 1u;
-        for (size_t i = 0; i < kDataN; ++i)
-        {
-            std::string text(digit_count, '0');
-            text[0] = static_cast<char>('1' + (rng() % 9));
-            for (size_t j = 1; j < digit_count; ++j)
-                text[j] = static_cast<char>('0' + (rng() % 10));
-            d[i] = text;
-        }
-        return d;
-    }();
+        std::string text(digit_count, '0');
+        text[0] = alphabet[1u + rng() % (Base - 1u)];
+        for (size_t j = 1; j < digit_count; ++j)
+            text[j] = alphabet[rng() % Base];
+        data[i] = text;
+    }
+    return data;
+}
+
+template <typename Int, unsigned Base>
+static void FromString_String(benchmark::State & state)
+{
+    static const std::array<std::string, kDataN> data = make_from_string_data<Base>();
 
     size_t i = 0;
     for (auto _ : state)
     {
         const std::string & text = data[i++ & (kDataN - 1)];
-        benchmark::DoNotOptimize(gint::from_string<Int>(text));
+        benchmark::DoNotOptimize(gint::from_string<Int>(text, Base));
+    }
+}
+
+template <typename Int, unsigned Base>
+static void FromString_CStr(benchmark::State & state)
+{
+    static const std::array<std::string, kDataN> data = make_from_string_data<Base>();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const char * text = data[i++ & (kDataN - 1)].c_str();
+        benchmark::DoNotOptimize(gint::from_string<Int>(text, Base));
     }
 }
 #endif
@@ -551,6 +571,102 @@ static void Bitwise_Xor(benchmark::State & state)
         const auto & p = data[i++ & (kDataN - 1)];
         benchmark::DoNotOptimize(p.first ^ p.second);
     }
+}
+
+template <typename Int>
+static void Bitwise_Or(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x0123456789ABCDEFull);
+        for (size_t i = 0; i < kDataN; ++i)
+            d[i] = {random_wide<Int>(rng), random_wide<Int>(rng)};
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first | p.second);
+    }
+}
+
+template <typename Int>
+static void Bitwise_Not(benchmark::State & state)
+{
+    static std::array<Int, kDataN> data = []
+    {
+        std::array<Int, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0xF0E1D2C3B4A59687ull);
+        for (size_t i = 0; i < kDataN; ++i)
+            d[i] = random_wide<Int>(rng);
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+        benchmark::DoNotOptimize(~data[i++ & (kDataN - 1)]);
+}
+
+// -------- Equality --------
+template <typename Int>
+static void Equal_Equal(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x455155414C455155ull);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            const Int value = random_wide<Int>(rng);
+            d[i] = {value, value};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first == p.second);
+    }
+}
+
+template <typename Int, size_t DifferentBit>
+static void Equal_DifferentBit(benchmark::State & state)
+{
+    static std::array<std::pair<Int, Int>, kDataN> data = []
+    {
+        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::mt19937_64 rng(kSeedBase ^ 0x444946464552454Eull ^ DifferentBit);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            const Int value = random_wide<Int>(rng);
+            d[i] = {value, value ^ (Int{1} << static_cast<int>(DifferentBit))};
+        }
+        return d;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first == p.second);
+    }
+}
+
+template <typename Int>
+static void Equal_TopDifferent(benchmark::State & state)
+{
+    Equal_DifferentBit<Int, kBenchBits - 1>(state);
+}
+
+template <typename Int>
+static void Equal_LowDifferent(benchmark::State & state)
+{
+    Equal_DifferentBit<Int, 0>(state);
 }
 
 // -------- Shift --------
@@ -660,9 +776,9 @@ static void Mod_SimilarMagnitude(benchmark::State & state)
 }
 
 template <typename Int>
-static void DivMod_SimilarMagnitude(benchmark::State & state)
+static const std::array<std::pair<Int, Int>, kDataN> & divmod_similar_magnitude_data()
 {
-    static std::array<std::pair<Int, Int>, kDataN> data = []
+    static const std::array<std::pair<Int, Int>, kDataN> data = []
     {
         std::array<std::pair<Int, Int>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x4449564D4F44ull);
@@ -675,7 +791,36 @@ static void DivMod_SimilarMagnitude(benchmark::State & state)
         }
         return d;
     }();
+    return data;
+}
 
+template <typename Int>
+static void DivMod_SimilarMagnitude(benchmark::State & state)
+{
+    const auto & data = divmod_similar_magnitude_data<Int>();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+#if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
+        auto result = gint::divmod(p.first, p.second);
+        benchmark::DoNotOptimize(result.quotient);
+        benchmark::DoNotOptimize(result.remainder);
+#else
+        Int quotient = p.first / p.second;
+        Int remainder = p.first % p.second;
+        benchmark::DoNotOptimize(quotient);
+        benchmark::DoNotOptimize(remainder);
+#endif
+    }
+}
+
+#if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
+template <typename Int>
+static void DivMod_SimilarMagnitudeSeparate(benchmark::State & state)
+{
+    const auto & data = divmod_similar_magnitude_data<Int>();
     size_t i = 0;
     for (auto _ : state)
     {
@@ -686,6 +831,7 @@ static void DivMod_SimilarMagnitude(benchmark::State & state)
         benchmark::DoNotOptimize(remainder);
     }
 }
+#endif
 
 static bool parse_full_matrix_flag(int & argc, char **& argv)
 {
@@ -781,27 +927,21 @@ static void Sub_BorrowChain64(benchmark::State & state)
 }
 
 template <typename Int>
-static void Mul_U32xWide(benchmark::State & state)
+static void Mul_WideTimesU32(benchmark::State & state)
 {
-    static std::array<std::pair<Int, Int>, kDataN> data = []
+    static std::array<std::pair<Int, uint32_t>, kDataN> data = []
     {
-        std::array<std::pair<Int, Int>, kDataN> d{};
+        std::array<std::pair<Int, uint32_t>, kDataN> d{};
         std::mt19937_64 rng(kSeedBase ^ 0x55AA'AA55'55AA'AA55ull);
         for (size_t i = 0; i < kDataN; ++i)
-        {
-            Int a = random_wide<Int>(rng);
-            Int b = Int{static_cast<uint32_t>(rng())};
-            d[i] = {a, b};
-        }
+            d[i] = {random_wide<Int>(rng), static_cast<uint32_t>(rng())};
         return d;
     }();
     size_t i = 0;
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        const Int & a = p.first;
-        const Int & b = p.second;
-        benchmark::DoNotOptimize(a * b);
+        benchmark::DoNotOptimize(p.first * p.second);
     }
 }
 
@@ -893,7 +1033,13 @@ int main(int argc, char ** argv)
 
     // Bitwise
     REG_CASE("Bitwise/And", Bitwise_And);
+    REG_CASE("Bitwise/Or", Bitwise_Or);
     REG_CASE("Bitwise/Xor", Bitwise_Xor);
+    REG_CASE("Bitwise/Not", Bitwise_Not);
+
+    // Equality
+    REG_CASE("Equal/Equal", Equal_Equal);
+    REG_CASE("Equal/TopDifferent", Equal_TopDifferent);
 
     // Shift
     REG_CASE("Shift/LeftVariable", Shift_LeftVariable);
@@ -903,7 +1049,14 @@ int main(int argc, char ** argv)
     REG_CASE("ToString/Base10", ToString);
 
 #if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
-    benchmark::RegisterBenchmark("FromString/Base10/gint", &FromString_Base10<WInt>);
+    benchmark::RegisterBenchmark("FromString/Base2/gint", &FromString_String<WInt, 2>);
+    benchmark::RegisterBenchmark("FromString/Base8/gint", &FromString_String<WInt, 8>);
+    benchmark::RegisterBenchmark("FromString/Base10/gint", &FromString_String<WInt, 10>);
+    benchmark::RegisterBenchmark("FromString/Base16/gint", &FromString_String<WInt, 16>);
+    benchmark::RegisterBenchmark("FromStringCStr/Base2/gint", &FromString_CStr<WInt, 2>);
+    benchmark::RegisterBenchmark("FromStringCStr/Base8/gint", &FromString_CStr<WInt, 8>);
+    benchmark::RegisterBenchmark("FromStringCStr/Base10/gint", &FromString_CStr<WInt, 10>);
+    benchmark::RegisterBenchmark("FromStringCStr/Base16/gint", &FromString_CStr<WInt, 16>);
 #endif
 
     if (full_matrix)
@@ -913,10 +1066,14 @@ int main(int argc, char ** argv)
         REG_CASE("Add/WidePlusU64", Add_WidePlusU64);
         REG_CASE("Sub/BorrowChain64", Sub_BorrowChain64);
         REG_CASE("Sub/WideMinusU64", Sub_WideMinusU64);
-        REG_CASE("Mul/U32xWide", Mul_U32xWide);
+        REG_CASE("Mul/WideTimesU32", Mul_WideTimesU32);
+        REG_CASE("Equal/LowDifferent", Equal_LowDifferent);
         REG_CASE("Div/LargeDivisor128", Div_LargeDivisor128);
         REG_CASE("Div/SimilarMagnitude2", Div_SimilarMagnitude2);
         REG_CASE("DivMod/SimilarMagnitude", DivMod_SimilarMagnitude);
+#if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
+        benchmark::RegisterBenchmark("DivMod/SimilarMagnitudeSeparate/gint", &DivMod_SimilarMagnitudeSeparate<WInt>);
+#endif
     }
 
     benchmark::Initialize(&argc, argv);
