@@ -67,7 +67,7 @@ jobs:
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ matrix.name }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'include/**', 'tests/**') }}
+          key: ${{ runner.os }}-${{ matrix.name }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'include/**', 'src/gint/**', 'tests/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.name }}-ccache-
       - name: Configure
@@ -208,6 +208,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check performance tooling and amalgamated header
+        run: |
+          python3 -m unittest discover -s tests/perf -p 'test_*.py'
+          bash scripts/check-internal-headers.sh g++
+          python3 scripts/generate-amalgamation.py --check
       - name: Install clang-format
         run: |
           sudo apt-get update
@@ -215,6 +220,9 @@ jobs:
       - name: Check code format
         run: |
           git ls-files '*.cpp' '*.hpp' '*.h' | while IFS= read -r file; do
+            if [[ "$file" == "include/gint/gint.h" ]]; then
+              continue
+            fi
             clang-format -i --style=file "$file"
           done
           git diff --exit-code

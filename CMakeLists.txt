@@ -41,6 +41,29 @@ option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
 option(GINT_BUILD_TESTS_RELEASE "Build Release/O3 test suite (gint_tests_release)" ${GINT_IS_TOP_LEVEL})
 option(GINT_INSTALL "Generate gint install rules" ${GINT_IS_TOP_LEVEL})
 
+# Developer-only convenience targets. The generated header is committed, so
+# add_subdirectory/FetchContent/install consumers do not require Python.
+if(GINT_IS_TOP_LEVEL)
+    add_custom_target(gint-internal-headers-check
+        COMMAND bash scripts/check-internal-headers.sh "${CMAKE_CXX_COMPILER}"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking independently parseable internal headers"
+    )
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_custom_target(gint-amalgamate
+            COMMAND "${Python3_EXECUTABLE}" scripts/generate-amalgamation.py
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Generating include/gint/gint.h"
+        )
+        add_custom_target(gint-amalgamate-check
+            COMMAND "${Python3_EXECUTABLE}" scripts/generate-amalgamation.py --check
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Checking include/gint/gint.h"
+        )
+    endif()
+endif()
+
 set(GINT_TEST_OPTIONS -O0 -g)
 set(GINT_TEST_RELEASE_OPTIONS -O3 -DNDEBUG)
 set(GINT_TEST_LINK_OPTIONS "")
@@ -84,6 +107,12 @@ if(GINT_BUILD_TESTS)
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
 
+    add_test(
+        NAME consumer.internal_headers
+        COMMAND bash scripts/check-internal-headers.sh "${CMAKE_CXX_COMPILER}"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
     function(add_gint_consumer_test target source standard)
         add_executable(${target} ${source})
         target_link_libraries(${target} PRIVATE gint::gint)
@@ -97,6 +126,21 @@ if(GINT_BUILD_TESTS)
         endif()
         add_test(NAME consumer.${target} COMMAND ${target})
     endfunction()
+
+    # Give clangd and other compile-database consumers a real translation unit
+    # rooted in the maintainable internal header graph. This target is strictly
+    # developer-only and is neither exported nor installed.
+    add_executable(gint_internal_header_graph tests/consumer/internal_header_graph.cpp)
+    target_include_directories(gint_internal_header_graph PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    set_target_properties(gint_internal_header_graph PROPERTIES
+        CXX_STANDARD 11
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gint_internal_header_graph PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME consumer.internal_header_graph COMMAND gint_internal_header_graph)
 
     set(GINT_ODR_STATIC_SOURCES
         tests/consumer/odr_static_members.cpp

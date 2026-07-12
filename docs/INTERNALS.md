@@ -8,9 +8,13 @@
 `integer<Bits, Signed>` 使用 `Bits / 64` 个 `std::uint64_t` limb，低位 limb 位于
 较小索引。对象保持 `Bits / 8` 字节大小，有符号值直接使用同一补码位模式。
 
-实现位于 `include/gint/gint.h`，该文件本身就是可独立复制的完整产物。
-`include/gint/core.h` 通过受控的两阶段 include 模式暴露精简入口，不维护第二份
-算术实现。
+人工维护的实现是以 `src/gint/gint.hpp` 为入口的普通 C++ `.hpp` 依赖图。
+`scripts/generate-amalgamation.py` 递归展开仓库内 include，确定性生成并核对已提交的
+`include/gint/gint.h`；普通 consumer 不运行生成器，也不依赖 Python。每个内部头
+都应保持可由 clangd、IDE 和静态分析器直接解析。
+
+`include/gint/gint.h` 本身仍是可独立复制的完整产物。`include/gint/core.h` 通过
+受控的两阶段 include 模式暴露精简入口，不维护第二份算术实现。
 
 ## 算法结构
 

@@ -39,6 +39,15 @@ Copy [`include/gint/gint.h`](include/gint/gint.h) into your include path for
 the simplest integration. No generated header or link-time dependency is
 required.
 
+The committed `gint.h` is deterministically generated from the normal C++
+header graph rooted at `src/gint/gint.hpp`, following the established
+amalgamation model used by mature header-only libraries such as
+[nlohmann/json](https://github.com/nlohmann/json/tree/develop/tools/amalgamate).
+Normal `.hpp` files remain the development source of truth and are directly
+understandable by clangd, IDEs, and static-analysis tools. Generation is a
+maintainer workflow: consumers always use the committed public header and do
+not require Python.
+
 For an installed CMake package:
 
 ```cmake

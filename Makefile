@@ -16,8 +16,20 @@ CMAKE ?= cmake
 GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
 GCOVR ?= $(if $(GCOVR_BIN),$(GCOVR_BIN),python3 -m gcovr)
 LLVM_COV ?= $(shell xcrun -f llvm-cov 2>/dev/null || command -v llvm-cov 2>/dev/null)
+PYTHON ?= python3
 
-.PHONY: test bench bench-full bench-compare bench-compare-full coverage coverage-gcovr coverage-lcov clean clean-coverage image
+.PHONY: amalgamate amalgamate-check internal-headers-check test bench bench-full bench-compare bench-compare-full coverage coverage-gcovr coverage-lcov clean clean-coverage image
+
+# Regenerate or verify the committed single-header distribution. Ordinary
+# consumers never need Python because include/gint/gint.h is kept in Git.
+amalgamate:
+	$(PYTHON) scripts/generate-amalgamation.py
+
+amalgamate-check:
+	$(PYTHON) scripts/generate-amalgamation.py --check
+
+internal-headers-check:
+	bash scripts/check-internal-headers.sh "$(CXX)"
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
