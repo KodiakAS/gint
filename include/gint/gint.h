@@ -52,7 +52,6 @@
 #endif
 
 #ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-#    define GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 #    define GINT_DETAIL_HEADER_PASS_ACTIVE
 
 #    if defined(__GNUC__) || defined(__clang__)
@@ -264,6 +263,10 @@
             GINT_DETAIL_CLANG_TUNED_POLICY, \
             GINT_DETAIL_AARCH64_ASM_POLICY, \
             GINT_DETAIL_EXCEPTIONS_ENABLED)
+
+#endif // GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+
+#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 
 namespace gint
 {
@@ -1277,6 +1280,18 @@ GINT_FORCE_INLINE void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
 }
 
 } // namespace detail
+
+} // namespace GINT_DETAIL_CONFIG_NAMESPACE
+} // namespace gint
+
+#endif // GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+
+#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+
+namespace gint
+{
+inline namespace GINT_DETAIL_CONFIG_NAMESPACE
+{
 
 //=== String and stream declarations =========================================
 template <size_t Bits, typename Signed>
@@ -5327,6 +5342,10 @@ struct integer_test_access
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
+#endif // GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+
+#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+
 #    if defined(__clang__)
 #        pragma clang diagnostic push
 #        pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -5450,8 +5469,11 @@ struct hash<gint::integer<Bits, Signed>>
 
 #endif // GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 
+#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+#    define GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+#endif
+
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
-#    define GINT_DETAIL_IO_DEFINITIONS_INCLUDED
 
 // A translation unit may include <gint/core.h> first and upgrade to the
 // umbrella header later. The core pass cleans up its implementation macros, so
@@ -5963,6 +5985,10 @@ inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed>
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
+#endif // !GINT_DETAIL_CORE_ONLY && !GINT_DETAIL_IO_DEFINITIONS_INCLUDED
+
+#if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
+
 #    ifdef GINT_ENABLE_FMT
 namespace fmt
 {
@@ -6315,6 +6341,12 @@ struct formatter<gint::integer<Bits, Signed>>
 #    endif
 
 #endif // !GINT_DETAIL_CORE_ONLY && !GINT_DETAIL_IO_DEFINITIONS_INCLUDED
+
+#if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
+#    define GINT_DETAIL_IO_DEFINITIONS_INCLUDED
+#endif
+
+// Keep macro cleanup after every definition pass.
 
 //=== Macro cleanup =============================================================
 

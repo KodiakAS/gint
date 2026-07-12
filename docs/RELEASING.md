@@ -8,14 +8,16 @@
 
 - 版本格式为 `MAJOR.MINOR.PATCH`，Git tag 为 `vMAJOR.MINOR.PATCH`。
 - 同时更新 `CMakeLists.txt` 的 `project(... VERSION ...)` 与
-  `include/gint/gint.h` 的 `GINT_VERSION_MAJOR/MINOR/PATCH`。
+  `src/gint/prelude.hpp` 的 `GINT_VERSION_MAJOR/MINOR/PATCH`，再运行
+  `make amalgamate` 并核对生成的 `include/gint/gint.h`。
 - `GINT_VERSION` 保持 `major * 10000 + minor * 100 + patch` 编码。
 - package version 继续使用 `SameMinorVersion`；改变该规则必须同步支持策略、
   升级指南和变更记录。
 
 ## 发布候选检查
 
-1. 更新版本、整理 [CHANGELOG](../CHANGELOG.md) 的本次版本内容，并更新需要的
+1. 更新版本、整理 [CHANGELOG](../CHANGELOG.md) 的本次版本内容，运行
+   `make amalgamate && make internal-headers-check amalgamate-check`，并更新需要的
    [升级说明](UPGRADING.md)。
 2. 在[正式支持矩阵](SUPPORT.md#平台矩阵)上完成 C++11 Debug、Release/O3 和
    consumer 验证，并记录每个环境的实际 OS、架构和编译器版本。
