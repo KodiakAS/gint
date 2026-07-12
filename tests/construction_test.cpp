@@ -10,6 +10,16 @@ constexpr gint::UInt256 gint_constexpr_assignment_check()
     return y;
 }
 static_assert(gint_constexpr_assignment_check() == gint::UInt256(42), "assignment must be constexpr");
+
+constexpr bool gint_constexpr_integral_assignment_check()
+{
+    gint::UInt256 unsigned_value;
+    unsigned_value = static_cast<unsigned __int128>(1) << 100;
+    gint::Int256 signed_value;
+    signed_value = -42;
+    return unsigned_value == (gint::UInt256(1) << 100) && signed_value == gint::Int256(-42);
+}
+static_assert(gint_constexpr_integral_assignment_check(), "integral assignment must be constexpr");
 #endif
 
 static_assert(gint::integer<256, unsigned>() == 0, "default unsigned integer should be zero");

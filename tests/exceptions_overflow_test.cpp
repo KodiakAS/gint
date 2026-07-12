@@ -11,6 +11,7 @@ TEST(WideIntegerDivMod, ZeroDivisor)
     U256 zero = 0;
     EXPECT_THROW(value / zero, std::domain_error);
     EXPECT_THROW(value % zero, std::domain_error);
+    EXPECT_THROW(gint::divmod(value, zero), std::domain_error);
 
     EXPECT_THROW(value / 0, std::domain_error);
     EXPECT_THROW(value % 0, std::domain_error);

@@ -8,6 +8,8 @@ constexpr gint::integer<128, unsigned> constexpr_u10(10);
 constexpr gint::integer<128, signed> constexpr_sneg(-1);
 constexpr gint::integer<128, signed> constexpr_spos(1);
 static_assert(constexpr_u5 < constexpr_u10, "integer < integer should be constexpr");
+static_assert(constexpr_u5 == constexpr_u5, "integer equality should be constexpr");
+static_assert(constexpr_u5 != constexpr_u10, "integer inequality should be constexpr");
 static_assert(constexpr_u10 > constexpr_u5, "integer > integer should be constexpr");
 static_assert(constexpr_u5 <= constexpr_u5, "integer <= integer should be constexpr");
 static_assert(constexpr_u10 >= constexpr_u5, "integer >= integer should be constexpr");
@@ -96,4 +98,17 @@ TEST(WideIntegerComparison, LimbsEqualShortCircuitPaths)
     // Highest limb equal, next limb differs
     U256 d = b + (U256(1) << 128);
     EXPECT_FALSE(b == d);
+}
+
+TEST(WideIntegerComparison, UInt1024EqualityRuntimePaths)
+{
+    using U1024 = gint::integer<1024, unsigned>;
+    U1024 value = U1024(0x0123456789abcdefULL);
+    for (size_t bit = 64; bit < U1024::bits; bit += 64)
+        value |= U1024(static_cast<uint64_t>(bit) * 0x9e3779b97f4a7c15ULL) << static_cast<int>(bit);
+
+    EXPECT_TRUE(value == value);
+    EXPECT_FALSE(value == (value ^ (U1024(1) << 1023)));
+    EXPECT_FALSE(value == (value ^ (U1024(1) << 511)));
+    EXPECT_FALSE(value == (value ^ U1024(1)));
 }

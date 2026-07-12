@@ -3,19 +3,42 @@ project(gint LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
+include(GNUInstallDirs)
+
+add_library(gint INTERFACE)
+add_library(gint::gint ALIAS gint)
+set_target_properties(gint PROPERTIES EXPORT_NAME gint)
+target_compile_features(gint INTERFACE cxx_std_11)
+target_include_directories(gint INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+
+add_library(gint_checked INTERFACE)
+add_library(gint::checked ALIAS gint_checked)
+set_target_properties(gint_checked PROPERTIES EXPORT_NAME checked)
+target_link_libraries(gint_checked INTERFACE gint)
+target_compile_definitions(gint_checked INTERFACE GINT_ENABLE_DIVZERO_CHECKS)
+
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(GINT_IS_TOP_LEVEL ON)
+else()
+    set(GINT_IS_TOP_LEVEL OFF)
+endif()
+
 option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer for tests" OFF)
-option(GINT_BUILD_TESTS "Build test suite" ON)
+option(GINT_BUILD_TESTS "Build test suite" ${GINT_IS_TOP_LEVEL})
 option(GINT_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
-option(GINT_BUILD_TESTS_RELEASE "Build Release/O3 test suite (gint_tests_release)" ON)
+option(GINT_BUILD_TESTS_RELEASE "Build Release/O3 test suite (gint_tests_release)" ${GINT_IS_TOP_LEVEL})
+option(GINT_INSTALL "Generate gint install rules" ${GINT_IS_TOP_LEVEL})
 
 set(GINT_TEST_OPTIONS -O0 -g)
 set(GINT_TEST_RELEASE_OPTIONS -O3 -DNDEBUG)
 set(GINT_TEST_LINK_OPTIONS "")
 
 if(ENABLE_COVERAGE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         list(APPEND GINT_TEST_OPTIONS --coverage)
         set(GINT_TEST_LINK_OPTIONS --coverage)
@@ -23,7 +46,6 @@ if(ENABLE_COVERAGE)
 endif()
 
 if(ENABLE_SANITIZERS)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         list(APPEND GINT_TEST_OPTIONS -fsanitize=address,undefined -fno-omit-frame-pointer)
         list(APPEND GINT_TEST_LINK_OPTIONS -fsanitize=address,undefined)
@@ -41,15 +63,87 @@ if(GINT_BUILD_TESTS OR GINT_BUILD_BENCHMARKS)
     endif()
 endif()
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
-endif()
-
 if(GINT_BUILD_TESTS)
     find_package(GTest REQUIRED)
     enable_testing()
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
+
+    function(add_gint_consumer_test target source standard)
+        add_executable(${target} ${source})
+        target_link_libraries(${target} PRIVATE gint::gint)
+        set_target_properties(${target} PROPERTIES
+            CXX_STANDARD ${standard}
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+        )
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+        elseif(MSVC)
+            target_compile_options(${target} PRIVATE /W4 /WX)
+        endif()
+        add_test(NAME consumer.${target} COMMAND ${target})
+    endfunction()
+
+    set(GINT_ODR_STATIC_SOURCES
+        tests/consumer/odr_static_members.cpp
+        tests/consumer/odr_static_members_other.cpp
+    )
+    add_gint_consumer_test(gint_consumer_odr_cxx11 "${GINT_ODR_STATIC_SOURCES}" 11)
+    add_gint_consumer_test(gint_consumer_odr_cxx14 "${GINT_ODR_STATIC_SOURCES}" 14)
+    add_gint_consumer_test(gint_consumer_core_header tests/consumer/core_header.cpp 11)
+    add_gint_consumer_test(gint_consumer_core_then_umbrella tests/consumer/core_then_umbrella.cpp 11)
+    add_gint_consumer_test(gint_consumer_no_exceptions tests/consumer/no_exceptions.cpp 11)
+    if(MSVC)
+        target_compile_options(gint_consumer_no_exceptions PRIVATE /EHs-c- /D_HAS_EXCEPTIONS=0)
+    else()
+        target_compile_options(gint_consumer_no_exceptions PRIVATE -fno-exceptions)
+    endif()
+
+    set(GINT_CONFIG_ISOLATION_SOURCES
+        tests/consumer/config_checked.cpp
+        tests/consumer/config_unchecked.cpp
+        tests/consumer/config_gcc_tuned.cpp
+        tests/consumer/config_isolation_main.cpp
+    )
+    add_gint_consumer_test(gint_consumer_config_isolation "${GINT_CONFIG_ISOLATION_SOURCES}" 11)
+    list(REVERSE GINT_CONFIG_ISOLATION_SOURCES)
+    add_gint_consumer_test(gint_consumer_config_isolation_reversed "${GINT_CONFIG_ISOLATION_SOURCES}" 11)
+
+    if(MSVC)
+        set(GINT_CXX23_FLAG /std:c++latest)
+    else()
+        set(GINT_CXX23_FLAG -std=c++2b)
+    endif()
+    check_cxx_compiler_flag("${GINT_CXX23_FLAG}" GINT_HAS_CXX23_FLAG)
+    if(GINT_HAS_CXX23_FLAG)
+        add_executable(gint_consumer_cxx23_werror tests/consumer/cxx23_werror.cpp)
+        target_include_directories(gint_consumer_cxx23_werror PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        target_compile_options(gint_consumer_cxx23_werror PRIVATE ${GINT_CXX23_FLAG})
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(gint_consumer_cxx23_werror PRIVATE -Wall -Wextra -Wdeprecated-declarations -Werror)
+        elseif(MSVC)
+            target_compile_options(gint_consumer_cxx23_werror PRIVATE /W4 /WX)
+        endif()
+        add_test(NAME consumer.gint_consumer_cxx23_werror COMMAND gint_consumer_cxx23_werror)
+    endif()
+
+    add_test(NAME consumer.subproject
+        COMMAND ${CMAKE_COMMAND}
+            -DGINT_CONSUMER_KIND=subproject
+            -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+    )
+    if(GINT_INSTALL)
+        add_test(NAME consumer.package
+            COMMAND ${CMAKE_COMMAND}
+                -DGINT_CONSUMER_KIND=package
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+        )
+    endif()
 
     # Aggregate core unit tests into a single executable for readability and speed.
     # Divzero-check variants use separate executables because the macro policy is
@@ -254,4 +348,25 @@ if(GINT_BUILD_BENCHMARKS)
         add_gint_bench_target(perf_compare_int${bits} ${bits} ON)
     endforeach()
 
+endif()
+
+if(GINT_INSTALL)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS gint gint_checked EXPORT gintTargets)
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(EXPORT gintTargets
+        FILE gintTargets.cmake
+        NAMESPACE gint::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
+    )
+
+    configure_package_config_file(
+        cmake/gintConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gintConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
+    )
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gintConfig.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
+    )
 endif()

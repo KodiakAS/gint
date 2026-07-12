@@ -83,6 +83,42 @@ TEST(WideIntegerDivision, SignedSmallDivMod)
     EXPECT_EQ(b % -5, Int256(-3));
 }
 
+TEST(WideIntegerDivision, PublicDivModMatchesIndependentOperators)
+{
+    using UInt1024 = gint::integer<1024, unsigned>;
+    const UInt1024 dividend = (UInt1024(1) << 1000) | (UInt1024(1) << 701) | (UInt1024(1) << 129) | UInt1024(0x123456789ULL);
+    const UInt1024 divisor = (UInt1024(1) << 700) | (UInt1024(1) << 127) | UInt1024(0xFEDCBA987ULL);
+
+    const auto result = gint::divmod(dividend, divisor);
+    EXPECT_EQ(result.quotient, dividend / divisor);
+    EXPECT_EQ(result.remainder, dividend % divisor);
+    EXPECT_EQ(result.quotient * divisor + result.remainder, dividend);
+    EXPECT_LT(result.remainder, divisor);
+}
+
+TEST(WideIntegerDivision, PublicDivModPreservesSignedEdgeSemantics)
+{
+    using Int256 = gint::integer<256, signed>;
+    const Int256 divisors[] = {Int256(7), Int256(-7)};
+    const Int256 dividends[] = {Int256(123), Int256(-123)};
+
+    for (const auto & dividend : dividends)
+    {
+        for (const auto & divisor : divisors)
+        {
+            const auto result = gint::divmod(dividend, divisor);
+            EXPECT_EQ(result.quotient, dividend / divisor);
+            EXPECT_EQ(result.remainder, dividend % divisor);
+            EXPECT_EQ(result.quotient * divisor + result.remainder, dividend);
+        }
+    }
+
+    const Int256 min = std::numeric_limits<Int256>::min();
+    const auto overflow_result = gint::divmod(min, Int256(-1));
+    EXPECT_EQ(overflow_result.quotient, min);
+    EXPECT_EQ(overflow_result.remainder, Int256(0));
+}
+
 TEST(WideIntegerDivision, SignedSmallDivMod_NegativeDivisorRegression)
 {
     using Int256 = gint::integer<256, signed>;
@@ -585,6 +621,67 @@ TEST(WideIntegerDivision, S64UnsignedInteropAboveSignedRange)
     EXPECT_EQ(max_u64 % S64(2), S64(1));
 }
 
+TEST(WideIntegerDivision, CompoundDivModPreservesUnsignedPromotion)
+{
+    using S64 = gint::integer<64, signed>;
+    const S64 min = std::numeric_limits<S64>::min();
+    const uint64_t divisor = (UINT64_C(1) << 63) + 5;
+
+    S64 quotient = min;
+    quotient /= divisor;
+    EXPECT_EQ(quotient, min / divisor);
+    EXPECT_EQ(quotient, S64(0));
+
+    S64 remainder = min;
+    remainder %= divisor;
+    EXPECT_EQ(remainder, min % divisor);
+    EXPECT_EQ(remainder, min);
+
+    const unsigned __int128 huge = static_cast<unsigned __int128>(1) << 80;
+    quotient = S64(-123);
+    quotient /= huge;
+    EXPECT_EQ(quotient, S64(0));
+    remainder = S64(-123);
+    remainder %= huge;
+    EXPECT_EQ(remainder, S64(-123));
+}
+
+TEST(WideIntegerDivision, CompoundDivModPreservesFloatingSpecialValues)
+{
+    using S64 = gint::integer<64, signed>;
+    const S64 original = std::numeric_limits<S64>::max();
+    const double positive_infinity = std::numeric_limits<double>::infinity();
+    const double negative_infinity = -positive_infinity;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+
+    S64 value = original;
+    value /= positive_infinity;
+    EXPECT_EQ(value, S64(0));
+    value = original;
+    value /= negative_infinity;
+    EXPECT_EQ(value, S64(0));
+
+    value = original;
+    value %= positive_infinity;
+    EXPECT_EQ(value, original);
+    value = original;
+    value %= negative_infinity;
+    EXPECT_EQ(value, original);
+
+    value = original;
+    EXPECT_THROW(value /= nan, std::domain_error);
+    EXPECT_EQ(value, original);
+    EXPECT_THROW(value %= nan, std::domain_error);
+    EXPECT_EQ(value, original);
+
+    value = S64(1000);
+    value /= 3.5;
+    EXPECT_EQ(value, S64(1000) / 3.5);
+    value = S64(1000);
+    value %= 3.5;
+    EXPECT_EQ(value, S64(1000) % 3.5);
+}
+
 TEST(WideIntegerDivision, SmallOverLarge)
 {
     using U256 = gint::integer<256, unsigned>;
@@ -934,7 +1031,7 @@ TEST(WideIntegerDivision, DivLarge2StubSingleLimbType)
     using U64 = gint::integer<64, unsigned>;
     U64 lhs = 9;
     U64 divisor = 2;
-    EXPECT_EQ(TestAccess<U64>::div_large_2(lhs, divisor), TestAccess<U64>::div_large(lhs, divisor, 2));
+    EXPECT_EQ(TestAccess<U64>::div_large_2(lhs, divisor), lhs / divisor);
 }
 
 TEST(WideIntegerDivision, DivLarge3StubTwoLimbType)
@@ -942,7 +1039,7 @@ TEST(WideIntegerDivision, DivLarge3StubTwoLimbType)
     using U128 = gint::integer<128, unsigned>;
     U128 lhs = (U128(1) << 96) + U128(5);
     U128 divisor = (U128(1) << 64) + U128(3);
-    EXPECT_EQ(TestAccess<U128>::div_large_3(lhs, divisor), TestAccess<U128>::div_large(lhs, divisor, 3));
+    EXPECT_EQ(TestAccess<U128>::div_large_3(lhs, divisor), lhs / divisor);
 }
 
 TEST(WideIntegerDivision, DivLargeGeneric_AddbackBranch)
