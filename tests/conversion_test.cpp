@@ -262,6 +262,47 @@ TEST(WideIntegerConversion, FloatConversionSignedMinMagnitude)
     EXPECT_EQ(static_cast<float>(min128), -std::ldexp(1.0f, 127));
 }
 
+TEST(WideIntegerConversion, FloatConversionOverflowRespectsAllRoundingModes)
+{
+    struct RoundingGuard
+    {
+        int old_round;
+        RoundingGuard()
+            : old_round(std::fegetround())
+        {
+        }
+        ~RoundingGuard() { std::fesetround(old_round); }
+    } guard;
+
+    using U256 = gint::integer<256, unsigned>;
+    using S256 = gint::integer<256, signed>;
+    const U256 magnitude = U256(1) << 200;
+    const S256 negative = -S256(magnitude);
+    const float maximum = std::numeric_limits<float>::max();
+    const float infinity = std::numeric_limits<float>::infinity();
+
+    struct Expected
+    {
+        int mode;
+        float positive;
+        float negative;
+    };
+    const Expected cases[] = {
+        {FE_TONEAREST, infinity, -infinity},
+        {FE_UPWARD, infinity, -maximum},
+        {FE_DOWNWARD, maximum, -infinity},
+        {FE_TOWARDZERO, maximum, -maximum},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i)
+    {
+        SCOPED_TRACE(testing::Message() << "rounding mode=" << cases[i].mode);
+        ASSERT_EQ(std::fesetround(cases[i].mode), 0);
+        EXPECT_EQ(static_cast<float>(magnitude), cases[i].positive);
+        EXPECT_EQ(static_cast<float>(negative), cases[i].negative);
+    }
+}
+
 TEST(WideIntegerConversion, FloatCtorAndAssignLongDouble)
 {
     long double ld = 1234.75L;
@@ -459,6 +500,76 @@ TEST(WideIntegerConversion, FromStringPowerOfTwoWrapAndValidation)
     std::string invalid_high_digit = "z" + std::string(300, '0');
     EXPECT_THROW(gint::from_string<U128>(invalid_high_digit, 16), std::invalid_argument);
     EXPECT_THROW(gint::from_string<U128>(invalid_high_digit.c_str(), 16), std::invalid_argument);
+}
+
+TEST(WideIntegerConversion, FromStringPowerOfTwoRejectsPunctuationBeforeA)
+{
+    const unsigned bases[] = {2, 8, 16};
+    const char invalid_characters[] = {'@', '`'};
+    for (size_t base_index = 0; base_index < sizeof(bases) / sizeof(bases[0]); ++base_index)
+    {
+        for (size_t character_index = 0; character_index < sizeof(invalid_characters) / sizeof(invalid_characters[0]); ++character_index)
+        {
+            std::string text = "1";
+            text.push_back(invalid_characters[character_index]);
+            text.push_back('1');
+            EXPECT_THROW(gint::from_string<gint::UInt256>(text, bases[base_index]), std::invalid_argument);
+            EXPECT_THROW(gint::from_string<gint::UInt256>(text.c_str(), bases[base_index]), std::invalid_argument);
+        }
+    }
+
+    EXPECT_THROW(gint::from_string<gint::UInt256>("Ab0Bcde3456789abcdef89abcdef010a`bcd", 16), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<gint::UInt256>("0x1@1"), std::invalid_argument);
+
+    const size_t boundary_lengths[] = {16, 17, 63, 64, 65, 127, 128, 129};
+    typedef gint::integer<1024, unsigned> U1024;
+    for (size_t length_index = 0; length_index < sizeof(boundary_lengths) / sizeof(boundary_lengths[0]); ++length_index)
+    {
+        const size_t length = boundary_lengths[length_index];
+        EXPECT_NO_THROW(gint::from_string<U1024>(std::string(length, 'a'), 16));
+        for (size_t position = 0; position < length; ++position)
+        {
+            for (size_t character_index = 0; character_index < sizeof(invalid_characters) / sizeof(invalid_characters[0]);
+                 ++character_index)
+            {
+                SCOPED_TRACE(
+                    ::testing::Message() << "length=" << length << ", position=" << position
+                                         << ", byte=" << static_cast<unsigned>(invalid_characters[character_index]));
+                std::string text(length, 'a');
+                text[position] = invalid_characters[character_index];
+                EXPECT_THROW(gint::from_string<U1024>(text, 16), std::invalid_argument);
+                EXPECT_THROW(gint::from_string<U1024>(text.c_str(), 16), std::invalid_argument);
+            }
+        }
+    }
+}
+
+TEST(WideIntegerConversion, FromStringHexClassifiesEveryByte)
+{
+    for (unsigned byte = 0; byte <= 0xffu; ++byte)
+    {
+        SCOPED_TRACE(::testing::Message() << "byte=" << byte);
+        const bool decimal = byte >= static_cast<unsigned>('0') && byte <= static_cast<unsigned>('9');
+        const bool uppercase = byte >= static_cast<unsigned>('A') && byte <= static_cast<unsigned>('F');
+        const bool lowercase = byte >= static_cast<unsigned>('a') && byte <= static_cast<unsigned>('f');
+        const bool valid = decimal || uppercase || lowercase;
+        const std::string text(1, static_cast<char>(byte));
+        const char c_text[] = {static_cast<char>(byte), '\0'};
+
+        if (valid)
+        {
+            const unsigned expected = decimal ? byte - static_cast<unsigned>('0')
+                : uppercase                   ? byte - static_cast<unsigned>('A') + 10u
+                                              : byte - static_cast<unsigned>('a') + 10u;
+            EXPECT_EQ(gint::from_string<gint::UInt256>(text, 16), gint::UInt256(expected));
+            EXPECT_EQ(gint::from_string<gint::UInt256>(c_text, 16), gint::UInt256(expected));
+        }
+        else
+        {
+            EXPECT_THROW(gint::from_string<gint::UInt256>(text, 16), std::invalid_argument);
+            EXPECT_THROW(gint::from_string<gint::UInt256>(c_text, 16), std::invalid_argument);
+        }
+    }
 }
 
 TEST(WideIntegerConversion, FromStringPreservesEmbeddedNullSemantics)

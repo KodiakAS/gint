@@ -497,6 +497,24 @@ static std::array<std::string, kDataN> make_from_string_data()
     return data;
 }
 
+template <unsigned Base>
+static std::array<std::string, kDataN> make_from_string_short_data()
+{
+    std::array<std::string, kDataN> data{};
+    std::mt19937_64 rng(kSeedBase ^ 0x53484F5254504152ull ^ Base);
+    static const char alphabet[] = "0123456789abcdef";
+    for (size_t i = 0; i < kDataN; ++i)
+    {
+        const size_t digit_count = 1u + rng() % 16u;
+        std::string text(digit_count, '0');
+        text[0] = alphabet[1u + rng() % (Base - 1u)];
+        for (size_t j = 1; j < digit_count; ++j)
+            text[j] = alphabet[rng() % Base];
+        data[i] = text;
+    }
+    return data;
+}
+
 template <typename Int, unsigned Base>
 static void FromString_String(benchmark::State & state)
 {
@@ -514,6 +532,32 @@ template <typename Int, unsigned Base>
 static void FromString_CStr(benchmark::State & state)
 {
     static const std::array<std::string, kDataN> data = make_from_string_data<Base>();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const char * text = data[i++ & (kDataN - 1)].c_str();
+        benchmark::DoNotOptimize(gint::from_string<Int>(text, Base));
+    }
+}
+
+template <typename Int, unsigned Base>
+static void FromStringShort_String(benchmark::State & state)
+{
+    static const std::array<std::string, kDataN> data = make_from_string_short_data<Base>();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const std::string & text = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(gint::from_string<Int>(text, Base));
+    }
+}
+
+template <typename Int, unsigned Base>
+static void FromStringShort_CStr(benchmark::State & state)
+{
+    static const std::array<std::string, kDataN> data = make_from_string_short_data<Base>();
 
     size_t i = 0;
     for (auto _ : state)
@@ -1057,6 +1101,14 @@ int main(int argc, char ** argv)
     benchmark::RegisterBenchmark("FromStringCStr/Base8/gint", &FromString_CStr<WInt, 8>);
     benchmark::RegisterBenchmark("FromStringCStr/Base10/gint", &FromString_CStr<WInt, 10>);
     benchmark::RegisterBenchmark("FromStringCStr/Base16/gint", &FromString_CStr<WInt, 16>);
+    benchmark::RegisterBenchmark("FromString/ShortBase2/gint", &FromStringShort_String<WInt, 2>);
+    benchmark::RegisterBenchmark("FromString/ShortBase8/gint", &FromStringShort_String<WInt, 8>);
+    benchmark::RegisterBenchmark("FromString/ShortBase10/gint", &FromStringShort_String<WInt, 10>);
+    benchmark::RegisterBenchmark("FromString/ShortBase16/gint", &FromStringShort_String<WInt, 16>);
+    benchmark::RegisterBenchmark("FromStringCStr/ShortBase2/gint", &FromStringShort_CStr<WInt, 2>);
+    benchmark::RegisterBenchmark("FromStringCStr/ShortBase8/gint", &FromStringShort_CStr<WInt, 8>);
+    benchmark::RegisterBenchmark("FromStringCStr/ShortBase10/gint", &FromStringShort_CStr<WInt, 10>);
+    benchmark::RegisterBenchmark("FromStringCStr/ShortBase16/gint", &FromStringShort_CStr<WInt, 16>);
 #endif
 
     if (full_matrix)

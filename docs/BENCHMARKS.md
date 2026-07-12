@@ -14,6 +14,60 @@
 - 各库保持自身原生对象布局，comparison 衡量的是实际库类型的 operator 吞吐，并不声称对象大小或内部表示已经归一化。
 - 可复现验证环境的初始化方式见 [验证环境固化](VALIDATION_ENVIRONMENTS.md)。该文档只固化当前环境依赖，不固定具体测试项目、过滤器或位宽。
 
+## 自动化性能回归门禁
+
+性能自动化分为两层：PR 上只使用确定性的 codegen contract 作为阻断门禁；真实 wall-clock benchmark 仅在定时或手工工作流中采样。这样既能阻止热点意外退化为未内联调用或明显代码膨胀，又不会让共享 runner 的频率、邻居负载和虚拟化抖动误伤 PR。
+
+### PR codegen contract
+
+`.github/workflows/performance.yml` 会在 Linux x86_64、Linux AArch64 的 GCC 13 / Clang 18，以及 macOS arm64 AppleClang 上以 C++11、`-O3 -DNDEBUG` 编译 `tests/perf/codegen_contract.cpp`。检查器要求所有探针存在，并按架构执行以下上限：
+
+| UInt256 探针 | x86_64 指令上限 | AArch64 指令上限 | 调用约束 |
+| --- | ---: | ---: | --- |
+| Add | 48 | 28 | 禁止 out-of-line call |
+| Sub | 68 | 28 | 禁止 out-of-line call |
+| Mul | 180 | 180 | 禁止 out-of-line call |
+| Xor | 20 | 16 | 禁止 out-of-line call |
+| LeftShift | 160 | 120 | 禁止 out-of-line call |
+| RightShift | 160 | 120 | 禁止 out-of-line call |
+| Equal | 40 | 40 | 禁止 out-of-line call |
+| HexDigit | 6 | 6 | 禁止 out-of-line call |
+| DivU32 | 220 | 200 | 最多 6 个，仅允许 `div_mod_small` / 编译器整数除法 runtime helper |
+| ModU32 | 140 | 120 | 最多 6 个，仅允许 `div_mod_small` / 编译器整数取模 runtime helper |
+
+诊断编译额外使用 `-fno-optimize-sibling-calls`，检查器也识别直接跳向非本地
+符号的 tail transfer，避免 out-of-line helper 被尾调用伪装成普通分支。
+Add/Sub/Mul/Xor/Equal/HexDigit 还要求零 back edge，防止固定 4-limb 展开
+静默退化成运行时循环。Shift 保留编译器生成的合法分派/循环自由度。
+
+上限是跨 GCC/Clang 代码形态的宽松灾难性结构预算，不是逐指令 golden
+snapshot、精细的 per-compiler 膨胀阈值或吞吐量阈值。DivU32/ModU32 覆盖高频
+单 limb 路径；HexDigit 保护十六进制查表必须保持常量初始化、内联且无调用。
+满宽 division、公开 `divmod` 和完整 parser 会因编译器内联策略、标准库调用及
+异常冷路径产生较大的静态代码形态差异，因此由下述真实 benchmark 矩阵覆盖，
+不对其设置容易误报的 PR 指令数阈值。
+
+本地检查（输出仍位于 `runs/`）：
+
+```sh
+python3 -m unittest discover -s tests/perf -p 'test_*.py'
+bash scripts/check-codegen-contract.sh c++ runs/local/codegen-contract
+```
+
+若 contract 失败，应先检查生成的 assembly，并在同一机器、同一编译器下运行受影响用例的前后对比；只有确认新的代码形态合理且没有性能退化后才调整预算。
+
+### 定时与手工真实采样
+
+`Performance` 工作流每周六 04:43 UTC 运行，也支持 `workflow_dispatch`。它在 Linux x86_64 / AArch64 的 GCC 13 和 Clang 18 上：
+
+- 通过 `scripts/bootstrap-validation-env.sh` 为当前编译器构建固定的 Google Benchmark v1.9.5，禁止使用发行版 `libbenchmark-dev` 生成性能结论；
+- 运行 256-bit gint-only 与三方 comparison 完整矩阵，并额外采样 1024-bit 的满位宽及 1～16 位短输入 `FromString*` parser 用例；参数固定为 `--benchmark_min_time=0.2s --benchmark_repetitions=7 --benchmark_enable_random_interleaving=true`；
+- 保留原始 Google Benchmark JSON，并生成包含每个用例 median、CV、工具链、架构与 commit 的规范化 JSON；
+- 规范化时强制校验 `context.library_version=v1.9.5`、每项 7 次重复及对应 numeric CV、gint 48 行、comparison 93 行及 wide-parser 16 行 median，并要求 `DivMod` 与 256/1024-bit 的满位宽、短输入 `FromString*` 用例存在，避免依赖、重复次数或矩阵参数静默失效；
+- 在 job summary 列出 CV 超过 5% 的噪声用例名称与 CV，但不以共享 runner 的绝对时延或相对时延阻断构建。
+
+完整矩阵覆盖 `Div/*`、`Mod/*`、`DivMod/*`，gint-only 矩阵还覆盖 `FromString*` 的 Base2/8/10/16 满位宽与短输入 parser；1024-bit 定向采样用于同时捕获宽位代码布局回归和 out-of-line 调用的固定成本。定时结果用于发现趋势和保存发布证据；发现异常后仍需在固定机器上按本文统一准则复测，不能直接把跨 runner 波动认定为性能回归。
+
 ## 本机 AppleClang 样本（commit `3649c33b`）
 - 采集时间：2026-07-10
 - 采集平台：Apple M4 Pro，macOS 26.5.2，arm64

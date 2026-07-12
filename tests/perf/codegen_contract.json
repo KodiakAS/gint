@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "language_standard": "c++11",
+  "description": "Portable structural budgets for UInt256 hot-path wrappers compiled with GCC or Clang at -O3.",
+  "functions": {
+    "gint_perf_add256": {
+      "max_instructions": {
+        "aarch64": 28,
+        "x86_64": 48
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_sub256": {
+      "max_instructions": {
+        "aarch64": 28,
+        "x86_64": 68
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_mul256": {
+      "max_instructions": {
+        "aarch64": 180,
+        "x86_64": 180
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_xor256": {
+      "max_instructions": {
+        "aarch64": 16,
+        "x86_64": 20
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_shift_left256": {
+      "max_instructions": {
+        "aarch64": 120,
+        "x86_64": 160
+      },
+      "forbid_calls": true
+    },
+    "gint_perf_shift_right256": {
+      "max_instructions": {
+        "aarch64": 120,
+        "x86_64": 160
+      },
+      "forbid_calls": true
+    },
+    "gint_perf_equal256": {
+      "max_instructions": {
+        "aarch64": 40,
+        "x86_64": 40
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_hex_digit": {
+      "max_instructions": {
+        "aarch64": 6,
+        "x86_64": 6
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_div_u32": {
+      "max_instructions": {
+        "aarch64": 200,
+        "x86_64": 220
+      },
+      "max_calls": 6,
+      "allowed_call_substrings": [
+        "div_mod_small",
+        "__udivmodti4",
+        "__udivti3"
+      ]
+    },
+    "gint_perf_mod_u32": {
+      "max_instructions": {
+        "aarch64": 120,
+        "x86_64": 140
+      },
+      "max_calls": 6,
+      "allowed_call_substrings": [
+        "div_mod_small",
+        "__umodti3"
+      ]
+    }
+  }
+}

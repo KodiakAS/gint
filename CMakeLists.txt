@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
-project(gint LANGUAGES CXX)
+project(gint
+    VERSION 0.9.0
+    DESCRIPTION "Fixed-width, strict-semantics, header-only wide integers for C++11"
+    HOMEPAGE_URL "https://github.com/KodiakAS/gint"
+    LANGUAGES CXX
+)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/gintCompilerContract.cmake")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
@@ -65,6 +72,14 @@ endif()
 
 if(GINT_BUILD_TESTS)
     find_package(GTest REQUIRED)
+    if(NOT TARGET GTest::gtest AND TARGET GTest::GTest)
+        add_library(GTest::gtest INTERFACE IMPORTED)
+        set_property(TARGET GTest::gtest PROPERTY INTERFACE_LINK_LIBRARIES GTest::GTest)
+    endif()
+    if(NOT TARGET GTest::gtest_main AND TARGET GTest::Main)
+        add_library(GTest::gtest_main INTERFACE IMPORTED)
+        set_property(TARGET GTest::gtest_main PROPERTY INTERFACE_LINK_LIBRARIES GTest::Main)
+    endif()
     enable_testing()
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
@@ -79,8 +94,6 @@ if(GINT_BUILD_TESTS)
         )
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
-        elseif(MSVC)
-            target_compile_options(${target} PRIVATE /W4 /WX)
         endif()
         add_test(NAME consumer.${target} COMMAND ${target})
     endfunction()
@@ -93,12 +106,9 @@ if(GINT_BUILD_TESTS)
     add_gint_consumer_test(gint_consumer_odr_cxx14 "${GINT_ODR_STATIC_SOURCES}" 14)
     add_gint_consumer_test(gint_consumer_core_header tests/consumer/core_header.cpp 11)
     add_gint_consumer_test(gint_consumer_core_then_umbrella tests/consumer/core_then_umbrella.cpp 11)
+    add_gint_consumer_test(gint_consumer_header_contract tests/consumer/header_contract.cpp 11)
     add_gint_consumer_test(gint_consumer_no_exceptions tests/consumer/no_exceptions.cpp 11)
-    if(MSVC)
-        target_compile_options(gint_consumer_no_exceptions PRIVATE /EHs-c- /D_HAS_EXCEPTIONS=0)
-    else()
-        target_compile_options(gint_consumer_no_exceptions PRIVATE -fno-exceptions)
-    endif()
+    target_compile_options(gint_consumer_no_exceptions PRIVATE -fno-exceptions)
 
     set(GINT_CONFIG_ISOLATION_SOURCES
         tests/consumer/config_checked.cpp
@@ -110,11 +120,7 @@ if(GINT_BUILD_TESTS)
     list(REVERSE GINT_CONFIG_ISOLATION_SOURCES)
     add_gint_consumer_test(gint_consumer_config_isolation_reversed "${GINT_CONFIG_ISOLATION_SOURCES}" 11)
 
-    if(MSVC)
-        set(GINT_CXX23_FLAG /std:c++latest)
-    else()
-        set(GINT_CXX23_FLAG -std=c++2b)
-    endif()
+    set(GINT_CXX23_FLAG -std=c++2b)
     check_cxx_compiler_flag("${GINT_CXX23_FLAG}" GINT_HAS_CXX23_FLAG)
     if(GINT_HAS_CXX23_FLAG)
         add_executable(gint_consumer_cxx23_werror tests/consumer/cxx23_werror.cpp)
@@ -122,11 +128,24 @@ if(GINT_BUILD_TESTS)
         target_compile_options(gint_consumer_cxx23_werror PRIVATE ${GINT_CXX23_FLAG})
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
             target_compile_options(gint_consumer_cxx23_werror PRIVATE -Wall -Wextra -Wdeprecated-declarations -Werror)
-        elseif(MSVC)
-            target_compile_options(gint_consumer_cxx23_werror PRIVATE /W4 /WX)
         endif()
         add_test(NAME consumer.gint_consumer_cxx23_werror COMMAND gint_consumer_cxx23_werror)
     endif()
+
+    add_test(NAME consumer.header_contract_negative
+        COMMAND ${CMAKE_COMMAND}
+            -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_header_contract.cmake
+    )
+    add_test(NAME consumer.cmake_compiler_contract
+        COMMAND ${CMAKE_COMMAND}
+            -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+            -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_cmake_compiler_contract.cmake
+    )
 
     add_test(NAME consumer.subproject
         COMMAND ${CMAKE_COMMAND}
@@ -136,12 +155,78 @@ if(GINT_BUILD_TESTS)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
     )
     if(GINT_INSTALL)
+        math(EXPR GINT_TEST_NEWER_PATCH "${PROJECT_VERSION_PATCH} + 1")
+        if(PROJECT_VERSION_MINOR GREATER 0)
+            math(EXPR GINT_TEST_OTHER_MINOR "${PROJECT_VERSION_MINOR} - 1")
+        else()
+            math(EXPR GINT_TEST_OTHER_MINOR "${PROJECT_VERSION_MINOR} + 1")
+        endif()
+        set(GINT_PACKAGE_TEST_INSTALL_ARGS
+            -DGINT_INSTALL_CMAKE_DIR=${CMAKE_INSTALL_LIBDIR}/cmake/gint
+            -DGINT_INSTALL_DATA_DIR=${CMAKE_INSTALL_DATADIR}/gint
+        )
+
         add_test(NAME consumer.package
             COMMAND ${CMAKE_COMMAND}
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
                 -DGINT_CONSUMER_KIND=package
+                -DGINT_EXPECT_PACKAGE_VERSION=${PROJECT_VERSION}
                 -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+        )
+        add_test(NAME consumer.package.version_exact
+            COMMAND ${CMAKE_COMMAND}
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                -DGINT_CONSUMER_KIND=package
+                -DGINT_CONSUMER_CASE=package-version-exact
+                -DGINT_PACKAGE_VERSION=${PROJECT_VERSION}
+                -DGINT_PACKAGE_VERSION_EXACT=ON
+                -DGINT_EXPECT_PACKAGE_VERSION=${PROJECT_VERSION}
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+        )
+        add_test(NAME consumer.package.version_compatible
+            COMMAND ${CMAKE_COMMAND}
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                -DGINT_CONSUMER_KIND=package
+                -DGINT_CONSUMER_CASE=package-version-compatible
+                -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
+                -DGINT_EXPECT_PACKAGE_VERSION=${PROJECT_VERSION}
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+        )
+        add_test(NAME consumer.package.version_newer_rejected
+            COMMAND ${CMAKE_COMMAND}
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                -DGINT_CONSUMER_KIND=package
+                -DGINT_CONSUMER_CASE=package-version-newer-rejected
+                -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${GINT_TEST_NEWER_PATCH}
+                -DGINT_EXPECT_CONFIGURE_FAILURE=ON
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+        )
+        add_test(NAME consumer.package.version_other_minor_rejected
+            COMMAND ${CMAKE_COMMAND}
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                -DGINT_CONSUMER_KIND=package
+                -DGINT_CONSUMER_CASE=package-version-other-minor-rejected
+                -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${GINT_TEST_OTHER_MINOR}
+                -DGINT_EXPECT_CONFIGURE_FAILURE=ON
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
+        )
+        add_test(NAME consumer.package.compiler_contract
+            COMMAND ${CMAKE_COMMAND}
+                -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                -DGINT_INSTALL_CMAKE_DIR=${CMAKE_INSTALL_LIBDIR}/cmake/gint
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_installed_compiler_contract.cmake
         )
     endif()
 
@@ -354,10 +439,18 @@ if(GINT_INSTALL)
     include(CMakePackageConfigHelpers)
 
     install(TARGETS gint gint_checked EXPORT gintTargets)
-    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(FILES
+        include/gint/core.h
+        include/gint/gint.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/gint
+    )
+    install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/gint)
     install(EXPORT gintTargets
         FILE gintTargets.cmake
         NAMESPACE gint::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
+    )
+    install(FILES cmake/gintCompilerContract.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
     )
 
@@ -366,7 +459,16 @@ if(GINT_INSTALL)
         ${CMAKE_CURRENT_BINARY_DIR}/gintConfig.cmake
         INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
     )
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gintConfig.cmake
+
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/gintConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion
+    )
+
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/gintConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/gintConfigVersion.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gint
     )
 endif()

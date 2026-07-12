@@ -6,10 +6,15 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 **Highlights**
 
-* **C++11 compatible** across diverse toolchains.
+* **C++11-first** on GCC, Clang, and AppleClang.
 * **Header-only** for painless integration.
 * **High performance** by design.
 * **Bit-accurate width** strictly matching the definition.
+
+The supported release targets are 64-bit little-endian Linux x86_64/AArch64
+and macOS arm64. MSVC and `clang-cl` are intentionally unsupported because the
+implementation relies on `__int128` and GCC/Clang builtins. See
+`docs/SUPPORT.md` for the maintained matrix.
 
 ## Performance
 
@@ -54,11 +59,18 @@ int main() {
 }
 ```
 
+The simplest integration remains copying `include/gint/gint.h` into a project
+and including it directly. The default interface has no generated-header or
+link-time dependency. Copy `include/gint/core.h` as well only when using the
+optional arithmetic-only entry point; defining `GINT_ENABLE_FMT` additionally
+requires the external `fmt` dependency.
+
 For CMake consumers, use the header-only target directly when the repository is
-added with `add_subdirectory`/`FetchContent`, or after installing the package:
+added with `add_subdirectory`/`FetchContent`, or after installing the package.
+The 0.x package contract treats patch releases within one minor as compatible:
 
 ```cmake
-find_package(gint CONFIG REQUIRED)
+find_package(gint 0.9 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
@@ -110,8 +122,12 @@ image with `COVERAGE_DIR=runs/docker/build-coverage`.
 ## Documentation
 
 - Technical spec: `docs/TECH_SPEC.md`
+- Support matrix: `docs/SUPPORT.md`
 - Benchmarks: `docs/BENCHMARKS.md`
 - Validation environments: `docs/VALIDATION_ENVIRONMENTS.md`
+- Upgrading: `docs/UPGRADING.md`
+- Releasing: `docs/RELEASING.md`
+- Changelog: `CHANGELOG.md`
 
 ## License
 
@@ -119,8 +135,9 @@ Apache License 2.0. See `LICENSE`.
 
 ## Development Environment
 
-A dedicated Dockerfile sets up a CentOS 8 Linux/GCC validation environment
-with all build dependencies preinstalled. It also installs `clang`/`clangd`
+A dedicated Dockerfile sets up an AlmaLinux 8 / GCC 8.5-compatible validation
+environment without depending on the retired CentOS 8 vault repositories. It
+installs all build dependencies together with `clang`/`clangd`
 for development tooling and Google Benchmark v1.9.5 for benchmark binaries.
 Unless `CC`/`CXX` is explicitly overridden, CMake uses GCC/g++ inside the
 container. The repository's `Makefile` provides a target to build this image:
@@ -129,6 +146,7 @@ container. The repository's `Makefile` provides a target to build this image:
 make image
 ```
 
-The resulting `gint:centos8` image is intended for GCC/Linux test and
-benchmark validation. Host AppleClang artifacts use `runs/local/`; Docker/GCC
-artifacts should use `runs/docker/`.
+The resulting image keeps the historical `gint:centos8` local tag so existing
+automation and commands remain compatible; its base OS is AlmaLinux 8. It is
+intended for GCC/Linux test and benchmark validation. Host AppleClang artifacts
+use `runs/local/`; Docker/GCC artifacts should use `runs/docker/`.

@@ -1,0 +1,229 @@
+name: Performance
+
+on:
+  pull_request:
+  schedule:
+    - cron: "43 4 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  codegen-contract:
+    name: codegen contract (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64-gcc13
+            os: ubuntu-24.04
+            compiler: GCC 13
+            cxx: g++-13
+            package: g++-13
+          - name: x86_64-clang18
+            os: ubuntu-24.04
+            compiler: Clang 18
+            cxx: clang++-18
+            package: clang-18
+          - name: aarch64-gcc13
+            os: ubuntu-24.04-arm
+            compiler: GCC 13
+            cxx: g++-13
+            package: g++-13
+          - name: aarch64-clang18
+            os: ubuntu-24.04-arm
+            compiler: Clang 18
+            cxx: clang++-18
+            package: clang-18
+          - name: macos-arm64-appleclang
+            os: macos-15
+            compiler: AppleClang
+            cxx: c++
+            package: ""
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install compiler
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.package }} python3
+      - name: Verify Apple Silicon runner
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = arm64
+      - name: Test performance tooling
+        run: python3 -m unittest discover -s tests/perf -p 'test_*.py'
+      - name: Check C++11 hot-path code generation
+        run: |
+          bash scripts/check-codegen-contract.sh \
+            "${{ matrix.cxx }}" \
+            "runs/performance/codegen/${{ matrix.name }}"
+      - name: Upload code-generation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codegen-${{ matrix.name }}
+          path: runs/performance/codegen/${{ matrix.name }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  benchmark-sampling:
+    name: benchmark sampling (${{ matrix.name }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64-gcc13
+            os: ubuntu-24.04
+            compiler: GCC 13
+            cxx: g++-13
+            package: g++-13
+          - name: x86_64-clang18
+            os: ubuntu-24.04
+            compiler: Clang 18
+            cxx: clang++-18
+            package: clang-18
+          - name: aarch64-gcc13
+            os: ubuntu-24.04-arm
+            compiler: GCC 13
+            cxx: g++-13
+            package: g++-13
+          - name: aarch64-clang18
+            os: ubuntu-24.04-arm
+            compiler: Clang 18
+            cxx: clang++-18
+            package: clang-18
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install benchmark dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ${{ matrix.package }} ca-certificates cmake curl git ninja-build python3 \
+            libfmt-dev libboost-dev
+      - name: Prepare Google Benchmark v1.9.5
+        run: |
+          bash scripts/bootstrap-validation-env.sh \
+            --scope "performance-${{ matrix.name }}" \
+            --compiler "${{ matrix.cxx }}" \
+            --benchmark-version 1.9.5 \
+            --skip-packages \
+            --jobs 2
+      - name: Configure
+        run: |
+          SCOPE="performance-${{ matrix.name }}"
+          ENV_FILE="$(find "runs/$SCOPE/env" -type f -name '*.env' -print -quit)"
+          test -n "$ENV_FILE"
+          # The generated path is discovered at runtime.
+          # shellcheck disable=SC1090
+          source "$ENV_FILE"
+          cmake -S . \
+            -B "runs/$SCOPE/build-bench" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGINT_BUILD_TESTS=OFF \
+            -DGINT_BUILD_BENCHMARKS=ON \
+            -DCMAKE_CXX_COMPILER="$CMAKE_CXX_COMPILER" \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+      - name: Build benchmark targets
+        run: |
+          cmake --build "runs/performance-${{ matrix.name }}/build-bench" \
+            --target perf_benchmark_int256 perf_benchmark_int1024 perf_compare_int256 \
+            --parallel
+      - name: Sample full benchmark matrices
+        run: |
+          BUILD_DIR="runs/performance-${{ matrix.name }}/build-bench"
+          RESULT_DIR="runs/performance-${{ matrix.name }}/results"
+          mkdir -p "$RESULT_DIR"
+          COMMON_ARGS=(
+            --gint_full
+            --benchmark_min_time=0.2s
+            --benchmark_repetitions=7
+            --benchmark_enable_random_interleaving=true
+            --benchmark_report_aggregates_only=true
+            --benchmark_out_format=json
+          )
+          "$BUILD_DIR/perf_benchmark_int256" \
+            "${COMMON_ARGS[@]}" \
+            --benchmark_out="$RESULT_DIR/gint.json"
+          "$BUILD_DIR/perf_compare_int256" \
+            "${COMMON_ARGS[@]}" \
+            --benchmark_out="$RESULT_DIR/comparison.json"
+          "$BUILD_DIR/perf_benchmark_int1024" \
+            "${COMMON_ARGS[@]}" \
+            '--benchmark_filter=^FromString(CStr)?/(Short)?Base(2|8|10|16)/gint$' \
+            --benchmark_out="$RESULT_DIR/wide-parser.json"
+      - name: Normalize benchmark evidence
+        run: |
+          RESULT_DIR="runs/performance-${{ matrix.name }}/results"
+          COMPILER_VERSION="$("${{ matrix.cxx }}" --version | sed -n '1p')"
+          python3 scripts/summarize_benchmarks.py \
+            --input "gint=$RESULT_DIR/gint.json" \
+            --input "comparison=$RESULT_DIR/comparison.json" \
+            --input "wide_parser=$RESULT_DIR/wide-parser.json" \
+            --expected-library-version v1.9.5 \
+            --expected-repetitions 7 \
+            --expected-median-count gint=48 \
+            --expected-median-count comparison=93 \
+            --expected-median-count wide_parser=16 \
+            --require-benchmark gint=FromString/Base2/gint \
+            --require-benchmark gint=FromString/Base8/gint \
+            --require-benchmark gint=FromString/Base10/gint \
+            --require-benchmark gint=FromString/Base16/gint \
+            --require-benchmark gint=FromStringCStr/Base2/gint \
+            --require-benchmark gint=FromStringCStr/Base8/gint \
+            --require-benchmark gint=FromStringCStr/Base10/gint \
+            --require-benchmark gint=FromStringCStr/Base16/gint \
+            --require-benchmark gint=FromString/ShortBase2/gint \
+            --require-benchmark gint=FromString/ShortBase8/gint \
+            --require-benchmark gint=FromString/ShortBase10/gint \
+            --require-benchmark gint=FromString/ShortBase16/gint \
+            --require-benchmark gint=FromStringCStr/ShortBase2/gint \
+            --require-benchmark gint=FromStringCStr/ShortBase8/gint \
+            --require-benchmark gint=FromStringCStr/ShortBase10/gint \
+            --require-benchmark gint=FromStringCStr/ShortBase16/gint \
+            --require-benchmark gint=DivMod/SimilarMagnitudeSeparate/gint \
+            --require-benchmark comparison=DivMod/SimilarMagnitude/gint \
+            --require-benchmark comparison=DivMod/SimilarMagnitude/ClickHouse \
+            --require-benchmark comparison=DivMod/SimilarMagnitude/Boost \
+            --require-benchmark wide_parser=FromString/Base2/gint \
+            --require-benchmark wide_parser=FromString/Base8/gint \
+            --require-benchmark wide_parser=FromString/Base10/gint \
+            --require-benchmark wide_parser=FromString/Base16/gint \
+            --require-benchmark wide_parser=FromStringCStr/Base2/gint \
+            --require-benchmark wide_parser=FromStringCStr/Base8/gint \
+            --require-benchmark wide_parser=FromStringCStr/Base10/gint \
+            --require-benchmark wide_parser=FromStringCStr/Base16/gint \
+            --require-benchmark wide_parser=FromString/ShortBase2/gint \
+            --require-benchmark wide_parser=FromString/ShortBase8/gint \
+            --require-benchmark wide_parser=FromString/ShortBase10/gint \
+            --require-benchmark wide_parser=FromString/ShortBase16/gint \
+            --require-benchmark wide_parser=FromStringCStr/ShortBase2/gint \
+            --require-benchmark wide_parser=FromStringCStr/ShortBase8/gint \
+            --require-benchmark wide_parser=FromStringCStr/ShortBase10/gint \
+            --require-benchmark wide_parser=FromStringCStr/ShortBase16/gint \
+            --metadata "commit=$GITHUB_SHA" \
+            --metadata "event=$GITHUB_EVENT_NAME" \
+            --metadata "runner=${{ matrix.os }}" \
+            --metadata "architecture=$(uname -m)" \
+            --metadata "compiler=$COMPILER_VERSION" \
+            --output "$RESULT_DIR/summary.json" \
+            --markdown "$RESULT_DIR/summary.md"
+          cat "$RESULT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-${{ matrix.name }}
+          path: runs/performance-${{ matrix.name }}/results
+          if-no-files-found: warn
+          retention-days: 90
