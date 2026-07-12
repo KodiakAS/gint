@@ -40,13 +40,22 @@ the simplest integration. No generated header or link-time dependency is
 required.
 
 The committed `gint.h` is deterministically generated from the normal C++
-header graph rooted at `src/gint/gint.hpp`, following the established
-amalgamation model used by mature header-only libraries such as
-[nlohmann/json](https://github.com/nlohmann/json/tree/develop/tools/amalgamate).
-Normal `.hpp` files remain the development source of truth and are directly
-understandable by clangd, IDEs, and static-analysis tools. Generation is a
-maintainer workflow: consumers always use the committed public header and do
-not require Python.
+header graph rooted at `src/gint/gint.hpp`. The generator recursively expands
+repository-local quoted includes, following the established amalgamation model
+used by mature header-only libraries such as
+[nlohmann/json](https://github.com/nlohmann/json/tree/develop/tools/amalgamate):
+normal headers are the development source of truth, while a committed flattened
+header is the distribution artifact. Each internal `.hpp` remains directly
+understandable by clangd, IDEs, and static-analysis tools. This is a maintainer
+workflow, not a consumer build step: source checkouts, `FetchContent`, installed
+packages, and single-header copies all use the already generated header without
+Python. Contributors run `make amalgamate` and verify both the internal headers
+and synchronization with `make internal-headers-check amalgamate-check`. Test
+configurations also build `gint_internal_header_graph`, so the exported
+`compile_commands.json` contains a real C++11 translation unit rooted in the
+internal graph as a canonical language-service context. clangd still chooses
+commands for headers heuristically, so this improves command inference without
+claiming that every editor session must select that target.
 
 For an installed CMake package:
 

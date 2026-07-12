@@ -49,7 +49,7 @@ if(GINT_IS_TOP_LEVEL)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Checking independently parseable internal headers"
     )
-    find_package(Python3 COMPONENTS Interpreter QUIET)
+    find_package(Python3 3.5 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_custom_target(gint-amalgamate
             COMMAND "${Python3_EXECUTABLE}" scripts/generate-amalgamation.py

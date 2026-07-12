@@ -16,6 +16,14 @@
 `include/gint/gint.h` 本身仍是可独立复制的完整产物。`include/gint/core.h` 通过
 受控的两阶段 include 模式暴露精简入口，不维护第二份算术实现。
 
+生成器将内部源视为受限、fail-closed 的 C++ 头文件方言，而不是尝试实现完整
+preprocessor：每个头必须以唯一、规范的 `#pragma once` 开始，本地 quoted include
+只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
+`#include_next`、`__has_include`、`__has_include_next`、`__has_embed`、
+module/import 控制行、块注释、raw string、pragma operator、trigraph、digraph 和
+非规范续行都会使生成失败。路径按物理文件身份去重和判环，并拒绝 symlink、
+hardlink alias 与非精确大小写。维护生成头需要 Python 3.5 或更高版本。
+
 ## 算法结构
 
 ### 加减与乘法
