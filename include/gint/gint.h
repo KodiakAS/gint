@@ -52,6 +52,14 @@
 #endif
 
 #ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+#    ifdef GINT_DETAIL_CORE_PASS_IN_PROGRESS
+#        error "recursive gint core definition pass"
+#    endif
+#    define GINT_DETAIL_CORE_PASS_IN_PROGRESS
+#endif
+
+
+#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 #    define GINT_DETAIL_HEADER_PASS_ACTIVE
 
 #    if defined(__GNUC__) || defined(__clang__)
@@ -5471,7 +5479,16 @@ struct hash<gint::integer<Bits, Signed>>
 
 #ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 #    define GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+#    undef GINT_DETAIL_CORE_PASS_IN_PROGRESS
 #endif
+
+#if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
+#    ifdef GINT_DETAIL_IO_PASS_IN_PROGRESS
+#        error "recursive gint IO definition pass"
+#    endif
+#    define GINT_DETAIL_IO_PASS_IN_PROGRESS
+#endif
+
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
 
@@ -6344,6 +6361,7 @@ struct formatter<gint::integer<Bits, Signed>>
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
 #    define GINT_DETAIL_IO_DEFINITIONS_INCLUDED
+#    undef GINT_DETAIL_IO_PASS_IN_PROGRESS
 #endif
 
 // Keep macro cleanup after every definition pass.
