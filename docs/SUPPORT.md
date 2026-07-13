@@ -53,7 +53,8 @@ gint 保持 header-only：
 
 ## 0.x 维护策略
 
-- 当前发布线为 `0.9.x`。
+- 当前开发版本线为 `0.9.x`；正式发布状态以 Git tag 为准，版本内容见
+  [变更记录](../CHANGELOG.md)。
 - 同一 minor 内的 patch 版本保持源码兼容；CMake package 使用
   `SameMinorVersion` 匹配。
 - 0.x minor 升级可以包含明确记录的源码或语义调整，消费者必须阅读
