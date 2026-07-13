@@ -1,0 +1,73 @@
+FROM centos:7@sha256:be65f488b7764ad3638f236b7b515b3678369a5124c47b8d32916d6487418ea4
+
+# CentOS 7 reached end of life. Keep this compatibility image reproducible by
+# using the final 7.9.2009 vault snapshot rather than the retired mirror list.
+RUN sed -i \
+        -e 's|^mirrorlist=|#mirrorlist=|g' \
+        -e 's|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://vault.centos.org/7.9.2009|g' \
+        /etc/yum.repos.d/CentOS-*.repo \
+    && yum -y install \
+        ca-certificates \
+        curl \
+        gcc \
+        gcc-c++ \
+        git \
+        gzip \
+        make \
+        pkgconfig \
+        python3 \
+        tar \
+        which \
+    && yum clean all \
+    && rm -rf /var/cache/yum
+
+# CMake 3.13 is the project's minimum supported CMake line. Use the final
+# 3.13 patch release and verify the upstream binary before installing it.
+ARG CMAKE_VERSION=3.13.5
+ARG CMAKE_ARCHIVE_SHA256=e2fd0080a6f0fc1ec84647acdcd8e0b4019770f48d83509e6a5b0b6ea27e5864
+RUN archive="/tmp/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz" \
+    && curl --fail --location --retry 3 \
+        "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz" \
+        --output "$archive" \
+    && echo "${CMAKE_ARCHIVE_SHA256}  ${archive}" | sha256sum --check --strict \
+    && mkdir -p /opt/cmake \
+    && tar -xzf "$archive" -C /opt/cmake --strip-components=1 \
+    && rm -f "$archive"
+ENV PATH=/opt/cmake/bin:$PATH
+
+# Build the pinned C++11 test dependencies with GCC 4.8.5 itself. Static
+# libraries avoid making the validation runtime depend on an rpath setting.
+ARG FMT_COMMIT=a33701196adfad74917046096bf5a2aa0ab0bb50
+RUN git clone --depth 1 --branch 9.1.0 https://github.com/fmtlib/fmt.git /tmp/fmt \
+    && test "$(cd /tmp/fmt && git rev-parse HEAD)" = "$FMT_COMMIT" \
+    && cmake -S /tmp/fmt -B /tmp/fmt/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=gcc \
+        -DCMAKE_CXX_COMPILER=g++ \
+        -DCMAKE_CXX_STANDARD=11 \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DFMT_DOC=OFF \
+        -DFMT_TEST=OFF \
+    && cmake --build /tmp/fmt/build --parallel \
+    && cmake --build /tmp/fmt/build --target install \
+    && rm -rf /tmp/fmt
+
+ARG GOOGLETEST_COMMIT=703bd9caab50b139428cea1aaff9974ebee5742e
+RUN git clone --depth 1 --branch release-1.10.0 https://github.com/google/googletest.git /tmp/googletest \
+    && test "$(cd /tmp/googletest && git rev-parse HEAD)" = "$GOOGLETEST_COMMIT" \
+    && cmake -S /tmp/googletest -B /tmp/googletest/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=gcc \
+        -DCMAKE_CXX_COMPILER=g++ \
+        -DCMAKE_CXX_STANDARD=11 \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_GMOCK=OFF \
+        -DBUILD_GTEST=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+    && cmake --build /tmp/googletest/build --parallel \
+    && cmake --build /tmp/googletest/build --target install \
+    && rm -rf /tmp/googletest
+
+ENV CMAKE_PREFIX_PATH=/usr/local
+CMD ["/bin/bash"]

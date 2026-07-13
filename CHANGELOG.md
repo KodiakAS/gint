@@ -18,6 +18,10 @@
   噪声摘要。
 - 增加 `<gint/core.h>` 精简算术入口、`gint::divmod` 和 CMake `gint::gint` /
   `gint::checked` INTERFACE targets。
+- 增加固定的 CentOS 7.9/GCC 4.8.5 Linux x86_64 legacy 镜像、可复用验证脚本与
+  独立 CI 门禁，覆盖 C++11 Debug、Release/O3、header/consumer/package contract
+  和 differential oracle。该门禁固定 fmt 9.1.0 与 GoogleTest 1.10.0，但不运行
+  C++17 benchmark 或 sanitizer。
 
 ### Fixed
 
@@ -30,8 +34,12 @@
 
 ### Changed
 
-- 正式支持范围限定为 GCC、LLVM Clang 和 AppleClang，最低语言标准保持 C++11。
+- 正式支持范围限定为 GCC、LLVM Clang 和 AppleClang，最低语言标准保持 C++11；
+  Linux x86_64 的 GCC 最低版本明确为 4.8.5，Linux AArch64 的 GCC baseline
+  继续独立维护且不随之降级。
 - CMake 在 MSVC、`clang-cl` 或其他不受支持的 compiler frontend 下直接停止配置。
+- public header、源码 CMake 与安装 package 对 GNU GCC 低于 4.8.5 fail-closed；
+  GCC 4.8.5 在缺少 x86 carry/borrow intrinsic 时使用 scalar `__int128` 路径。
 - 0.x CMake package 采用 `SameMinorVersion` 兼容策略：patch 保持兼容，minor
   升级需要消费者显式确认。
 - Linux/GCC 开发镜像改用仍受维护的 AlmaLinux 8 基础，同时保留历史

@@ -107,6 +107,7 @@ if(GINT_BUILD_TESTS)
     add_gint_consumer_test(gint_consumer_core_header tests/consumer/core_header.cpp 11)
     add_gint_consumer_test(gint_consumer_core_then_umbrella tests/consumer/core_then_umbrella.cpp 11)
     add_gint_consumer_test(gint_consumer_header_contract tests/consumer/header_contract.cpp 11)
+    add_gint_consumer_test(gint_consumer_gcc48_compat tests/consumer/gcc48_compat.cpp 11)
     add_gint_consumer_test(gint_consumer_no_exceptions tests/consumer/no_exceptions.cpp 11)
     target_compile_options(gint_consumer_no_exceptions PRIVATE -fno-exceptions)
 

@@ -213,6 +213,14 @@
 - 依赖：GCC/Clang 扩展（如 `__int128`、`__builtin_clzll` 等）。
 - 正式支持 GCC、LLVM Clang（GNU-compatible driver）与 AppleClang；源码 CMake
   集成和安装后的 `find_package` 都会拒绝其他 compiler frontend。
+- Linux x86_64 的 GNU GCC 最低版本是 4.8.5；public header、源码 CMake 与安装
+  package 都 fail-closed 拒绝更旧 GCC。版本判断排除 Clang 的 GNU 兼容宏，
+  不会把 LLVM Clang 或 AppleClang 误当作 GNU GCC。
+- GCC 4.8.5 缺少较新 GCC 提供的 x86_64 carry/borrow intrinsic；实现对这个
+  compiler generation 使用基于 `unsigned __int128` 的 scalar 路径，同时保留
+  较新 GCC/Clang 的 tuned path。该兼容策略不改变固定宽度回绕语义。
+- GCC 4.8.5 的版本承诺只适用于 Linux x86_64。Linux AArch64 的 GCC baseline
+  独立维护，不能从 x86_64 legacy lane 推断或降级。
 - MSVC 与 `clang-cl` 明确不支持；直接包含头文件时也会给出针对性编译错误。
 - 语言级别：C++11 起；部分 `constexpr` 能力在 C++14 提升。
 - 单头文件公开 `GINT_VERSION_MAJOR`、`GINT_VERSION_MINOR`、

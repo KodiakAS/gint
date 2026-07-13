@@ -4,6 +4,11 @@
 #    error "gint requires GCC, Clang, or AppleClang"
 #endif
 
+#if defined(__GNUC__) && !defined(__clang__) \
+    && (__GNUC__ < 4 || (__GNUC__ == 4 && (__GNUC_MINOR__ < 8 || (__GNUC_MINOR__ == 8 && __GNUC_PATCHLEVEL__ < 5))))
+#    error "gint requires GCC 4.8.5 or later"
+#endif
+
 #if __cplusplus < 201103L
 #    error "gint requires C++11 or later"
 #endif
@@ -182,6 +187,14 @@
 #    define GINT_DETAIL_X86_64_CLANG (GINT_ARCH_X86_64 && GINT_CLANG_TUNED_PATHS)
 #    define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
 #    define GINT_DETAIL_AARCH64_CLANG (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+
+// GCC only exposes the x86_64 carry/borrow intrinsics used below starting in
+// GCC 7. Older supported GCC releases use the scalar __int128 implementation.
+#    if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 7
+#        define GINT_DETAIL_X86_64_CARRY_INTRINSICS 0
+#    else
+#        define GINT_DETAIL_X86_64_CARRY_INTRINSICS (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG)
+#    endif
 
 // GCC before 9 rejects intrinsics inside C++17 constexpr functions even when
 // guarded by __builtin_is_constant_evaluated().
@@ -482,7 +495,7 @@ GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned char carry = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -521,7 +534,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t 
 template <>
 GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CLANG && GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned long long r0;
     unsigned long long r1;
     unsigned long long r2;
@@ -606,7 +619,7 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned char borrow = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -639,7 +652,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t 
 template <>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned long long r0;
     unsigned long long r1;
     unsigned long long r2;
@@ -4945,7 +4958,7 @@ private:
         if (n < 2)
             return quotient;
 
-        std::array<limb_type, limbs + 1> u = {};
+        std::array<limb_type, limbs + 1> u = {{}};
 
         // Normalize divisor so that the top limb has its MSB set.
         const limb_type d0 = divisor.data_[0];
@@ -5132,8 +5145,8 @@ private:
         if (n < 3)
             return quotient;
 
-        std::array<limb_type, limbs + 1> u = {};
-        std::array<limb_type, 3> v = {};
+        std::array<limb_type, limbs + 1> u = {{}};
+        std::array<limb_type, 3> v = {{}};
 
         // Normalize divisor: ensure MSB of v[2] is set
         int shift = __builtin_clzll(divisor.data_[2]);
@@ -5521,7 +5534,7 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     const unsigned chunk_digits = 19;
 
     constexpr size_t max_chunks = (Bits + 62) / 63;
-    std::array<typename Int::limb_type, max_chunks> chunks{};
+    std::array<typename Int::limb_type, max_chunks> chunks = {{}};
     size_t chunk_count = 0;
     while (!tmp.is_zero())
     {
@@ -6328,6 +6341,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #    undef GINT_ARCH_X86_64
 #    undef GINT_DETAIL_X86_64_GCC
 #    undef GINT_DETAIL_X86_64_CLANG
+#    undef GINT_DETAIL_X86_64_CARRY_INTRINSICS
 #    undef GINT_DETAIL_AARCH64_GCC
 #    undef GINT_DETAIL_AARCH64_CLANG
 #    undef GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE

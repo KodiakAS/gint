@@ -19,6 +19,10 @@
 | macOS arm64 + AppleClang | 快速正确性、真实 macOS 集成、本地 arm 编译器覆盖 |
 | Linux arm64 + GCC/Clang | 可重复 arm 编译器覆盖 |
 | Linux x86_64 + GCC/Clang | 合并前关键性能确认，覆盖 x86 代码生成 |
+| Linux x86_64 + GCC 4.8.5 | 最低编译器 correctness、header-only、consumer/package 与 differential 门禁 |
+
+GCC 4.8.5 只定义 Linux x86_64 的最低版本。它不降低 Linux AArch64 的 GCC
+baseline，也不替代较新工具链上的 sanitizer、codegen 和性能验证。
 
 ## 目录约定
 
@@ -74,6 +78,33 @@ tar
 ```
 
 不要依赖发行版 `libbenchmark-dev` 做性能结论；本项目用脚本在 `runs/` 下构建固定版本 Release `google-benchmark`，避免发行版包构建类型污染结果。Google Benchmark v1.9.5 本身按 C++17 工具链构建；这只影响 benchmark 工具二进制，不改变库本体和单元测试的 C++11 兼容性目标。
+
+### Linux x86_64 / GCC 4.8.5 legacy 环境
+
+最低 GCC 门禁不使用通用的 `bootstrap-validation-env.sh`，而是通过
+`Dockerfile.gcc48` 固化 CentOS 7.9、GCC/G++ 4.8.5 和 CMake 3.13.5。镜像内的
+测试依赖固定为 fmt 9.1.0 与 GoogleTest 1.10.0；这些版本只定义该 CI 环境的
+可重复输入，不代表对所有 fmt 或 GoogleTest 历史版本作兼容承诺。
+
+```bash
+docker build --platform linux/amd64 --file Dockerfile.gcc48 --tag gint:gcc48 .
+docker run --rm --platform linux/amd64 --volume "$PWD:/work" --workdir /work \
+  gint:gcc48 scripts/run-gcc48-validation.sh
+```
+
+`scripts/run-gcc48-validation.sh` 会先 fail-closed 检查 Linux x86_64、GCC/G++
+4.8.5 和 CMake 3.13.5，然后依次执行：
+
+- Debug C++11 全部 CTest，包括 header、consumer、package 与 compiler contract；
+- Release/O3 C++11 主测试；
+- 默认 512 iterations 的独立 differential oracle。
+
+默认产物目录是 `runs/gcc48/`；可用 `GINT_GCC48_RUN_ROOT`、
+`GINT_GCC48_JOBS` 和 `GINT_GCC48_DIFFERENTIAL_ITERATIONS` 覆盖。该 lane 不构建
+C++17 benchmark，也不运行 sanitizer。Google Benchmark v1.9.5 需要 C++17，
+而老工具链 sanitizer 不属于这个最低兼容性承诺；这些门禁继续由较新 GCC、
+Clang 和 AppleClang 环境承担。AlmaLinux 8/GCC 8.5 的 `Dockerfile` 与历史
+`gint:centos8` tag 仍是日常 Linux/GCC 开发镜像。
 
 非 Ubuntu/Debian 且依赖已安装的环境可显式跳过包安装，只构建当前编译器对应的 `google-benchmark`：
 
