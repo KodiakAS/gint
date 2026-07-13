@@ -22,6 +22,50 @@ import tempfile
 DEFAULT_INPUT = "src/gint/gint.hpp"
 DEFAULT_OUTPUT = "include/gint/gint.h"
 SOURCE_DIRECTORY = os.path.join("src", "gint")
+FRAGMENT_MARKER = b"// GINT_REENTRANT_DEFINITION_PASS\n"
+
+# This is an architectural classification, not a duplicate include graph. The
+# quoted includes in src/gint remain the sole source of direct edges; the
+# manifest and role matrix only constrain which directions those edges may take.
+PROJECT_HEADER_MANIFEST = {
+    "prelude.hpp": {"kind": "module", "role": "core", "order": 0},
+    "configuration_pass.hpp": {"kind": "fragment", "role": "core", "order": 10},
+    "primitives.hpp": {"kind": "module", "role": "core", "order": 20},
+    "integer.hpp": {"kind": "module", "role": "core", "order": 30},
+    "standard.hpp": {"kind": "module", "role": "core", "order": 40},
+    "core.hpp": {"kind": "module", "role": "core-entry", "order": 50},
+    "io_prelude.hpp": {"kind": "module", "role": "io", "order": 0},
+    "string_stream.hpp": {"kind": "module", "role": "io", "order": 10},
+    "fmt.hpp": {"kind": "module", "role": "io", "order": 20},
+    "io.hpp": {"kind": "module", "role": "io-entry", "order": 30},
+    "cleanup_pass.hpp": {"kind": "fragment", "role": "cleanup", "order": 0},
+    "gint.hpp": {"kind": "module", "role": "distribution", "order": 0},
+}
+PROJECT_ROLE_DEPENDENCIES = {
+    "core": frozenset(("core",)),
+    "core-entry": frozenset(("cleanup", "core")),
+    "io": frozenset(("core", "io")),
+    "io-entry": frozenset(("cleanup", "core-entry", "io")),
+    "cleanup": frozenset(),
+    "distribution": frozenset(("io-entry",)),
+}
+PROJECT_FRAGMENT_CONTRACTS = {
+    "configuration_pass.hpp": {
+        "parents": {
+            "fmt.hpp": 1,
+            "primitives.hpp": 1,
+            "string_stream.hpp": 1,
+        },
+        "must_be_last": False,
+    },
+    "cleanup_pass.hpp": {
+        "parents": {"core.hpp": 1, "io.hpp": 1},
+        "must_be_last": True,
+    },
+}
+VALID_HEADER_KINDS = frozenset(("fragment", "module"))
+HEADER_POLICY_FIELDS = frozenset(("kind", "order", "role"))
+FRAGMENT_CONTRACT_FIELDS = frozenset(("must_be_last", "parents"))
 
 INCLUDE_RE = re.compile(
     br'^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*"([^"\r\n]*)"[ \t\v\f]*(?://[^\r\n]*)?\n$'
@@ -225,14 +269,279 @@ def relative_to_root(root, absolute_path):
 
 
 class HeaderGraph(object):
-    """Expand a normal internal C++ header graph into one deterministic file."""
+    """Expand the constrained internal C++ header graph deterministically."""
 
-    def __init__(self, root, source_directory=SOURCE_DIRECTORY):
+    def __init__(
+        self,
+        root,
+        source_directory=SOURCE_DIRECTORY,
+        header_manifest=None,
+        role_dependencies=None,
+        fragment_contracts=None,
+    ):
         self.root = os.path.abspath(root)
         self.source_directory = os.path.abspath(os.path.join(self.root, source_directory))
         self.reject_symlink_components(self.root, self.source_directory, "source directory")
+        self.header_manifest = None
+        self.role_dependencies = None
+        self.fragment_contracts = None
+        self.validate_policy(header_manifest, role_dependencies, fragment_contracts)
         self.expanded_identities = set()
+        self.reached_identities = set()
         self.active = []
+        self.direct_dependency_sites = []
+
+    def validate_policy(self, header_manifest, role_dependencies, fragment_contracts):
+        if header_manifest is None and role_dependencies is None and fragment_contracts is None:
+            return
+        if header_manifest is None or role_dependencies is None:
+            raise AmalgamationError(
+                "header manifest and role dependency policy must be provided together"
+            )
+        if not isinstance(header_manifest, dict) or not isinstance(role_dependencies, dict):
+            raise AmalgamationError("header manifest and role dependency policy must be mappings")
+
+        normalized_roles = {}
+        for role, dependencies in role_dependencies.items():
+            if not isinstance(role, str) or not role:
+                raise AmalgamationError("module role names must be non-empty strings")
+            try:
+                normalized_dependencies = frozenset(dependencies)
+            except TypeError:
+                raise AmalgamationError(
+                    "allowed dependencies for role {0} must be an iterable of roles".format(role)
+                )
+            if any(not isinstance(dependency, str) or not dependency for dependency in normalized_dependencies):
+                raise AmalgamationError(
+                    "allowed dependencies for role {0} must be non-empty strings".format(role)
+                )
+            normalized_roles[role] = normalized_dependencies
+        unknown_target_roles = sorted(
+            dependency
+            for dependencies in normalized_roles.values()
+            for dependency in dependencies
+            if dependency not in normalized_roles
+        )
+        if unknown_target_roles:
+            raise AmalgamationError(
+                "role dependency policy references unknown role(s): {0}".format(
+                    ", ".join(sorted(set(unknown_target_roles)))
+                )
+            )
+
+        normalized_manifest = {}
+        for path, policy in header_manifest.items():
+            if not isinstance(path, str) or not path:
+                raise AmalgamationError("header manifest paths must be non-empty strings")
+            if (
+                os.path.isabs(path)
+                or "\\" in path
+                or os.path.normpath(path) != path
+                or path == ".."
+                or path.startswith(".." + os.sep)
+                or not path.endswith(".hpp")
+            ):
+                raise AmalgamationError(
+                    "header manifest path must be a canonical src/gint-relative .hpp path: {0}".format(
+                        path
+                    )
+                )
+            if not isinstance(policy, dict) or frozenset(policy) != HEADER_POLICY_FIELDS:
+                raise AmalgamationError(
+                    "header manifest entry must contain exactly kind, role, and order: {0}".format(
+                        path
+                    )
+                )
+            kind = policy["kind"]
+            role = policy["role"]
+            order = policy["order"]
+            if kind not in VALID_HEADER_KINDS:
+                raise AmalgamationError(
+                    "header manifest has unsupported kind for {0}: {1}".format(path, kind)
+                )
+            if role not in normalized_roles:
+                raise AmalgamationError(
+                    "header manifest has unknown role for {0}: {1}".format(path, role)
+                )
+            if isinstance(order, bool) or not isinstance(order, int) or order < 0:
+                raise AmalgamationError(
+                    "header manifest order must be a non-negative integer: {0}".format(path)
+                )
+            normalized_manifest[path] = {"kind": kind, "role": role, "order": order}
+
+        self.header_manifest = normalized_manifest
+        self.role_dependencies = normalized_roles
+        self.validate_fragment_contracts(fragment_contracts)
+
+    def validate_fragment_contracts(self, fragment_contracts):
+        if fragment_contracts is None:
+            return
+        if not isinstance(fragment_contracts, dict):
+            raise AmalgamationError("fragment contracts must be a mapping")
+        fragment_paths = set(
+            path
+            for path, policy in self.header_manifest.items()
+            if policy["kind"] == "fragment"
+        )
+        contract_paths = set(fragment_contracts)
+        if contract_paths != fragment_paths:
+            raise AmalgamationError(
+                "fragment contracts must classify every and only manifest fragment: {0}".format(
+                    ", ".join(sorted(fragment_paths ^ contract_paths))
+                )
+            )
+
+        normalized_contracts = {}
+        for path, contract in fragment_contracts.items():
+            if not isinstance(contract, dict) or frozenset(contract) != FRAGMENT_CONTRACT_FIELDS:
+                raise AmalgamationError(
+                    "fragment contract must contain exactly parents and must_be_last: {0}".format(
+                        path
+                    )
+                )
+            if not isinstance(contract["must_be_last"], bool):
+                raise AmalgamationError(
+                    "fragment must_be_last policy must be boolean: {0}".format(path)
+                )
+            parents = contract["parents"]
+            if not isinstance(parents, dict) or not parents:
+                raise AmalgamationError(
+                    "fragment contract parents must be a non-empty mapping: {0}".format(path)
+                )
+            normalized_parents = {}
+            for parent, count in parents.items():
+                if parent not in self.header_manifest:
+                    raise AmalgamationError(
+                        "fragment contract references unknown parent {0}: {1}".format(
+                            parent, path
+                        )
+                    )
+                if self.header_manifest[parent]["kind"] != "module":
+                    raise AmalgamationError(
+                        "fragment contract parent must be a normal module {0}: {1}".format(
+                            parent, path
+                        )
+                    )
+                if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+                    raise AmalgamationError(
+                        "fragment parent include count must be a positive integer {0}: {1}".format(
+                            parent, path
+                        )
+                    )
+                normalized_parents[parent] = count
+            normalized_contracts[path] = {
+                "parents": normalized_parents,
+                "must_be_last": contract["must_be_last"],
+            }
+        self.fragment_contracts = normalized_contracts
+
+    def source_relative_path(self, absolute_path):
+        return os.path.relpath(absolute_path, self.source_directory).replace(os.sep, "/")
+
+    def header_policy(self, absolute_path):
+        if self.header_manifest is None:
+            return {"kind": "module", "role": None, "order": 0}
+        relative_path = self.source_relative_path(absolute_path)
+        if relative_path not in self.header_manifest:
+            raise AmalgamationError(
+                "internal header is not classified by the module manifest: {0}".format(
+                    relative_to_root(self.root, absolute_path)
+                )
+            )
+        return self.header_manifest[relative_path]
+
+    def record_direct_dependency(
+        self,
+        including_header,
+        dependency,
+        line_number,
+        is_last_effective,
+    ):
+        source = self.source_relative_path(including_header)
+        target = self.source_relative_path(dependency)
+        self.direct_dependency_sites.append(
+            {
+                "source": source,
+                "target": target,
+                "line": line_number,
+                "is_last_effective": is_last_effective,
+            }
+        )
+        if self.header_manifest is None:
+            return
+
+        source_policy = self.header_policy(including_header)
+        target_policy = self.header_policy(dependency)
+        allowed_roles = self.role_dependencies[source_policy["role"]]
+        if target_policy["role"] not in allowed_roles:
+            raise AmalgamationError(
+                "module role dependency is not allowed: {0} ({1}) -> {2} ({3})".format(
+                    source,
+                    source_policy["role"],
+                    target,
+                    target_policy["role"],
+                )
+            )
+        if (
+            source_policy["role"] == target_policy["role"]
+            and target_policy["order"] >= source_policy["order"]
+        ):
+            raise AmalgamationError(
+                "same-role dependency must target a lower order: {0} ({1}) -> {2} ({3})".format(
+                    source,
+                    source_policy["order"],
+                    target,
+                    target_policy["order"],
+                )
+            )
+
+    def validate_manifest_coverage(self, discovered_headers):
+        if self.header_manifest is None:
+            return
+        discovered_paths = set(
+            self.source_relative_path(path) for path in discovered_headers.values()
+        )
+        manifest_paths = set(self.header_manifest)
+        unclassified = sorted(discovered_paths - manifest_paths)
+        missing = sorted(manifest_paths - discovered_paths)
+        if unclassified or missing:
+            details = []
+            if unclassified:
+                details.append("unclassified header(s): {0}".format(", ".join(unclassified)))
+            if missing:
+                details.append("missing manifest header(s): {0}".format(", ".join(missing)))
+            raise AmalgamationError("module manifest does not match src/gint: {0}".format("; ".join(details)))
+
+    def validate_fragment_structure(self):
+        if self.fragment_contracts is None:
+            return
+        for fragment, contract in self.fragment_contracts.items():
+            actual_parents = {}
+            for site in self.direct_dependency_sites:
+                if site["target"] != fragment:
+                    continue
+                source = site["source"]
+                actual_parents[source] = actual_parents.get(source, 0) + 1
+                if contract["must_be_last"] and not site["is_last_effective"]:
+                    raise AmalgamationError(
+                        "fragment include must be the parent's last effective statement: "
+                        "{0}:{1} -> {2}".format(source, site["line"], fragment)
+                    )
+            if actual_parents != contract["parents"]:
+                def format_parents(parents):
+                    return ", ".join(
+                        "{0} x{1}".format(parent, parents[parent])
+                        for parent in sorted(parents)
+                    ) or "none"
+
+                raise AmalgamationError(
+                    "fragment direct-parent contract mismatch for {0}: expected {1}; "
+                    "actual {2}".format(
+                        fragment,
+                        format_parents(contract["parents"]),
+                        format_parents(actual_parents),
+                    )
+                )
 
     def reject_symlink_components(self, base, path, description):
         base = os.path.abspath(base)
@@ -397,6 +706,7 @@ class HeaderGraph(object):
 
     def expand(self, absolute_path):
         absolute_path = self.validate_source_path(absolute_path, "internal include")
+        policy = self.header_policy(absolute_path)
         identity = self.file_identity(absolute_path)
         active_identities = [entry[0] for entry in self.active]
         if identity in active_identities:
@@ -407,11 +717,13 @@ class HeaderGraph(object):
                     " -> ".join(relative_to_root(self.root, path) for path in cycle)
                 )
             )
-        if identity in self.expanded_identities:
+        if policy["kind"] == "module" and identity in self.expanded_identities:
             return b""
 
         self.active.append((identity, absolute_path))
-        self.expanded_identities.add(identity)
+        self.reached_identities.add(identity)
+        if policy["kind"] == "module":
+            self.expanded_identities.add(identity)
         output = []
         skip_boundary_blank = False
         try:
@@ -422,18 +734,54 @@ class HeaderGraph(object):
                 for index, group in enumerate(groups)
                 if not group[3] and PRAGMA_ONCE_RE.match(group[2])
             ]
+            fragment_marker_lines = [
+                index
+                for index, group in enumerate(groups)
+                if not group[3] and group[1] == FRAGMENT_MARKER
+            ]
             first_content_line = next(
                 (index for index, group in enumerate(groups) if group[1].strip()), None
             )
-            if pragma_lines != [first_content_line]:
-                raise AmalgamationError(
-                    "internal header must begin with exactly one canonical #pragma once: {0}".format(
-                        relative_path
+            effective_lines = [
+                index
+                for index, group in enumerate(groups)
+                if group[2].strip() and not group[2].lstrip().startswith(b"//")
+            ]
+            last_effective_line = effective_lines[-1] if effective_lines else None
+            if policy["kind"] == "module":
+                if fragment_marker_lines:
+                    raise AmalgamationError(
+                        "normal internal header must not contain the reentrant fragment marker: {0}".format(
+                            relative_path
+                        )
                     )
-                )
+                if pragma_lines != [first_content_line]:
+                    raise AmalgamationError(
+                        "internal header must begin with exactly one canonical #pragma once: {0}".format(
+                            relative_path
+                        )
+                    )
+            else:
+                if pragma_lines:
+                    raise AmalgamationError(
+                        "reentrant fragment must not contain #pragma once: {0}".format(
+                            relative_path
+                        )
+                    )
+                if fragment_marker_lines != [0] or first_content_line != 0:
+                    raise AmalgamationError(
+                        "reentrant fragment must begin with exactly one canonical marker: {0}".format(
+                            relative_path
+                        )
+                    )
 
             conditional_depth = 0
-            for line_number, raw_line, logical_line, was_spliced in groups:
+            for group_index, (
+                line_number,
+                raw_line,
+                logical_line,
+                was_spliced,
+            ) in enumerate(groups):
                 validate_directive_spelling(
                     logical_line, was_spliced, relative_path, line_number
                 )
@@ -442,6 +790,9 @@ class HeaderGraph(object):
                     if raw_line == b"\n":
                         continue
                 if PRAGMA_ONCE_RE.match(logical_line):
+                    skip_boundary_blank = True
+                    continue
+                if raw_line == FRAGMENT_MARKER:
                     skip_boundary_blank = True
                     continue
                 if PRAGMA_ONCE_LIKE_RE.match(logical_line):
@@ -491,6 +842,12 @@ class HeaderGraph(object):
                         )
                     dependency = self.resolve_include_path(
                         absolute_path, include_path, relative_path, line_number
+                    )
+                    self.record_direct_dependency(
+                        absolute_path,
+                        dependency,
+                        line_number,
+                        group_index == last_effective_line,
                     )
                     expanded_dependency = self.expand(dependency)
                     output.append(expanded_dependency)
@@ -561,16 +918,29 @@ class HeaderGraph(object):
         return headers
 
 
-def build_amalgamation(root, input_path=DEFAULT_INPUT):
+def build_amalgamation(
+    root,
+    input_path=DEFAULT_INPUT,
+    header_manifest=None,
+    role_dependencies=None,
+    fragment_contracts=None,
+):
     input_path = normalized_relative_path(input_path, "input path")
-    graph = HeaderGraph(root)
+    graph = HeaderGraph(
+        root,
+        header_manifest=header_manifest,
+        role_dependencies=role_dependencies,
+        fragment_contracts=fragment_contracts,
+    )
     absolute_input = graph.validate_source_path(os.path.join(root, input_path), "input path")
     content = graph.expand(absolute_input)
     discovered_headers = graph.discovered_headers()
+    graph.validate_manifest_coverage(discovered_headers)
+    graph.validate_fragment_structure()
     unreachable = sorted(
         path
         for identity, path in discovered_headers.items()
-        if identity not in graph.expanded_identities
+        if identity not in graph.reached_identities
     )
     if unreachable:
         raise AmalgamationError(
@@ -587,7 +957,11 @@ def build_amalgamation(root, input_path=DEFAULT_INPUT):
         validate_directive_spelling(
             logical_line, was_spliced, "generated header", line_number
         )
-        if PRAGMA_ONCE_LIKE_RE.match(logical_line) or QUOTED_INCLUDE_RE.match(logical_line):
+        if (
+            PRAGMA_ONCE_LIKE_RE.match(logical_line)
+            or QUOTED_INCLUDE_RE.match(logical_line)
+            or raw_line == FRAGMENT_MARKER
+        ):
             raise AmalgamationError(
                 "generated header retains an internal directive at line {0}".format(line_number)
             )
@@ -606,6 +980,16 @@ def build_amalgamation(root, input_path=DEFAULT_INPUT):
                     "generated header retains an internal angle include at line {0}".format(line_number)
                 )
     return content
+
+
+def build_project_amalgamation(root, input_path=DEFAULT_INPUT):
+    return build_amalgamation(
+        root,
+        input_path,
+        header_manifest=PROJECT_HEADER_MANIFEST,
+        role_dependencies=PROJECT_ROLE_DEPENDENCIES,
+        fragment_contracts=PROJECT_FRAGMENT_CONTRACTS,
+    )
 
 
 def sha256(data):
@@ -711,7 +1095,7 @@ def main(argv=None):
     args = parse_args(argv)
     root = os.path.abspath(args.root)
     try:
-        content = build_amalgamation(root, args.input)
+        content = build_project_amalgamation(root, args.input)
         if args.check:
             return 0 if check_output(root, args.output, content) else 1
         write_output(root, args.output, content)

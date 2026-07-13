@@ -1,5 +1,6 @@
 #pragma once
 
+#include "configuration_pass.hpp"
 #include "string_stream.hpp"
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)

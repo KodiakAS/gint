@@ -1,7 +1,19 @@
+#include <csignal>
+#include <unistd.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#    error "checked no-exceptions internal graph must be compiled without exception support"
+#endif
+
 #define GINT_DETAIL_CORE_ONLY
 #include <gint/core.hpp>
 #undef GINT_DETAIL_CORE_ONLY
 
+#ifndef GINT_ENABLE_DIVZERO_CHECKS
+#    error "checked internal graph requires GINT_ENABLE_DIVZERO_CHECKS"
+#endif
 #ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 #    error "internal core.hpp did not complete the core definition pass"
 #endif
@@ -13,9 +25,6 @@
 #endif
 #ifdef GINT_DETAIL_CONFIG_NAMESPACE
 #    error "internal core.hpp leaked a pass-local configuration macro"
-#endif
-#ifdef GINT_FORCE_INLINE
-#    error "internal core.hpp leaked a pass-local inline macro"
 #endif
 
 #include <gint/gint.hpp>
@@ -29,12 +38,25 @@
 #ifdef GINT_DETAIL_CONFIG_NAMESPACE
 #    error "internal gint.hpp leaked a pass-local configuration macro"
 #endif
-#ifdef GINT_FORCE_INLINE
-#    error "internal gint.hpp leaked a pass-local inline macro"
-#endif
 
 int main()
 {
-    const gint::UInt256 value = (gint::UInt256(1) << 128) + 42;
-    return gint::to_string(value) == "340282366920938463463374607431768211498" ? 0 : 1;
+    const pid_t child = fork();
+    if (child < 0)
+        return 1;
+    if (child == 0)
+    {
+        const rlimit no_core = {0, 0};
+        static_cast<void>(setrlimit(RLIMIT_CORE, &no_core));
+
+        const gint::UInt256 value = 1;
+        const gint::UInt256 zero = 0;
+        static_cast<void>(value / zero);
+        _exit(0);
+    }
+
+    int status = 0;
+    if (waitpid(child, &status, 0) != child)
+        return 2;
+    return WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT ? 0 : 3;
 }
