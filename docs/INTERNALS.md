@@ -47,11 +47,12 @@ core 与 IO 是两个相同生命周期的 definition pass。入口先建立
 
 这两个 lifecycle fragment 故意可重复包含，但仍使用 `.hpp`，以保留语言服务和独立
 语法检查能力；它们不是可继续承载普通声明/定义的模块。作为角色规则的窄化例外，
-生成器还要求每个消费 pass-local 宏的模块直接声明 lifecycle 依赖：
-`configuration_pass.hpp` 只由 `primitives.hpp`、`string_stream.hpp`、`fmt.hpp`
-各直接包含一次。这样即使较早的模块已被 `#pragma once` 跳过，后续模块也不会依赖
-其间接 include 的时序副作用。`cleanup_pass.hpp` 只由 `core.hpp`、`io.hpp` 各直接
-包含一次，且 cleanup 必须是两个入口的最后一条有效语句。
+生成器还要求每个可能成为 definition pass 中首个未被 `#pragma once` 跳过、且需要
+pass-local 环境的 frontier 模块直接声明 lifecycle 依赖：
+`configuration_pass.hpp` 只由 `primitives.hpp`、`string_stream.hpp`、`fmt.hpp` 各直接
+包含一次。这样后续模块不会依赖较早模块的间接 include 时序副作用。
+`cleanup_pass.hpp` 只由 `core.hpp`、`io.hpp` 各直接包含一次，且 cleanup 必须是两个
+入口的最后一条有效语句。
 
 生成器将内部源视为受限、fail-closed 的 C++ 头文件方言，而不是尝试实现完整
 preprocessor：普通模块必须以唯一、规范的 `#pragma once` 开始；只有 manifest 中
