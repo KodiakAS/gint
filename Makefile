@@ -9,7 +9,7 @@ JOBS ?= $(shell \
   || (command -v getconf >/dev/null 2>&1 && getconf _NPROCESSORS_ONLN) \
   || echo 1)
 
-# CMake >= 3.12 is required; always pass --parallel
+# CMake >= 3.13 is required; always pass --parallel
 CMAKE ?= cmake
 
 # Tools
