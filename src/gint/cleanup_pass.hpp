@@ -1,5 +1,6 @@
-
-#pragma once
+// GINT_REENTRANT_DEFINITION_PASS
+// Intentionally unguarded: every completed definition pass closes its own
+// macro scope through this fragment.
 
 //=== Macro cleanup =============================================================
 

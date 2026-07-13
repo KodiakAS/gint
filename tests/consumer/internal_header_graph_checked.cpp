@@ -1,7 +1,12 @@
+#include <stdexcept>
+
 #define GINT_DETAIL_CORE_ONLY
 #include <gint/core.hpp>
 #undef GINT_DETAIL_CORE_ONLY
 
+#ifndef GINT_ENABLE_DIVZERO_CHECKS
+#    error "checked internal graph requires GINT_ENABLE_DIVZERO_CHECKS"
+#endif
 #ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 #    error "internal core.hpp did not complete the core definition pass"
 #endif
@@ -13,9 +18,6 @@
 #endif
 #ifdef GINT_DETAIL_CONFIG_NAMESPACE
 #    error "internal core.hpp leaked a pass-local configuration macro"
-#endif
-#ifdef GINT_FORCE_INLINE
-#    error "internal core.hpp leaked a pass-local inline macro"
 #endif
 
 #include <gint/gint.hpp>
@@ -29,12 +31,18 @@
 #ifdef GINT_DETAIL_CONFIG_NAMESPACE
 #    error "internal gint.hpp leaked a pass-local configuration macro"
 #endif
-#ifdef GINT_FORCE_INLINE
-#    error "internal gint.hpp leaked a pass-local inline macro"
-#endif
 
 int main()
 {
-    const gint::UInt256 value = (gint::UInt256(1) << 128) + 42;
-    return gint::to_string(value) == "340282366920938463463374607431768211498" ? 0 : 1;
+    try
+    {
+        const gint::UInt256 value = 1;
+        const gint::UInt256 zero = 0;
+        static_cast<void>(value / zero);
+    }
+    catch (const std::domain_error &)
+    {
+        return 0;
+    }
+    return 1;
 }

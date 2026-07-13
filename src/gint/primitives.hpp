@@ -1,6 +1,6 @@
 #pragma once
 
-#include "configuration.hpp"
+#include "configuration_pass.hpp"
 
 #ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 

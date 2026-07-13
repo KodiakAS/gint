@@ -183,20 +183,47 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.${target} COMMAND ${target})
     endfunction()
 
+    function(add_gint_internal_graph_test target source)
+        add_executable(${target} ${source})
+        target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        set_target_properties(${target} PROPERTIES
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+        )
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME consumer.${target} COMMAND ${target})
+    endfunction()
+
     # Give clangd and other compile-database consumers a real translation unit
-    # rooted in the maintainable internal header graph. This target is strictly
-    # developer-only and is neither exported nor installed.
-    add_executable(gint_internal_header_graph tests/consumer/internal_header_graph.cpp)
-    target_include_directories(gint_internal_header_graph PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    set_target_properties(gint_internal_header_graph PROPERTIES
-        CXX_STANDARD 11
-        CXX_STANDARD_REQUIRED YES
-        CXX_EXTENSIONS NO
+    # rooted in the maintainable internal header graph. Separate translation
+    # units keep the supported feature configurations visible in
+    # compile_commands.json. These targets are developer-only and are neither
+    # exported nor installed.
+    add_gint_internal_graph_test(gint_internal_header_graph tests/consumer/internal_header_graph.cpp)
+
+    add_gint_internal_graph_test(gint_internal_header_graph_fmt tests/consumer/internal_header_graph_fmt.cpp)
+    target_compile_definitions(gint_internal_header_graph_fmt PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_internal_header_graph_fmt PRIVATE fmt::fmt)
+
+    add_gint_internal_graph_test(
+        gint_internal_header_graph_fmt_include_order
+        tests/consumer/internal_header_graph_fmt_include_order.cpp
     )
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(gint_internal_header_graph PRIVATE -Wall -Wextra -Werror)
-    endif()
-    add_test(NAME consumer.internal_header_graph COMMAND gint_internal_header_graph)
+    target_compile_definitions(gint_internal_header_graph_fmt_include_order PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_internal_header_graph_fmt_include_order PRIVATE fmt::fmt)
+
+    add_gint_internal_graph_test(gint_internal_header_graph_checked tests/consumer/internal_header_graph_checked.cpp)
+    target_link_libraries(gint_internal_header_graph_checked PRIVATE gint::checked)
+
+    add_gint_internal_graph_test(
+        gint_internal_header_graph_checked_no_exceptions
+        tests/consumer/internal_header_graph_checked_no_exceptions.cpp
+    )
+    target_link_libraries(gint_internal_header_graph_checked_no_exceptions PRIVATE gint::checked)
+    target_compile_options(gint_internal_header_graph_checked_no_exceptions PRIVATE -fno-exceptions)
 
     set(GINT_ODR_STATIC_SOURCES
         tests/consumer/odr_static_members.cpp
@@ -206,6 +233,27 @@ if(GINT_BUILD_TESTS)
     add_gint_consumer_test(gint_consumer_odr_cxx14 "${GINT_ODR_STATIC_SOURCES}" 14)
     add_gint_consumer_test(gint_consumer_core_header tests/consumer/core_header.cpp 11)
     add_gint_consumer_test(gint_consumer_core_then_umbrella tests/consumer/core_then_umbrella.cpp 11)
+    add_gint_consumer_test(
+        gint_consumer_core_then_umbrella_checked
+        tests/consumer/core_then_umbrella.cpp
+        11
+    )
+    target_link_libraries(gint_consumer_core_then_umbrella_checked PRIVATE gint::checked)
+
+    add_gint_consumer_test(
+        gint_consumer_core_then_umbrella_no_exceptions
+        tests/consumer/core_then_umbrella.cpp
+        11
+    )
+    target_compile_options(gint_consumer_core_then_umbrella_no_exceptions PRIVATE -fno-exceptions)
+
+    add_gint_consumer_test(
+        gint_consumer_core_then_umbrella_fmt
+        tests/consumer/core_then_umbrella_fmt.cpp
+        11
+    )
+    target_compile_definitions(gint_consumer_core_then_umbrella_fmt PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_consumer_core_then_umbrella_fmt PRIVATE fmt::fmt)
     add_gint_consumer_test(gint_consumer_header_contract tests/consumer/header_contract.cpp 11)
     add_gint_consumer_test(gint_consumer_gcc48_compat tests/consumer/gcc48_compat.cpp 11)
     add_gint_consumer_test(gint_consumer_no_exceptions tests/consumer/no_exceptions.cpp 11)

@@ -15,3 +15,6 @@
 #    define GINT_DETAIL_IO_DEFINITIONS_INCLUDED
 #    undef GINT_DETAIL_IO_PASS_IN_PROGRESS
 #endif
+
+// End the IO definition pass independently from the core pass.
+#include "cleanup_pass.hpp"

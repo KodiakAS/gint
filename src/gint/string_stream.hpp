@@ -1,66 +1,10 @@
 #pragma once
 
+#include "configuration_pass.hpp"
 #include "io_prelude.hpp"
 #include "standard.hpp"
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
-
-// A translation unit may include <gint/core.h> first and upgrade to the
-// umbrella header later. The core pass cleans up its implementation macros, so
-// recreate the small subset needed by the string/stream/fmt extension pass.
-#    ifndef GINT_DETAIL_HEADER_PASS_ACTIVE
-#        define GINT_DETAIL_HEADER_PASS_ACTIVE
-#        if defined(__GNUC__) || defined(__clang__)
-#            define GINT_FORCE_INLINE inline __attribute__((always_inline))
-#            define GINT_NOINLINE __attribute__((noinline))
-#        else
-#            define GINT_FORCE_INLINE inline
-#            define GINT_NOINLINE
-#        endif
-#        if defined(__x86_64__) && GINT_GCC_TUNED_PATHS
-#            define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
-#        else
-#            define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
-#        endif
-#        if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
-#            define GINT_DETAIL_EXCEPTIONS_ENABLED 1
-#            define GINT_THROW(exception) throw exception
-#        else
-#            define GINT_DETAIL_EXCEPTIONS_ENABLED 0
-#            define GINT_THROW(exception) ::std::abort()
-#        endif
-#        if defined(GINT_ENABLE_DIVZERO_CHECKS)
-#            define GINT_DETAIL_DIVZERO_CHECKS 1
-#        else
-#            define GINT_DETAIL_DIVZERO_CHECKS 0
-#        endif
-#        if GINT_GCC_TUNED_PATHS
-#            define GINT_DETAIL_GCC_TUNED_POLICY 1
-#        else
-#            define GINT_DETAIL_GCC_TUNED_POLICY 0
-#        endif
-#        if GINT_CLANG_TUNED_PATHS
-#            define GINT_DETAIL_CLANG_TUNED_POLICY 1
-#        else
-#            define GINT_DETAIL_CLANG_TUNED_POLICY 0
-#        endif
-#        if GINT_ENABLE_AARCH64_LIMB_ASM
-#            define GINT_DETAIL_AARCH64_ASM_POLICY 1
-#        else
-#            define GINT_DETAIL_AARCH64_ASM_POLICY 0
-#        endif
-#        define GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
-            config_d##divzero##_g##gcc_tuned##_c##clang_tuned##_a##aarch64_asm##_e##exceptions
-#        define GINT_DETAIL_CONFIG_NAMESPACE_II(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
-            GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions)
-#        define GINT_DETAIL_CONFIG_NAMESPACE \
-            GINT_DETAIL_CONFIG_NAMESPACE_II( \
-                GINT_DETAIL_DIVZERO_CHECKS, \
-                GINT_DETAIL_GCC_TUNED_POLICY, \
-                GINT_DETAIL_CLANG_TUNED_POLICY, \
-                GINT_DETAIL_AARCH64_ASM_POLICY, \
-                GINT_DETAIL_EXCEPTIONS_ENABLED)
-#    endif
 
 namespace gint
 {

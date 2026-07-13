@@ -17,22 +17,54 @@ distribution header 模型与 [nlohmann/json 的 amalgamation
 项目一致。
 
 测试配置会构建 `gint_internal_header_graph`，因此 `compile_commands.json` 包含一个
-以内部图为入口的真实 C++11 translation unit。它为语言服务提供 canonical context；
-clangd 仍会以 heuristic 选择 header command，因此这里不承诺每个编辑器会话必然
-选中同一个 target。
+以内部图为入口的真实 C++11 translation unit；fmt、checked 和
+`-fno-exceptions` 另有独立配置 translation unit。它们为语言服务提供 canonical
+context；clangd 仍会以 heuristic 选择 header command，因此这里不承诺每个编辑器
+会话必然选中同一个 target。
 
 `include/gint/gint.h` 本身仍是可独立复制的完整产物。`include/gint/core.h` 通过
 受控的两阶段 include 模式暴露精简入口，不维护第二份算术实现。
 
+### 模块角色与 definition pass
+
+生成器内的 manifest 将每个内部头归入角色并强制依赖方向；新增、删除或漏分类的
+`.hpp` 都会生成失败。角色约束允许同层继续拆分，但不复制一份容易漂移的精确
+include edge 清单：
+
+| 角色 | 成员（同角色按顺序递增） | 可依赖角色 |
+| --- | --- | --- |
+| core | `prelude.hpp`、`configuration_pass.hpp`、`primitives.hpp`、`integer.hpp`、`standard.hpp` | 较早的 core |
+| core entry | `core.hpp` | core、cleanup |
+| IO | `io_prelude.hpp`、`string_stream.hpp`、`fmt.hpp` | core、较早的 IO |
+| IO entry | `io.hpp` | core entry、IO、cleanup |
+| cleanup | `cleanup_pass.hpp` | 无 |
+| distribution | `gint.hpp` | IO entry |
+
+core 与 IO 是两个相同生命周期的 definition pass。入口先建立
+`*_PASS_IN_PROGRESS`，`configuration_pass.hpp` 从唯一规则源建立 pass-local 宏，
+完成本层定义后由 `cleanup_pass.hpp` 收口。这样无论直接使用内部源码图，还是先包含
+公开 `core.h` 再升级到 `gint.h`，每一遍的 begin/end 与宏清理边界都一致。
+
+这两个 lifecycle fragment 故意可重复包含，但仍使用 `.hpp`，以保留语言服务和独立
+语法检查能力；它们不是可继续承载普通声明/定义的模块。作为角色规则的窄化例外，
+生成器还要求每个消费 pass-local 宏的模块直接声明 lifecycle 依赖：
+`configuration_pass.hpp` 只由 `primitives.hpp`、`string_stream.hpp`、`fmt.hpp`
+各直接包含一次。这样即使较早的模块已被 `#pragma once` 跳过，后续模块也不会依赖
+其间接 include 的时序副作用。`cleanup_pass.hpp` 只由 `core.hpp`、`io.hpp` 各直接
+包含一次，且 cleanup 必须是两个入口的最后一条有效语句。
+
 生成器将内部源视为受限、fail-closed 的 C++ 头文件方言，而不是尝试实现完整
-preprocessor：每个头必须以唯一、规范的 `#pragma once` 开始，本地 quoted include
-只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
+preprocessor：普通模块必须以唯一、规范的 `#pragma once` 开始；只有 manifest 中
+两个 definition-pass fragment 可改为以唯一、规范的
+`// GINT_REENTRANT_DEFINITION_PASS` 开始，并在每个 include site 重放。本地 quoted
+include 只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
 `#include_next`、`__has_include`、`__has_include_next`、`__has_embed`、
 module/import 控制行、块注释、raw string、pragma operator、trigraph、digraph 和
 非规范续行都会使生成失败。quoted include 必须是非空相对路径且不得包含空或
 `.` 组件；`..` 只能在 `src/gint` 内沿真实存在且非符号链接的目录回退，不得逃出
 源树或穿越缺失/符号链接组件。路径按物理文件身份去重和判环，并拒绝 symlink、
-hardlink alias 与非精确大小写。维护生成头需要 Python 3.5 或更高版本。
+hardlink alias 与非精确大小写。普通模块按物理文件身份去重，fragment 保持判环但
+按 include site 展开。维护生成头需要 Python 3.5 或更高版本。
 
 ## 算法结构
 
