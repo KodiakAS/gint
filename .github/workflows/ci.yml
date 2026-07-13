@@ -145,8 +145,10 @@ jobs:
             -DGINT_BUILD_TESTS_RELEASE=OFF \
             -DGINT_BUILD_BENCHMARKS=OFF \
             -DCMAKE_DISABLE_FIND_PACKAGE_fmt=TRUE
-      - name: Build isolated-header consumer
-        run: cmake --build runs/ci/build-cmake-3.13 --target gint_consumer_header_contract --parallel
+      - name: Build isolated public and internal headers
+        run: |
+          cmake --build runs/ci/build-cmake-3.13 --target gint_consumer_header_contract --parallel
+          cmake --build runs/ci/build-cmake-3.13 --target gint-internal-headers-check --parallel
       - name: Run package and header contracts
         run: |
           cd runs/ci/build-cmake-3.13

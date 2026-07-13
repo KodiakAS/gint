@@ -3689,7 +3689,7 @@ private:
         if (n < 2)
             return quotient;
 
-        std::array<limb_type, limbs + 1> u = {};
+        std::array<limb_type, limbs + 1> u = {{}};
 
         // Normalize divisor so that the top limb has its MSB set.
         const limb_type d0 = divisor.data_[0];
@@ -3876,8 +3876,8 @@ private:
         if (n < 3)
             return quotient;
 
-        std::array<limb_type, limbs + 1> u = {};
-        std::array<limb_type, 3> v = {};
+        std::array<limb_type, limbs + 1> u = {{}};
+        std::array<limb_type, 3> v = {{}};
 
         // Normalize divisor: ensure MSB of v[2] is set
         int shift = __builtin_clzll(divisor.data_[2]);

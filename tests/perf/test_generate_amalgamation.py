@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import contextlib
+import errno
 import importlib.util
 import io
 import os
@@ -71,6 +72,23 @@ class GenerateAmalgamationTest(unittest.TestCase):
         with open(os.path.join(self.root, AMALGAMATION.DEFAULT_OUTPUT), "rb") as output_file:
             self.assertEqual(output_file.read(), b"stale\n")
 
+    def test_check_treats_missing_empty_output_as_stale(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertFalse(
+                AMALGAMATION.check_output(self.root, AMALGAMATION.DEFAULT_OUTPUT, b"")
+            )
+        self.assertIn("actual output is missing", stderr.getvalue())
+
+    def test_check_propagates_output_read_errors(self):
+        self.write_bytes(AMALGAMATION.DEFAULT_OUTPUT, b"current\n")
+        read_error = IOError(errno.EACCES, "permission denied")
+        with mock.patch("builtins.open", side_effect=read_error):
+            with self.assertRaisesRegex(IOError, "permission denied"):
+                AMALGAMATION.check_output(
+                    self.root, AMALGAMATION.DEFAULT_OUTPUT, b"current\n"
+                )
+
     def test_generation_does_not_replace_an_already_current_header(self):
         content = b"current\n"
         self.write_bytes(AMALGAMATION.DEFAULT_OUTPUT, content)
@@ -108,6 +126,129 @@ class GenerateAmalgamationTest(unittest.TestCase):
         ):
             AMALGAMATION.build_amalgamation(self.root)
 
+    def test_validates_raw_quoted_include_paths_before_resolving(self):
+        self.write_bytes("src/gint/detail/part.hpp", b"#pragma once\npart\n")
+        self.write_bytes(
+            "src/gint/gint.hpp", b'#pragma once\n#include "detail/part.hpp"\n'
+        )
+        self.assertEqual(AMALGAMATION.build_amalgamation(self.root), b"part\n")
+
+        invalid_paths = (
+            (b"", "must not contain empty"),
+            (b"./detail/part.hpp", "must not contain empty"),
+            (b"detail//part.hpp", "must not contain empty"),
+            (b"/absolute.hpp", "must be relative"),
+        )
+        for include_path, expected_error in invalid_paths:
+            with self.subTest(include_path=include_path):
+                self.write_bytes(
+                    "src/gint/gint.hpp",
+                    b'#pragma once\n#include "' + include_path + b'"\n',
+                )
+                with self.assertRaisesRegex(
+                    AMALGAMATION.AmalgamationError, expected_error
+                ):
+                    AMALGAMATION.build_amalgamation(self.root)
+
+    def test_resolves_safe_parent_include_within_source_directory(self):
+        self.write_bytes(
+            "src/gint/gint.hpp", b'#pragma once\n#include "detail/a.hpp"\nroot\n'
+        )
+        self.write_bytes(
+            "src/gint/detail/a.hpp",
+            b'#pragma once\n#include "../configuration.hpp"\na\n',
+        )
+        self.write_bytes(
+            "src/gint/configuration.hpp", b"#pragma once\nconfiguration\n"
+        )
+        self.assertEqual(
+            AMALGAMATION.build_amalgamation(self.root),
+            b"configuration\na\nroot\n",
+        )
+
+    def test_rejects_parent_include_through_missing_directory(self):
+        self.write_bytes(
+            "src/gint/gint.hpp", b'#pragma once\n#include "detail/a.hpp"\n'
+        )
+        self.write_bytes(
+            "src/gint/detail/a.hpp",
+            b'#pragma once\n#include "missing/../target.hpp"\n',
+        )
+        self.write_bytes("src/gint/detail/target.hpp", b"#pragma once\ntarget\n")
+        with self.assertRaisesRegex(
+            AMALGAMATION.AmalgamationError,
+            "internal include path component does not exist",
+        ):
+            AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_parent_include_that_escapes_source_directory(self):
+        self.write_bytes(
+            "src/gint/gint.hpp", b'#pragma once\n#include "detail/a.hpp"\n'
+        )
+        self.write_bytes(
+            "src/gint/detail/a.hpp",
+            b'#pragma once\n#include "../../outside.hpp"\n',
+        )
+        self.write_bytes("src/outside.hpp", b"#pragma once\noutside\n")
+        with self.assertRaisesRegex(
+            AMALGAMATION.AmalgamationError, "internal include path escapes src/gint"
+        ):
+            AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_parent_include_through_symbolic_link_directory(self):
+        self.write_bytes(
+            "src/gint/gint.hpp", b'#pragma once\n#include "detail/a.hpp"\n'
+        )
+        self.write_bytes(
+            "src/gint/detail/a.hpp",
+            b'#pragma once\n#include "link/../target.hpp"\n',
+        )
+        self.write_bytes(
+            "src/gint/detail/target.hpp", b"#pragma once\nlexical target\n"
+        )
+        self.write_bytes(
+            "src/gint/physical/target.hpp", b"#pragma once\nphysical target\n"
+        )
+        os.makedirs(os.path.join(self.root, "src", "gint", "physical", "deeper"))
+        os.symlink(
+            "../physical/deeper", os.path.join(self.root, "src", "gint", "detail", "link")
+        )
+        with self.assertRaisesRegex(
+            AMALGAMATION.AmalgamationError,
+            "internal include path must not traverse symbolic-link components",
+        ):
+            AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_nested_internal_angle_include(self):
+        self.write_bytes(
+            "src/gint/gint.hpp", b'#pragma once\n#include "nested/a.hpp"\n'
+        )
+        self.write_bytes(
+            "src/gint/nested/a.hpp", b"#pragma once\n#include <b.hpp>\na\n"
+        )
+        self.write_bytes("src/gint/nested/b.hpp", b"#pragma once\nb\n")
+        with self.assertRaisesRegex(
+            AMALGAMATION.AmalgamationError,
+            "internal header must use a quoted include",
+        ):
+            AMALGAMATION.build_amalgamation(self.root)
+
+    def test_nested_angle_include_does_not_match_unrelated_internal_basename(self):
+        self.write_bytes(
+            "src/gint/gint.hpp",
+            b'#pragma once\n#include "nested/a.hpp"\n#include "other/external.hpp"\n',
+        )
+        self.write_bytes(
+            "src/gint/nested/a.hpp", b"#pragma once\n#include <external.hpp>\na\n"
+        )
+        self.write_bytes(
+            "src/gint/other/external.hpp", b"#pragma once\ninternal external\n"
+        )
+        self.assertEqual(
+            AMALGAMATION.build_amalgamation(self.root),
+            b"#include <external.hpp>\na\ninternal external\n",
+        )
+
     def test_requires_one_canonical_leading_pragma_once(self):
         for content in (
             b"root\n",
@@ -123,51 +264,60 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.write_bytes("src/gint/other.hpp", b"#pragma once\nother\n")
 
         cases = (
-            b'#pragma once\n#if 0\n#include "other.hpp"\n#endif\n#include "other.hpp"\n',
-            b"#pragma once\n#define GINT_HEADER \"other.hpp\"\n#include GINT_HEADER\n",
-            b"#pragma once\n#include <other.hpp>\n",
-            b'#pragma once\n#if __has_include("other.hpp")\n#endif\n',
-            b'#pragma once\n#if __has_include_next("other.hpp")\n#endif\n',
-            b'#pragma once\n#if __has_embed("other.bin")\n#endif\n',
-            b'#pragma once\n#if __has_em\\\nbed("other.bin")\n#endif\n',
-            b'#pragma once\n#inclu\\\nde "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n#/**/include "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n#include/**/ "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n#\\\ninclude "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n#in\\\nclude "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n%:include "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n??=include "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n_Pragma("once")\n',
-            b'#pragma once\n#include "other.hpp"\n#define P(x) _Pragma(#x)\nP(once)\n',
-            b'#pragma once\n#include "other.hpp"\n__pragma(once)\n',
-            b'#pragma once\n#include "other.hpp"\n_Pra\\\ngma("once")\n',
-            b'#pragma once\n#include "other.hpp"\n#import "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n#include_next "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\n#unknown_directive\n',
-            b'#pragma once\n#include "other.hpp"\n#embed "other.bin"\n',
-            b'#pragma once\n#include "other.hpp"\n#inclu\\   \nde "other.hpp"\n',
-            b'#pragma once\n\\ \n#include "other.hpp"\n',
-            b'#pragma once\n\0#include "other.hpp"\n',
-            b'#pragma once\n#if\v0\n#include "other.hpp"\n#endif\n#include "other.hpp"\n',
-            b'#pragma once\n#if/**/ 0\n#include "other.hpp"\n#endif/**/\n#include "other.hpp"\n',
-            b'#pragma once\n/**/#if 0\n#include "other.hpp"\n/**/#endif\n#include "other.hpp"\n',
-            b'#pragma once\n/* leading\n*/#if 0\n#include "other.hpp"\n#endif\n#include "other.hpp"\n',
-            b'#pragma once\n/\\\n*\n#include "other.hpp"\n',
-            b'#pragma once\nstatic const char text[] = R"gint(\n#include "other.hpp"\n)gint";\n#include "other.hpp"\n',
-            b'#pragma once\nstatic const char text[] = R\\\n"(raw)";\n#include "other.hpp"\n',
-            b'#pragma once\n#include "other.hpp"\nimport "other.hpp";\n',
-            b'#pragma once\n#include "other.hpp"\nimport <other.hpp>;\n',
-            b'#pragma once\n#include "other.hpp"\n#define HEADER_UNIT "other.hpp"\nimport HEADER_UNIT;\n',
-            b'#pragma once\n#include "other.hpp"\nexport import "other.hpp";\n',
-            b'#pragma once\n#include "other.hpp"\nim\\\nport "other.hpp";\n',
-            b'#pragma once\n#include "other.hpp"\nmodule;\n',
-            b'#pragma once\n#include "other.hpp"\nmodule gint.internal;\n',
-            b'#pragma once\n#include "other.hpp"\nexport module gint.internal;\n',
+            (
+                b'#pragma once\n#if 0\n#include "other.hpp"\n#endif\n#include "other.hpp"\n',
+                "internal include must be unconditional",
+            ),
+            (
+                b"#pragma once\n#define GINT_HEADER \"other.hpp\"\n#include GINT_HEADER\n",
+                "unsupported include syntax",
+            ),
+            (b"#pragma once\n#include <other.hpp>\n", "must use a quoted include"),
+            (b'#pragma once\n#if __has_include("other.hpp")\n#endif\n', "file-search preprocessing operators"),
+            (b'#pragma once\n#if __has_include_next("other.hpp")\n#endif\n', "file-search preprocessing operators"),
+            (b'#pragma once\n#if __has_embed("other.bin")\n#endif\n', "file-search preprocessing operators"),
+            (b'#pragma once\n#if __has_em\\\nbed("other.bin")\n#endif\n', "file-search preprocessing operators"),
+            (b'#pragma once\n#inclu\\\nde "other.hpp"\n', "line-spliced preprocessing directive"),
+            (b'#pragma once\n#include "other.hpp"\n#/**/include "other.hpp"\n', "block comments are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#include/**/ "other.hpp"\n', "block comments are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#\\\ninclude "other.hpp"\n', "line-spliced preprocessing directive"),
+            (b'#pragma once\n#include "other.hpp"\n#in\\\nclude "other.hpp"\n', "line-spliced preprocessing directive"),
+            (b'#pragma once\n#include "other.hpp"\n%:include "other.hpp"\n', "digraph preprocessing directive"),
+            (b'#pragma once\n#include "other.hpp"\n??=include "other.hpp"\n', "trigraphs are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n_Pragma("once")\n', "pragma operators are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#define P(x) _Pragma(#x)\nP(once)\n', "pragma operators are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n__pragma(once)\n', "pragma operators are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n_Pra\\\ngma("once")\n', "pragma operators are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#import "other.hpp"\n', "#import and #include_next are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#include_next "other.hpp"\n', "#import and #include_next are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#unknown_directive\n', "unsupported preprocessing directive"),
+            (b'#pragma once\n#include "other.hpp"\n#embed "other.bin"\n', "unsupported preprocessing directive"),
+            (b'#pragma once\n#include "other.hpp"\n#inclu\\   \nde "other.hpp"\n', "whitespace-separated line splice"),
+            (b'#pragma once\n\\ \n#include "other.hpp"\n', "whitespace-separated line splice"),
+            (b'#pragma once\n\0#include "other.hpp"\n', "unsupported control byte"),
+            (b'#pragma once\n#if\v0\n#include "other.hpp"\n#endif\n#include "other.hpp"\n', "internal include must be unconditional"),
+            (b'#pragma once\n#if/**/ 0\n#include "other.hpp"\n#endif/**/\n#include "other.hpp"\n', "block comments are not supported"),
+            (b'#pragma once\n/**/#if 0\n#include "other.hpp"\n/**/#endif\n#include "other.hpp"\n', "block comments are not supported"),
+            (b'#pragma once\n/* leading\n*/#if 0\n#include "other.hpp"\n#endif\n#include "other.hpp"\n', "block comments are not supported"),
+            (b'#pragma once\n/\\\n*\n#include "other.hpp"\n', "block comments are not supported"),
+            (b'#pragma once\nstatic const char text[] = R"gint(\n#include "other.hpp"\n)gint";\n#include "other.hpp"\n', "raw string literals are not supported"),
+            (b'#pragma once\nstatic const char text[] = R\\\n"(raw)";\n#include "other.hpp"\n', "raw string literals are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nimport "other.hpp";\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nimport <other.hpp>;\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\n#define HEADER_UNIT "other.hpp"\nimport HEADER_UNIT;\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nexport import "other.hpp";\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nim\\\nport "other.hpp";\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nmodule;\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nmodule gint.internal;\n', "module control lines are not supported"),
+            (b'#pragma once\n#include "other.hpp"\nexport module gint.internal;\n', "module control lines are not supported"),
         )
-        for content in cases:
-            self.write_bytes("src/gint/gint.hpp", content)
-            with self.assertRaises(AMALGAMATION.AmalgamationError):
-                AMALGAMATION.build_amalgamation(self.root)
+        for content, expected_error in cases:
+            with self.subTest(expected_error=expected_error, content=content):
+                self.write_bytes("src/gint/gint.hpp", content)
+                with self.assertRaisesRegex(
+                    AMALGAMATION.AmalgamationError, expected_error
+                ):
+                    AMALGAMATION.build_amalgamation(self.root)
 
     def test_preserves_line_spliced_macro_definitions(self):
         self.write_bytes(
