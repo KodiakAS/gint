@@ -4,9 +4,12 @@
 #    error "gint requires GCC, Clang, or AppleClang"
 #endif
 
-#if defined(__GNUC__) && !defined(__clang__) \
-    && (__GNUC__ < 4 || (__GNUC__ == 4 && (__GNUC_MINOR__ < 8 || (__GNUC_MINOR__ == 8 && __GNUC_PATCHLEVEL__ < 5))))
-#    error "gint requires GCC 4.8.5 or later"
+#if defined(__GNUC__) && !defined(__clang__)
+#    if __GNUC__ < 4
+#        error "gint requires GCC 4.8.5 or later"
+#    elif __GNUC__ == 4 && (__GNUC_MINOR__ < 8 || (__GNUC_MINOR__ == 8 && __GNUC_PATCHLEVEL__ < 5))
+#        error "gint requires GCC 4.8.5 or later"
+#    endif
 #endif
 
 #if __cplusplus < 201103L
@@ -34,18 +37,6 @@
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
-
-#ifndef GINT_DETAIL_CORE_ONLY
-#    include <cstring>
-#    include <ios>
-#    include <ostream>
-#    include <string>
-#endif
-
-#if defined(GINT_ENABLE_FMT) && !defined(GINT_DETAIL_CORE_ONLY)
-#    include <locale>
-#    include <fmt/format.h>
-#endif
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #    include <x86intrin.h>
@@ -5489,6 +5480,21 @@ struct hash<gint::integer<Bits, Signed>>
 #    define GINT_DETAIL_IO_PASS_IN_PROGRESS
 #endif
 
+// Keep IO-only dependencies outside the core prelude. Unlike the generated
+// distribution header, normal internal headers retain #pragma once state, so a
+// core-only pass cannot rely on prelude.hpp being entered again during a later
+// umbrella upgrade.
+#ifndef GINT_DETAIL_CORE_ONLY
+#    include <cstring>
+#    include <ios>
+#    include <ostream>
+#    include <string>
+
+#    ifdef GINT_ENABLE_FMT
+#        include <locale>
+#        include <fmt/format.h>
+#    endif
+#endif
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
 

@@ -1,6 +1,7 @@
 TEST_BUILD_DIR ?= runs/local/build
 BENCH_BUILD_DIR ?= runs/local/build-bench
 COVERAGE_DIR ?= runs/local/build-coverage
+INTERNAL_HEADERS_BUILD_DIR ?= runs/local/build-internal-headers
 
 # Parallel build jobs (auto-detect CPU cores; overridable: `make JOBS=8`)
 JOBS ?= $(shell \
@@ -29,7 +30,8 @@ amalgamate-check:
 	$(PYTHON) scripts/generate-amalgamation.py --check
 
 internal-headers-check:
-	bash scripts/check-internal-headers.sh "$(CXX)"
+	CXX="$(CXX)" $(CMAKE) -S . -B "$(INTERNAL_HEADERS_BUILD_DIR)" -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=OFF
+	$(CMAKE) --build "$(INTERNAL_HEADERS_BUILD_DIR)" --target gint-internal-headers-check --parallel $(JOBS)
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -124,7 +126,7 @@ coverage-lcov: $(COVERAGE_DIR)/Makefile
 
 # Remove build directories
 clean:
-	rm -rf $(TEST_BUILD_DIR) $(BENCH_BUILD_DIR) $(COVERAGE_DIR)
+	rm -rf $(TEST_BUILD_DIR) $(BENCH_BUILD_DIR) $(COVERAGE_DIR) $(INTERNAL_HEADERS_BUILD_DIR)
 
 # Remove only coverage build directory
 clean-coverage:

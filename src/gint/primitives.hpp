@@ -234,7 +234,7 @@ GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned char carry = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -273,7 +273,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t 
 template <>
 GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CLANG && GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned long long r0;
     unsigned long long r1;
     unsigned long long r2;
@@ -358,7 +358,7 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned char borrow = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -391,7 +391,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t 
 template <>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG
+#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned long long r0;
     unsigned long long r1;
     unsigned long long r2;

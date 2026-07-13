@@ -1,5 +1,6 @@
 #pragma once
 
+#include "io_prelude.hpp"
 #include "standard.hpp"
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
@@ -85,7 +86,7 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     const unsigned chunk_digits = 19;
 
     constexpr size_t max_chunks = (Bits + 62) / 63;
-    std::array<typename Int::limb_type, max_chunks> chunks{};
+    std::array<typename Int::limb_type, max_chunks> chunks = {{}};
     size_t chunk_count = 0;
     while (!tmp.is_zero())
     {

@@ -138,6 +138,14 @@
 #    define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
 #    define GINT_DETAIL_AARCH64_CLANG (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 
+// GCC only exposes the x86_64 carry/borrow intrinsics used below starting in
+// GCC 7. Older supported GCC releases use the scalar __int128 implementation.
+#    if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 7
+#        define GINT_DETAIL_X86_64_CARRY_INTRINSICS 0
+#    else
+#        define GINT_DETAIL_X86_64_CARRY_INTRINSICS (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG)
+#    endif
+
 // GCC before 9 rejects intrinsics inside C++17 constexpr functions even when
 // guarded by __builtin_is_constant_evaluated().
 #    if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9 && __cplusplus < 202002L

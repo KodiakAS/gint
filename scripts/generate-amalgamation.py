@@ -10,6 +10,7 @@ small and project-specific; it does not copy third-party generator code.
 from __future__ import print_function
 
 import argparse
+import errno
 import hashlib
 import os
 import re
@@ -23,7 +24,7 @@ DEFAULT_OUTPUT = "include/gint/gint.h"
 SOURCE_DIRECTORY = os.path.join("src", "gint")
 
 INCLUDE_RE = re.compile(
-    br'^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*"([^"\r\n]+)"[ \t\v\f]*(?://[^\r\n]*)?\n$'
+    br'^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*"([^"\r\n]*)"[ \t\v\f]*(?://[^\r\n]*)?\n$'
 )
 ANGLE_INCLUDE_RE = re.compile(
     br"^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*<([^>\r\n]+)>[ \t\v\f]*(?://[^\r\n]*)?\n$"
@@ -284,10 +285,92 @@ class HeaderGraph(object):
         metadata = os.stat(absolute_path)
         return (metadata.st_dev, metadata.st_ino)
 
-    def is_internal_angle_include(self, include_path):
-        return include_path.startswith("gint/") or os.path.isfile(
-            os.path.join(self.source_directory, include_path)
-        )
+    def is_internal_angle_include(self, include_path, including_header=None):
+        if include_path.startswith("gint/"):
+            return True
+        candidates = [os.path.join(self.source_directory, include_path)]
+        if including_header is not None:
+            candidates.append(os.path.join(os.path.dirname(including_header), include_path))
+        for candidate in candidates:
+            absolute_candidate = os.path.abspath(candidate)
+            try:
+                inside_source = (
+                    os.path.commonpath([self.source_directory, absolute_candidate])
+                    == self.source_directory
+                )
+            except ValueError:
+                inside_source = False
+            if inside_source and os.path.isfile(candidate):
+                return True
+        return False
+
+    def resolve_include_path(
+        self, including_header, include_path, description, line_number
+    ):
+        if os.path.isabs(include_path):
+            raise AmalgamationError(
+                "internal include path must be relative at {0}:{1}".format(
+                    description, line_number
+                )
+            )
+        components = include_path.split("/")
+        if any(component in ("", ".") for component in components):
+            raise AmalgamationError(
+                "internal include path must not contain empty or '.' components "
+                "at {0}:{1}".format(description, line_number)
+            )
+
+        current = os.path.dirname(including_header)
+        for index, component in enumerate(components):
+            if component == "..":
+                if current == self.source_directory:
+                    raise AmalgamationError(
+                        "internal include path escapes src/gint at {0}:{1}".format(
+                            description, line_number
+                        )
+                    )
+                if os.path.islink(current):
+                    raise AmalgamationError(
+                        "internal include path must not traverse symbolic-link "
+                        "components at {0}:{1}".format(description, line_number)
+                    )
+                if not os.path.isdir(current):
+                    raise AmalgamationError(
+                        "internal include parent is not an existing directory at "
+                        "{0}:{1}".format(description, line_number)
+                    )
+                current = os.path.dirname(current)
+                continue
+
+            candidate = os.path.join(current, component)
+            if index != len(components) - 1:
+                if (
+                    component not in os.listdir(current)
+                    and os.path.lexists(candidate)
+                ):
+                    raise AmalgamationError(
+                        "internal include path must use exact on-disk path spelling "
+                        "at {0}:{1}: {2}".format(
+                            description, line_number, component
+                        )
+                    )
+                if os.path.islink(candidate):
+                    raise AmalgamationError(
+                        "internal include path must not traverse symbolic-link "
+                        "components at {0}:{1}".format(description, line_number)
+                    )
+                if not os.path.exists(candidate):
+                    raise AmalgamationError(
+                        "internal include path component does not exist at "
+                        "{0}:{1}: {2}".format(description, line_number, component)
+                    )
+                if not os.path.isdir(candidate):
+                    raise AmalgamationError(
+                        "internal include path component is not a directory at "
+                        "{0}:{1}: {2}".format(description, line_number, component)
+                    )
+            current = candidate
+        return current
 
     def read_header(self, absolute_path):
         relative_path = relative_to_root(self.root, absolute_path)
@@ -406,7 +489,9 @@ class HeaderGraph(object):
                                 relative_path, line_number
                             )
                         )
-                    dependency = os.path.abspath(os.path.join(os.path.dirname(absolute_path), include_path))
+                    dependency = self.resolve_include_path(
+                        absolute_path, include_path, relative_path, line_number
+                    )
                     expanded_dependency = self.expand(dependency)
                     output.append(expanded_dependency)
                     continue
@@ -420,7 +505,7 @@ class HeaderGraph(object):
                                 relative_path, line_number
                             )
                         )
-                    if self.is_internal_angle_include(angle_include_path):
+                    if self.is_internal_angle_include(angle_include_path, absolute_path):
                         raise AmalgamationError(
                             "internal header must use a quoted include at {0}:{1}".format(
                                 relative_path, line_number
@@ -563,16 +648,21 @@ def check_output(root, output_path, expected):
     try:
         with open(absolute_output, "rb") as output_file:
             actual = output_file.read()
-    except IOError:
-        actual = b""
-    if actual == expected:
+    except IOError as error:
+        if error.errno != errno.ENOENT:
+            raise
+        actual = None
+    if actual is not None and actual == expected:
         print("amalgamated header is current: {0} ({1})".format(output_path, sha256(expected)))
         return True
 
-    offset = first_difference(expected, actual)
+    offset = first_difference(expected, actual if actual is not None else b"")
     print("error: amalgamated header is stale: {0}".format(output_path), file=sys.stderr)
     print("error: expected sha256 {0}".format(sha256(expected)), file=sys.stderr)
-    print("error: actual   sha256 {0}".format(sha256(actual)), file=sys.stderr)
+    if actual is None:
+        print("error: actual output is missing", file=sys.stderr)
+    else:
+        print("error: actual   sha256 {0}".format(sha256(actual)), file=sys.stderr)
     print("error: first differing byte offset {0}; run scripts/generate-amalgamation.py".format(offset), file=sys.stderr)
     return False
 

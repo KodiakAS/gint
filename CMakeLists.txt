@@ -41,14 +41,61 @@ option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
 option(GINT_BUILD_TESTS_RELEASE "Build Release/O3 test suite (gint_tests_release)" ${GINT_IS_TOP_LEVEL})
 option(GINT_INSTALL "Generate gint install rules" ${GINT_IS_TOP_LEVEL})
 
+# Build every maintainable internal header as an independent translation unit.
+# Keeping this as a normal CMake target is important: compiler Arg1, launchers,
+# targets, sysroots, and directory/toolchain flags must all match the configured
+# build instead of being reconstructed by a shell command.
+if(GINT_IS_TOP_LEVEL OR GINT_BUILD_TESTS)
+    file(GLOB_RECURSE GINT_INTERNAL_HEADERS
+        CONFIGURE_DEPENDS
+        LIST_DIRECTORIES false
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/gint/*.hpp"
+    )
+    if(NOT GINT_INTERNAL_HEADERS)
+        message(FATAL_ERROR "No internal headers found under src/gint")
+    endif()
+    list(SORT GINT_INTERNAL_HEADERS)
+
+    set(GINT_INTERNAL_HEADER_WRAPPER_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/internal_headers"
+    )
+    file(MAKE_DIRECTORY "${GINT_INTERNAL_HEADER_WRAPPER_DIR}")
+    set(GINT_INTERNAL_HEADER_WRAPPERS "")
+    foreach(header IN LISTS GINT_INTERNAL_HEADERS)
+        file(RELATIVE_PATH relative_header "${CMAKE_CURRENT_SOURCE_DIR}" "${header}")
+        string(MD5 header_id "${relative_header}")
+        file(TO_CMAKE_PATH "${header}" header_include_path)
+        string(REPLACE "\"" "\\\"" header_include_path "${header_include_path}")
+        set(wrapper "${GINT_INTERNAL_HEADER_WRAPPER_DIR}/${header_id}.cpp")
+        file(WRITE "${wrapper}"
+            "// Independently compile ${relative_header}.\n"
+            "#include \"${header_include_path}\"\n"
+        )
+        list(APPEND GINT_INTERNAL_HEADER_WRAPPERS "${wrapper}")
+    endforeach()
+
+    add_library(gint_internal_headers_compile OBJECT EXCLUDE_FROM_ALL
+        ${GINT_INTERNAL_HEADER_WRAPPERS}
+    )
+    set_target_properties(gint_internal_headers_compile PROPERTIES
+        CXX_STANDARD 11
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+    target_compile_options(gint_internal_headers_compile PRIVATE
+        -Wall
+        -Wextra
+        -Werror
+    )
+    add_custom_target(gint-internal-headers-check
+        DEPENDS gint_internal_headers_compile
+        COMMENT "Checking independently parseable internal headers"
+    )
+endif()
+
 # Developer-only convenience targets. The generated header is committed, so
 # add_subdirectory/FetchContent/install consumers do not require Python.
 if(GINT_IS_TOP_LEVEL)
-    add_custom_target(gint-internal-headers-check
-        COMMAND bash scripts/check-internal-headers.sh "${CMAKE_CXX_COMPILER}"
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Checking independently parseable internal headers"
-    )
     find_package(Python3 3.5 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_custom_target(gint-amalgamate
@@ -109,8 +156,17 @@ if(GINT_BUILD_TESTS)
 
     add_test(
         NAME consumer.internal_headers
-        COMMAND bash scripts/check-internal-headers.sh "${CMAKE_CXX_COMPILER}"
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND}
+            --build "${CMAKE_CURRENT_BINARY_DIR}"
+            --target gint-internal-headers-check
+            --config "$<IF:$<BOOL:$<CONFIG>>,$<CONFIG>,Debug>"
+    )
+    add_test(
+        NAME consumer.internal_headers_script
+        COMMAND bash
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/consumer/check_internal_headers_script.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-internal-headers.sh"
+            "${CMAKE_CURRENT_BINARY_DIR}/internal-header-script-contract"
     )
 
     function(add_gint_consumer_test target source standard)
