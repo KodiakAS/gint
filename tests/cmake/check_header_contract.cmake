@@ -57,3 +57,15 @@ endfunction()
 expect_compile_failure(cxx98 c++98 "gint requires C++11 or later")
 expect_compile_failure(msvc_abi c++11 "gint does not support MSVC or clang-cl" -D_MSC_VER=1930)
 expect_compile_failure(no_int128 c++11 "gint requires compiler support for __int128" -U__SIZEOF_INT128__)
+expect_compile_failure(
+    gcc_4_8_4
+    c++11
+    "gint requires GCC 4.8.5 or later"
+    -U__clang__
+    -U__GNUC__
+    -U__GNUC_MINOR__
+    -U__GNUC_PATCHLEVEL__
+    -D__GNUC__=4
+    -D__GNUC_MINOR__=8
+    -D__GNUC_PATCHLEVEL__=4
+)

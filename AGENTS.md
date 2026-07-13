@@ -5,9 +5,13 @@
 ## 产品与支持契约
 
 - 当前发布线为 `0.9.x`，版本来源必须同时更新 `CMakeLists.txt` 与 `include/gint/gint.h` 的 `GINT_VERSION_*` 宏。
-- 公共 API 最低标准是 C++11；不得把 C++14/17/20 能力引入公共头文件或必要构建路径。
+- 公共 API 最低标准是 C++11；Linux x86_64 的最低 GCC 版本是 4.8.5。不得把
+  C++14/17/20 能力或更新 compiler 才支持的必要语法引入公共头文件与必要构建
+  路径。
 - 正式支持 GCC、LLVM Clang 的 GNU-compatible driver 和 AppleClang；MSVC、`clang-cl` 及其他 frontend 不支持。
 - 正式平台是 64-bit little-endian Linux x86_64/AArch64 与 macOS arm64；实现依赖 `__int128` 和 GCC/Clang builtin。
+- GCC 4.8.5 的承诺只适用于 Linux x86_64；Linux AArch64 的 GCC baseline 独立
+  维护，不得因最低 x86_64 版本而降级。
 - 库必须保持 header-only：
   - 只复制 `include/gint/gint.h` 仍是完整且受测试的一级集成方式；
   - `include/gint/core.h` 是可选的精简算术入口；
@@ -88,11 +92,26 @@
 
 需要完整验证时分别覆盖并报告：
 
+- Linux x86_64 + GCC 4.8.5：固定 legacy 镜像中的 C++11 Debug、Release/O3、
+  header/consumer/package contract 与 differential；不运行 C++17 benchmark 或
+  sanitizer；
 - macOS arm64 + AppleClang：C++11 Debug + Release/O3、sanitizer；
 - Linux AArch64 + GCC/Clang：C++11 Debug + Release/O3、differential、codegen；
 - Linux x86_64 + GCC/Clang：C++11 Debug + Release/O3、sanitizer、differential/fuzz、codegen；
 - AlmaLinux 8 开发镜像中的 GCC 8.5 完整 C++11 矩阵；
 - CMake 3.13 package/header contract。
+
+legacy 门禁使用：
+
+```bash
+docker build --platform linux/amd64 --file Dockerfile.gcc48 --tag gint:gcc48 .
+docker run --rm --platform linux/amd64 --volume "$PWD:/work" --workdir /work \
+  gint:gcc48 scripts/run-gcc48-validation.sh
+```
+
+该 lane 只证明最低编译器 correctness 与集成契约。现代 codegen contract、
+sanitizer 和性能证据仍由较新 GCC/Clang/AppleClang 提供；不得删除或用 legacy
+结果替代 GCC 8.5 开发镜像与 Linux AArch64 独立 baseline。
 
 C++17 只作为补充验证，不能替代任何 C++11 门禁。
 
@@ -106,6 +125,8 @@ C++17 只作为补充验证，不能替代任何 C++11 门禁。
 - Comparison：同场景对比 gint、ClickHouse、Boost，目标为 `make bench-compare` / `make bench-compare-full`。
 - comparison 的 bit-pattern 场景统一使用 unsigned 固定位宽类型；signed comparison 必须从统一数学值构造并在计时前校验相等，禁止直接混用补码与 signed-magnitude raw words。
 - 普通性能任务未指定环境时默认只使用本机 AppleClang；用户指定环境集合时严格按其要求执行。架构/编译器敏感 hot path、发布候选或全平台任务必须补 Linux x86_64 固定主机及相应支持矩阵，真实 wall-clock 结论不得来自共享 runner。
+- GCC 4.8.5 legacy lane 不构建 C++17 Google Benchmark，也不用于性能结论；
+  Linux/GCC benchmark 继续使用 GCC 8.5 开发镜像或文档规定的现代固定工具链。
 
 ### 目标选择
 

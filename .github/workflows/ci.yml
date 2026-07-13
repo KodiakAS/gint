@@ -146,6 +146,21 @@ jobs:
           ctest -N -R '^consumer\.(package|header_contract)' | grep -Eq 'Total Tests: [1-9][0-9]*'
           ctest --output-on-failure -R '^consumer\.(package|header_contract)'
 
+  gcc-4-8-5:
+    name: gcc 4.8.5 (centos 7 x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build pinned GCC 4.8.5 image
+        run: docker build --platform linux/amd64 --file Dockerfile.gcc48 --tag gint:gcc48 .
+      - name: Run GCC 4.8.5 validation matrix
+        run: |
+          docker run --rm --platform linux/amd64 \
+            --volume "$PWD:/work" \
+            --workdir /work \
+            gint:gcc48 \
+            scripts/run-gcc48-validation.sh
+
   coverage:
     runs-on: ubuntu-latest
     steps:

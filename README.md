@@ -6,7 +6,8 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 **Highlights**
 
-* **C++11-first** on GCC, Clang, and AppleClang.
+* **C++11-first** on GCC, Clang, and AppleClang; GCC 4.8.5 is the compatibility
+  floor on Linux x86_64.
 * **Header-only** for painless integration.
 * **High performance** by design.
 * **Bit-accurate width** strictly matching the definition.
@@ -14,7 +15,8 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 The supported release targets are 64-bit little-endian Linux x86_64/AArch64
 and macOS arm64. MSVC and `clang-cl` are intentionally unsupported because the
 implementation relies on `__int128` and GCC/Clang builtins. See
-`docs/SUPPORT.md` for the maintained matrix.
+`docs/SUPPORT.md` for the maintained matrix. The GCC 4.8.5 floor applies only
+to Linux x86_64; Linux AArch64 keeps its own, newer compiler baseline.
 
 ## Performance
 
@@ -150,3 +152,17 @@ The resulting image keeps the historical `gint:centos8` local tag so existing
 automation and commands remain compatible; its base OS is AlmaLinux 8. It is
 intended for GCC/Linux test and benchmark validation. Host AppleClang artifacts
 use `runs/local/`; Docker/GCC artifacts should use `runs/docker/`.
+
+GCC 4.8.5 compatibility is validated separately on Linux x86_64 with the
+legacy CentOS 7.9 image. This lane pins CMake 3.13.5, fmt 9.1.0 and GoogleTest
+1.10.0, and intentionally does not build C++17 benchmarks or run sanitizers:
+
+```bash
+docker build --platform linux/amd64 --file Dockerfile.gcc48 --tag gint:gcc48 .
+docker run --rm --platform linux/amd64 --volume "$PWD:/work" --workdir /work \
+  gint:gcc48 scripts/run-gcc48-validation.sh
+```
+
+Its artifacts stay under `runs/gcc48/`. The GCC 8.5 AlmaLinux development image
+remains the normal Linux/GCC development and benchmark environment; the legacy
+image exists only to enforce the minimum compiler contract.

@@ -15,3 +15,9 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         "gint supports GCC, Clang, and AppleClang only; detected '${CMAKE_CXX_COMPILER_ID}'."
     )
 endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.5")
+    message(FATAL_ERROR
+        "gint requires GCC 4.8.5 or later; detected '${CMAKE_CXX_COMPILER_VERSION}'."
+    )
+endif()

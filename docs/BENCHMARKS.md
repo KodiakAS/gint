@@ -8,6 +8,9 @@
 
 - 默认本机（local）：指当前 macOS + AppleClang 工具链，构建与输出目录使用 `runs/local/`。
 - 其他环境或编译器：使用独立 `runs/<scope>/` 和独立 `BENCH_BUILD_DIR`，例如本机 GCC、Linux GCC、Linux Clang 等。
+- Linux x86_64/GCC 4.8.5 是最低 correctness/integration 兼容性环境，不是
+  benchmark 工具链。`Dockerfile.gcc48` 与 `scripts/run-gcc48-validation.sh` 不构建
+  C++17 Google Benchmark，也不产出 wall-clock 性能结论。
 - 仓库内命令只假定已经位于当前执行环境；具体在哪里运行由外部编排决定。
 - 不同架构、OS、编译器结果应分别呈现，不直接混合横向比较。
 - 三方 comparison 矩阵统一使用 unsigned 固定位宽类型，使相同输入 bit pattern 在 gint、ClickHouse 与 Boost 中表示相同的非负数学值；benchmark 启动时会对最高位和全 1 边界值做三方一致性校验。
@@ -21,6 +24,11 @@
 ### PR codegen contract
 
 `.github/workflows/performance.yml` 会在 Linux x86_64、Linux AArch64 的 GCC 13 / Clang 18，以及 macOS arm64 AppleClang 上以 C++11、`-O3 -DNDEBUG` 编译 `tests/perf/codegen_contract.cpp`。检查器要求所有探针存在，并按架构执行以下上限：
+
+最低编译器 lane 不复用这些面向现代 GCC/Clang 的结构预算。GCC 4.8.5 的 PR
+门禁负责 C++11 correctness、header/package 集成和 differential；codegen contract、
+sanitizer 与真实 benchmark 继续由本节所列较新工具链承担。AlmaLinux 8/GCC 8.5
+开发镜像继续可用于 Linux/GCC 日常 benchmark，不能因新增 legacy lane 而移除。
 
 | UInt256 探针 | x86_64 指令上限 | AArch64 指令上限 | 调用约束 |
 | --- | ---: | ---: | --- |
