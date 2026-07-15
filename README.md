@@ -1,6 +1,7 @@
 # gint
 
 [![CI](https://github.com/KodiakAS/gint/actions/workflows/ci.yml/badge.svg)](https://github.com/KodiakAS/gint/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/KodiakAS/gint/branch/main/graph/badge.svg)](https://app.codecov.io/gh/KodiakAS/gint)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 `gint` is a performance-first, header-only C++11 library for exact-width wide
