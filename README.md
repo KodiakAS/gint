@@ -37,8 +37,14 @@ int main()
 ```
 
 Copy [`include/gint/gint.h`](include/gint/gint.h) into your include path for
-the simplest integration. No generated header or link-time dependency is
+the simplest integration. No generation step or link-time dependency is
 required.
+
+Normal `.hpp` files under `src/gint` are the development source of truth; the
+committed `gint.h` is their deterministic single-header distribution. This is
+a maintainer workflow, so consumers never need Python or a generation step.
+See the [implementation notes](docs/INTERNALS.md) for the source-graph and
+language-service contract.
 
 For an installed CMake package:
 

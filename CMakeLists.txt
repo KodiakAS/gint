@@ -41,6 +41,76 @@ option(GINT_BUILD_TESTS_CXX17 "Build C++17 test suite (gint_tests_cxx17)" OFF)
 option(GINT_BUILD_TESTS_RELEASE "Build Release/O3 test suite (gint_tests_release)" ${GINT_IS_TOP_LEVEL})
 option(GINT_INSTALL "Generate gint install rules" ${GINT_IS_TOP_LEVEL})
 
+# Build every maintainable internal header as an independent translation unit.
+# Keeping this as a normal CMake target is important: compiler Arg1, launchers,
+# targets, sysroots, and directory/toolchain flags must all match the configured
+# build instead of being reconstructed by a shell command.
+if(GINT_IS_TOP_LEVEL OR GINT_BUILD_TESTS)
+    file(GLOB_RECURSE GINT_INTERNAL_HEADERS
+        CONFIGURE_DEPENDS
+        LIST_DIRECTORIES false
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/gint/*.hpp"
+    )
+    if(NOT GINT_INTERNAL_HEADERS)
+        message(FATAL_ERROR "No internal headers found under src/gint")
+    endif()
+    list(SORT GINT_INTERNAL_HEADERS)
+
+    set(GINT_INTERNAL_HEADER_WRAPPER_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/internal_headers"
+    )
+    file(MAKE_DIRECTORY "${GINT_INTERNAL_HEADER_WRAPPER_DIR}")
+    set(GINT_INTERNAL_HEADER_WRAPPERS "")
+    foreach(header IN LISTS GINT_INTERNAL_HEADERS)
+        file(RELATIVE_PATH relative_header "${CMAKE_CURRENT_SOURCE_DIR}" "${header}")
+        string(MD5 header_id "${relative_header}")
+        file(TO_CMAKE_PATH "${header}" header_include_path)
+        string(REPLACE "\"" "\\\"" header_include_path "${header_include_path}")
+        set(wrapper "${GINT_INTERNAL_HEADER_WRAPPER_DIR}/${header_id}.cpp")
+        file(WRITE "${wrapper}"
+            "// Independently compile ${relative_header}.\n"
+            "#include \"${header_include_path}\"\n"
+        )
+        list(APPEND GINT_INTERNAL_HEADER_WRAPPERS "${wrapper}")
+    endforeach()
+
+    add_library(gint_internal_headers_compile OBJECT EXCLUDE_FROM_ALL
+        ${GINT_INTERNAL_HEADER_WRAPPERS}
+    )
+    set_target_properties(gint_internal_headers_compile PROPERTIES
+        CXX_STANDARD 11
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+    target_compile_options(gint_internal_headers_compile PRIVATE
+        -Wall
+        -Wextra
+        -Werror
+    )
+    add_custom_target(gint-internal-headers-check
+        DEPENDS gint_internal_headers_compile
+        COMMENT "Checking independently parseable internal headers"
+    )
+endif()
+
+# Developer-only convenience targets. The generated header is committed, so
+# add_subdirectory/FetchContent/install consumers do not require Python.
+if(GINT_IS_TOP_LEVEL)
+    find_package(Python3 3.5 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_custom_target(gint-amalgamate
+            COMMAND "${Python3_EXECUTABLE}" scripts/generate-amalgamation.py
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Generating include/gint/gint.h"
+        )
+        add_custom_target(gint-amalgamate-check
+            COMMAND "${Python3_EXECUTABLE}" scripts/generate-amalgamation.py --check
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Checking include/gint/gint.h"
+        )
+    endif()
+endif()
+
 set(GINT_TEST_OPTIONS -O0 -g)
 set(GINT_TEST_RELEASE_OPTIONS -O3 -DNDEBUG)
 set(GINT_TEST_LINK_OPTIONS "")
@@ -84,6 +154,21 @@ if(GINT_BUILD_TESTS)
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
 
+    add_test(
+        NAME consumer.internal_headers
+        COMMAND ${CMAKE_COMMAND}
+            --build "${CMAKE_CURRENT_BINARY_DIR}"
+            --target gint-internal-headers-check
+            --config "$<IF:$<BOOL:$<CONFIG>>,$<CONFIG>,Debug>"
+    )
+    add_test(
+        NAME consumer.internal_headers_script
+        COMMAND bash
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/consumer/check_internal_headers_script.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-internal-headers.sh"
+            "${CMAKE_CURRENT_BINARY_DIR}/internal-header-script-contract"
+    )
+
     function(add_gint_consumer_test target source standard)
         add_executable(${target} ${source})
         target_link_libraries(${target} PRIVATE gint::gint)
@@ -98,6 +183,48 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.${target} COMMAND ${target})
     endfunction()
 
+    function(add_gint_internal_graph_test target source)
+        add_executable(${target} ${source})
+        target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        set_target_properties(${target} PROPERTIES
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+        )
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME consumer.${target} COMMAND ${target})
+    endfunction()
+
+    # Give clangd and other compile-database consumers a real translation unit
+    # rooted in the maintainable internal header graph. Separate translation
+    # units keep the supported feature configurations visible in
+    # compile_commands.json. These targets are developer-only and are neither
+    # exported nor installed.
+    add_gint_internal_graph_test(gint_internal_header_graph tests/consumer/internal_header_graph.cpp)
+
+    add_gint_internal_graph_test(gint_internal_header_graph_fmt tests/consumer/internal_header_graph_fmt.cpp)
+    target_compile_definitions(gint_internal_header_graph_fmt PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_internal_header_graph_fmt PRIVATE fmt::fmt)
+
+    add_gint_internal_graph_test(
+        gint_internal_header_graph_fmt_include_order
+        tests/consumer/internal_header_graph_fmt_include_order.cpp
+    )
+    target_compile_definitions(gint_internal_header_graph_fmt_include_order PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_internal_header_graph_fmt_include_order PRIVATE fmt::fmt)
+
+    add_gint_internal_graph_test(gint_internal_header_graph_checked tests/consumer/internal_header_graph_checked.cpp)
+    target_link_libraries(gint_internal_header_graph_checked PRIVATE gint::checked)
+
+    add_gint_internal_graph_test(
+        gint_internal_header_graph_checked_no_exceptions
+        tests/consumer/internal_header_graph_checked_no_exceptions.cpp
+    )
+    target_link_libraries(gint_internal_header_graph_checked_no_exceptions PRIVATE gint::checked)
+    target_compile_options(gint_internal_header_graph_checked_no_exceptions PRIVATE -fno-exceptions)
+
     set(GINT_ODR_STATIC_SOURCES
         tests/consumer/odr_static_members.cpp
         tests/consumer/odr_static_members_other.cpp
@@ -106,6 +233,27 @@ if(GINT_BUILD_TESTS)
     add_gint_consumer_test(gint_consumer_odr_cxx14 "${GINT_ODR_STATIC_SOURCES}" 14)
     add_gint_consumer_test(gint_consumer_core_header tests/consumer/core_header.cpp 11)
     add_gint_consumer_test(gint_consumer_core_then_umbrella tests/consumer/core_then_umbrella.cpp 11)
+    add_gint_consumer_test(
+        gint_consumer_core_then_umbrella_checked
+        tests/consumer/core_then_umbrella.cpp
+        11
+    )
+    target_link_libraries(gint_consumer_core_then_umbrella_checked PRIVATE gint::checked)
+
+    add_gint_consumer_test(
+        gint_consumer_core_then_umbrella_no_exceptions
+        tests/consumer/core_then_umbrella.cpp
+        11
+    )
+    target_compile_options(gint_consumer_core_then_umbrella_no_exceptions PRIVATE -fno-exceptions)
+
+    add_gint_consumer_test(
+        gint_consumer_core_then_umbrella_fmt
+        tests/consumer/core_then_umbrella_fmt.cpp
+        11
+    )
+    target_compile_definitions(gint_consumer_core_then_umbrella_fmt PRIVATE GINT_ENABLE_FMT)
+    target_link_libraries(gint_consumer_core_then_umbrella_fmt PRIVATE fmt::fmt)
     add_gint_consumer_test(gint_consumer_header_contract tests/consumer/header_contract.cpp 11)
     add_gint_consumer_test(gint_consumer_gcc48_compat tests/consumer/gcc48_compat.cpp 11)
     add_gint_consumer_test(gint_consumer_no_exceptions tests/consumer/no_exceptions.cpp 11)

@@ -12,8 +12,8 @@
 
 #include <gint/gint.h>
 
-#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-#    error "gint.h lost the completed core definition pass"
+#ifndef GINT_ENABLE_FMT
+#    error "fmt-enabled staged consumer requires GINT_ENABLE_FMT"
 #endif
 #ifndef GINT_DETAIL_IO_DEFINITIONS_INCLUDED
 #    error "gint.h did not complete the IO upgrade pass"
@@ -24,17 +24,11 @@
 #ifdef GINT_DETAIL_CONFIG_NAMESPACE
 #    error "gint.h leaked a pass-local configuration macro"
 #endif
-#ifdef GINT_FORCE_INLINE
-#    error "gint.h leaked a pass-local inline macro"
-#endif
 
-#include <sstream>
 #include <string>
 
 int main()
 {
-    const gint::UInt256 value = gint::from_string<gint::UInt256>("12345678901234567890");
-    std::ostringstream out;
-    out << value;
-    return out.str() == gint::to_string(value) ? 0 : 1;
+    const gint::UInt256 value = (gint::UInt256(1) << 128) + 42;
+    return fmt::format("{}", value) == "340282366920938463463374607431768211498" ? 0 : 1;
 }

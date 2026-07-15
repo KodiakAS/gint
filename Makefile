@@ -1,6 +1,7 @@
 TEST_BUILD_DIR ?= runs/local/build
 BENCH_BUILD_DIR ?= runs/local/build-bench
 COVERAGE_DIR ?= runs/local/build-coverage
+INTERNAL_HEADERS_BUILD_DIR ?= runs/local/build-internal-headers
 
 # Parallel build jobs (auto-detect CPU cores; overridable: `make JOBS=8`)
 JOBS ?= $(shell \
@@ -16,8 +17,21 @@ CMAKE ?= cmake
 GCOVR_BIN := $(shell command -v gcovr 2>/dev/null)
 GCOVR ?= $(if $(GCOVR_BIN),$(GCOVR_BIN),python3 -m gcovr)
 LLVM_COV ?= $(shell xcrun -f llvm-cov 2>/dev/null || command -v llvm-cov 2>/dev/null)
+PYTHON ?= python3
 
-.PHONY: test bench bench-full bench-compare bench-compare-full coverage coverage-gcovr coverage-lcov clean clean-coverage image
+.PHONY: amalgamate amalgamate-check internal-headers-check test bench bench-full bench-compare bench-compare-full coverage coverage-gcovr coverage-lcov clean clean-coverage image
+
+# Regenerate or verify the committed single-header distribution. Ordinary
+# consumers never need Python because include/gint/gint.h is kept in Git.
+amalgamate:
+	$(PYTHON) scripts/generate-amalgamation.py
+
+amalgamate-check:
+	$(PYTHON) scripts/generate-amalgamation.py --check
+
+internal-headers-check:
+	CXX="$(CXX)" $(CMAKE) -S . -B "$(INTERNAL_HEADERS_BUILD_DIR)" -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=OFF
+	$(CMAKE) --build "$(INTERNAL_HEADERS_BUILD_DIR)" --target gint-internal-headers-check --parallel $(JOBS)
 
 $(TEST_BUILD_DIR)/Makefile:
 	cmake -S . -B $(TEST_BUILD_DIR) -DGINT_BUILD_TESTS=ON -DGINT_BUILD_BENCHMARKS=OFF
@@ -112,7 +126,7 @@ coverage-lcov: $(COVERAGE_DIR)/Makefile
 
 # Remove build directories
 clean:
-	rm -rf $(TEST_BUILD_DIR) $(BENCH_BUILD_DIR) $(COVERAGE_DIR)
+	rm -rf $(TEST_BUILD_DIR) $(BENCH_BUILD_DIR) $(COVERAGE_DIR) $(INTERNAL_HEADERS_BUILD_DIR)
 
 # Remove only coverage build directory
 clean-coverage:

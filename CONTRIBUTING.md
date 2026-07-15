@@ -15,6 +15,13 @@
 make test
 ```
 
+实现的 source of truth 是 `src/gint/*.hpp`；不要直接编辑生成并提交的
+`include/gint/gint.h`。修改内部头后先运行 `make amalgamate`，提交前运行
+`make internal-headers-check amalgamate-check`，确保每个内部头可独立解析且交付头
+同步。新增或移动内部头时还要在生成器 manifest 中声明角色和顺序；普通模块使用
+`#pragma once`，可重复包含的 definition-pass fragment 仅限文档规定的 lifecycle
+边界。
+
 测试构建需要 CMake、GoogleTest 和 `fmt`。可复现的 Linux 依赖与编译器环境见
 [验证环境](docs/VALIDATION_ENVIRONMENTS.md)。
 

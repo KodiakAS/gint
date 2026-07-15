@@ -67,7 +67,7 @@ jobs:
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ matrix.name }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'include/**', 'tests/**') }}
+          key: ${{ runner.os }}-${{ matrix.name }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'include/**', 'src/gint/**', 'tests/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.name }}-ccache-
       - name: Configure
@@ -138,8 +138,10 @@ jobs:
           echo "$PWD/runs/ci/cmake-3.13/bin" >> "$GITHUB_PATH"
       - name: Configure with CMake 3.13
         run: cmake -S . -B runs/ci/build-cmake-3.13 -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
-      - name: Build isolated-header consumer
-        run: cmake --build runs/ci/build-cmake-3.13 --target gint_consumer_header_contract --parallel
+      - name: Build isolated public and internal headers
+        run: |
+          cmake --build runs/ci/build-cmake-3.13 --target gint_consumer_header_contract --parallel
+          cmake --build runs/ci/build-cmake-3.13 --target gint-internal-headers-check --parallel
       - name: Run package and header contracts
         run: |
           cd runs/ci/build-cmake-3.13
@@ -219,6 +221,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check performance tooling and amalgamated header
+        run: |
+          python3 -m unittest discover -s tests/perf -p 'test_*.py'
+          bash scripts/check-internal-headers.sh g++
+          python3 scripts/generate-amalgamation.py --check
       - name: Install clang-format
         run: |
           sudo apt-get update
@@ -226,6 +233,9 @@ jobs:
       - name: Check code format
         run: |
           git ls-files '*.cpp' '*.hpp' '*.h' | while IFS= read -r file; do
+            if [[ "$file" == "include/gint/gint.h" ]]; then
+              continue
+            fi
             clang-format -i --style=file "$file"
           done
           git diff --exit-code
