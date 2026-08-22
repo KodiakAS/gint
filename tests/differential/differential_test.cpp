@@ -76,6 +76,21 @@ void verify_division_oracle_against_native()
         gint_differential::require(
             result.remainder.limbs[2] == 0 && result.remainder.limbs[3] == 0 && remainder == dividend % divisor,
             "bitwise division oracle disagrees with native UInt128 remainder");
+
+        gint_differential::wide_division_reference<2> wide_ref_dividend;
+        wide_ref_dividend.limbs[0] = static_cast<uint64_t>(dividend);
+        wide_ref_dividend.limbs[1] = static_cast<uint64_t>(dividend >> 64);
+        gint_differential::wide_division_reference<2> wide_ref_divisor;
+        wide_ref_divisor.limbs[0] = static_cast<uint64_t>(divisor);
+        wide_ref_divisor.limbs[1] = static_cast<uint64_t>(divisor >> 64);
+        const gint_differential::wide_reference_divmod_result<2> wide_result
+            = gint_differential::wide_reference_divmod(wide_ref_dividend, wide_ref_divisor);
+        const gint_differential::uint128_t wide_quotient
+            = (static_cast<gint_differential::uint128_t>(wide_result.quotient.limbs[1]) << 64) | wide_result.quotient.limbs[0];
+        const gint_differential::uint128_t wide_remainder
+            = (static_cast<gint_differential::uint128_t>(wide_result.remainder.limbs[1]) << 64) | wide_result.remainder.limbs[0];
+        gint_differential::require(wide_quotient == dividend / divisor, "wide division oracle disagrees with native UInt128 quotient");
+        gint_differential::require(wide_remainder == dividend % divisor, "wide division oracle disagrees with native UInt128 remainder");
     }
 }
 
@@ -357,6 +372,12 @@ int main(int argc, char ** argv)
         // power-of-two parser's case-folding arithmetic and become digit 9.
         gint_differential::verify_parser_api("123@456", 16);
         gint_differential::verify_parser_api("123`456", 16);
+
+        const uint8_t wide_512_division[] = {0x00, 0x0f, 0xff, 0x01, 0x7f, 0x80, 0x55, 0xaa};
+        const uint8_t wide_1024_division[] = {0x00, 0x4c, 0x13, 0x37, 0xfe, 0x80, 0x5a, 0xa5};
+        gint_differential::exercise_input(wide_512_division, sizeof(wide_512_division));
+        gint_differential::exercise_input(wide_1024_division, sizeof(wide_1024_division));
+
         std::vector<uint8_t> signed_min_division(66, 0);
         signed_min_division[1] = 0xffu;
         gint_differential::exercise_input(signed_min_division.data(), signed_min_division.size());
