@@ -207,6 +207,287 @@ UInt gint_from_input(const uint8_t * data, size_t size, size_t offset, size_t by
     return value;
 }
 
+template <size_t LimbCount>
+struct wide_division_reference
+{
+    uint64_t limbs[LimbCount];
+
+    wide_division_reference()
+        : limbs()
+    {
+    }
+};
+
+template <size_t LimbCount>
+bool wide_reference_is_zero(const wide_division_reference<LimbCount> & value)
+{
+    uint64_t combined = 0;
+    for (size_t i = 0; i < LimbCount; ++i)
+        combined |= value.limbs[i];
+    return combined == 0;
+}
+
+template <size_t LimbCount>
+int wide_reference_compare(const wide_division_reference<LimbCount> & lhs, const wide_division_reference<LimbCount> & rhs)
+{
+    for (size_t i = LimbCount; i-- > 0;)
+    {
+        if (lhs.limbs[i] < rhs.limbs[i])
+            return -1;
+        if (lhs.limbs[i] > rhs.limbs[i])
+            return 1;
+    }
+    return 0;
+}
+
+template <size_t LimbCount>
+bool wide_reference_bit(const wide_division_reference<LimbCount> & value, size_t bit)
+{
+    return ((value.limbs[bit / 64] >> (bit % 64)) & 1u) != 0;
+}
+
+template <size_t LimbCount>
+void wide_reference_set_bit(wide_division_reference<LimbCount> & value, size_t bit)
+{
+    value.limbs[bit / 64] |= uint64_t(1) << (bit % 64);
+}
+
+template <size_t LimbCount>
+bool wide_reference_shift_left_one(wide_division_reference<LimbCount> & value)
+{
+    const bool carry = (value.limbs[LimbCount - 1] >> 63) != 0;
+    for (size_t i = LimbCount; i-- > 1;)
+        value.limbs[i] = (value.limbs[i] << 1) | (value.limbs[i - 1] >> 63);
+    value.limbs[0] <<= 1;
+    return carry;
+}
+
+template <size_t LimbCount>
+wide_division_reference<LimbCount>
+wide_reference_subtract(const wide_division_reference<LimbCount> & lhs, const wide_division_reference<LimbCount> & rhs)
+{
+    wide_division_reference<LimbCount> result;
+    uint64_t borrow = 0;
+    for (size_t i = 0; i < LimbCount; ++i)
+    {
+        const uint128_t subtrahend = static_cast<uint128_t>(rhs.limbs[i]) + borrow;
+        result.limbs[i] = lhs.limbs[i] - static_cast<uint64_t>(subtrahend);
+        borrow = static_cast<uint128_t>(lhs.limbs[i]) < subtrahend;
+    }
+    return result;
+}
+
+template <size_t LimbCount>
+void wide_reference_negate(wide_division_reference<LimbCount> & value)
+{
+    uint64_t carry = 1;
+    for (size_t i = 0; i < LimbCount; ++i)
+    {
+        const uint128_t sum = static_cast<uint128_t>(~value.limbs[i]) + carry;
+        value.limbs[i] = static_cast<uint64_t>(sum);
+        carry = static_cast<uint64_t>(sum >> 64);
+    }
+}
+
+template <size_t LimbCount>
+struct wide_reference_divmod_result
+{
+    wide_division_reference<LimbCount> quotient;
+    wide_division_reference<LimbCount> remainder;
+};
+
+template <size_t LimbCount>
+wide_reference_divmod_result<LimbCount>
+wide_reference_divmod(const wide_division_reference<LimbCount> & dividend, const wide_division_reference<LimbCount> & divisor)
+{
+    require(!wide_reference_is_zero(divisor), "wide reference division by zero");
+    wide_reference_divmod_result<LimbCount> result;
+    for (size_t bit = LimbCount * 64; bit-- > 0;)
+    {
+        const bool carry = wide_reference_shift_left_one(result.remainder);
+        result.remainder.limbs[0] |= wide_reference_bit(dividend, bit) ? 1u : 0u;
+        if (carry || wide_reference_compare(result.remainder, divisor) >= 0)
+        {
+            result.remainder = wide_reference_subtract(result.remainder, divisor);
+            wide_reference_set_bit(result.quotient, bit);
+        }
+    }
+    return result;
+}
+
+template <size_t LimbCount>
+wide_division_reference<LimbCount>
+wide_reference_from_input(const uint8_t * data, size_t size, size_t offset, size_t byte_count, bool clear_top_bit = false)
+{
+    wide_division_reference<LimbCount> value;
+    for (size_t i = 0; i < byte_count; ++i)
+    {
+        uint8_t byte = input_byte(data, size, offset + i);
+        if (clear_top_bit && i + 1 == byte_count)
+            byte &= 0x7fu;
+        value.limbs[i / 8] |= uint64_t(byte) << ((i % 8) * 8);
+    }
+    return value;
+}
+
+template <size_t Bits>
+bool equal_wide_unsigned_bits(const gint::integer<Bits, unsigned> & actual, const wide_division_reference<Bits / 64> & expected)
+{
+    for (size_t limb = 0; limb < Bits / 64; ++limb)
+    {
+        if (gint_integer_access<gint::integer<Bits, unsigned>>::limb(actual, limb) != expected.limbs[limb])
+            return false;
+    }
+    return true;
+}
+
+template <size_t Bits>
+struct wide_signed_reference
+{
+    wide_division_reference<Bits / 64> magnitude;
+    bool negative;
+};
+
+template <size_t Bits>
+wide_signed_reference<Bits> make_wide_signed_reference(wide_division_reference<Bits / 64> magnitude, bool negative)
+{
+    wide_signed_reference<Bits> result = {magnitude, negative && !wide_reference_is_zero(magnitude)};
+    return result;
+}
+
+template <size_t Bits>
+wide_division_reference<Bits / 64> wide_signed_reference_bits(const wide_signed_reference<Bits> & value)
+{
+    wide_division_reference<Bits / 64> result = value.magnitude;
+    if (value.negative)
+        wide_reference_negate(result);
+    return result;
+}
+
+template <size_t Bits>
+bool equal_wide_signed_bits(const gint::integer<Bits, signed> & actual, const wide_signed_reference<Bits> & expected)
+{
+    return equal_wide_unsigned_bits(gint::integer<Bits, unsigned>(actual), wide_signed_reference_bits(expected));
+}
+
+template <size_t Bits>
+void verify_wide_signed_division(
+    const gint::integer<Bits, signed> & dividend,
+    const gint::integer<Bits, signed> & divisor,
+    const wide_signed_reference<Bits> & ref_dividend,
+    const wide_signed_reference<Bits> & ref_divisor)
+{
+    typedef gint::integer<Bits, signed> Int;
+
+    require(equal_wide_signed_bits(dividend, ref_dividend), "wide signed dividend differs from reference input");
+    require(equal_wide_signed_bits(divisor, ref_divisor), "wide signed divisor differs from reference input");
+    const wide_reference_divmod_result<Bits / 64> expected_magnitudes
+        = wide_reference_divmod(ref_dividend.magnitude, ref_divisor.magnitude);
+    const wide_signed_reference<Bits> expected_quotient
+        = make_wide_signed_reference<Bits>(expected_magnitudes.quotient, ref_dividend.negative != ref_divisor.negative);
+    const wide_signed_reference<Bits> expected_remainder
+        = make_wide_signed_reference<Bits>(expected_magnitudes.remainder, ref_dividend.negative);
+    const gint::divmod_result<Int> result = gint::divmod(dividend, divisor);
+    require(equal_wide_signed_bits(result.quotient, expected_quotient), "wide signed division quotient differs from bitwise oracle");
+    require(equal_wide_signed_bits(result.remainder, expected_remainder), "wide signed division remainder differs from bitwise oracle");
+    require(result.quotient == dividend / divisor, "wide signed divmod quotient differs from operator/");
+    require(result.remainder == dividend % divisor, "wide signed divmod remainder differs from operator%");
+    require(result.quotient * divisor + result.remainder == dividend, "wide signed division identity failed");
+    if (result.remainder != Int(0))
+        require((result.remainder < Int(0)) == (dividend < Int(0)), "wide signed remainder has the wrong sign");
+}
+
+template <size_t Bits>
+void exercise_wide_signed_min_division()
+{
+    typedef gint::integer<Bits, signed> Int;
+    typedef wide_division_reference<Bits / 64> Reference;
+
+    Reference min_magnitude;
+    min_magnitude.limbs[Bits / 64 - 1] = uint64_t(1) << 63;
+    Reference one;
+    one.limbs[0] = 1;
+    Reference small;
+    small.limbs[0] = 123;
+    Reference wide_divisor_magnitude;
+    wide_divisor_magnitude.limbs[0] = 5;
+    wide_divisor_magnitude.limbs[Bits / 64 - 1] = uint64_t(1) << 62;
+
+    const Int min_value = std::numeric_limits<Int>::min();
+    const Int wide_divisor = (Int(1) << (Bits - 2)) + Int(5);
+    const wide_signed_reference<Bits> ref_min = make_wide_signed_reference<Bits>(min_magnitude, true);
+    const wide_signed_reference<Bits> ref_minus_one = make_wide_signed_reference<Bits>(one, true);
+    const wide_signed_reference<Bits> ref_small = make_wide_signed_reference<Bits>(small, false);
+    const wide_signed_reference<Bits> ref_wide_divisor = make_wide_signed_reference<Bits>(wide_divisor_magnitude, false);
+
+    verify_wide_signed_division(min_value, Int(-1), ref_min, ref_minus_one);
+    verify_wide_signed_division(min_value, wide_divisor, ref_min, ref_wide_divisor);
+    verify_wide_signed_division(Int(123), min_value, ref_small, ref_min);
+    verify_wide_signed_division(min_value, min_value, ref_min, ref_min);
+}
+
+template <size_t Bits>
+void exercise_wide_division(const uint8_t * data, size_t size)
+{
+    static_assert(Bits == 512 || Bits == 1024, "wide differential division only covers supported large widths");
+    typedef gint::integer<Bits, unsigned> UInt;
+    typedef gint::integer<Bits, signed> Int;
+    typedef wide_division_reference<Bits / 64> Reference;
+
+    const size_t value_bytes = Bits / 8;
+    const uint8_t control = input_byte(data, size, 1);
+    const unsigned divisor_shape = (control >> 2) & 3u;
+    const size_t divisor_bytes = divisor_shape == 0 ? 8 : divisor_shape == 1 ? 16 : divisor_shape == 2 ? value_bytes / 2 : value_bytes;
+
+    const UInt dividend = gint_from_input<UInt>(data, size, 2, value_bytes);
+    UInt divisor = gint_from_input<UInt>(data, size, 2 + value_bytes, divisor_bytes);
+    const Reference ref_dividend = wide_reference_from_input<Bits / 64>(data, size, 2, value_bytes);
+    Reference ref_divisor = wide_reference_from_input<Bits / 64>(data, size, 2 + value_bytes, divisor_bytes);
+    if (wide_reference_is_zero(ref_divisor))
+    {
+        divisor = 1;
+        ref_divisor.limbs[0] = 1;
+    }
+
+    const wide_reference_divmod_result<Bits / 64> expected = wide_reference_divmod(ref_dividend, ref_divisor);
+    const gint::divmod_result<UInt> result = gint::divmod(dividend, divisor);
+    require(equal_wide_unsigned_bits(result.quotient, expected.quotient), "wide division quotient differs from bitwise oracle");
+    require(equal_wide_unsigned_bits(result.remainder, expected.remainder), "wide division remainder differs from bitwise oracle");
+    require(result.quotient == dividend / divisor, "wide divmod quotient differs from operator/");
+    require(result.remainder == dividend % divisor, "wide divmod remainder differs from operator%");
+    require(result.quotient * divisor + result.remainder == dividend, "wide division identity failed");
+    require(result.remainder < divisor, "wide division remainder is not less than divisor");
+
+    const UInt signed_dividend_magnitude = gint_from_input<UInt>(data, size, 2, value_bytes, true);
+    UInt signed_divisor_magnitude = gint_from_input<UInt>(data, size, 2 + value_bytes, divisor_bytes, divisor_bytes == value_bytes);
+    const Reference ref_signed_dividend_magnitude = wide_reference_from_input<Bits / 64>(data, size, 2, value_bytes, true);
+    Reference ref_signed_divisor_magnitude
+        = wide_reference_from_input<Bits / 64>(data, size, 2 + value_bytes, divisor_bytes, divisor_bytes == value_bytes);
+    if (wide_reference_is_zero(ref_signed_divisor_magnitude))
+    {
+        signed_divisor_magnitude = 1;
+        ref_signed_divisor_magnitude.limbs[0] = 1;
+    }
+
+    const bool dividend_negative = (control & 0x10u) != 0;
+    const bool divisor_negative = (control & 0x20u) != 0;
+    Int signed_dividend(signed_dividend_magnitude);
+    Int signed_divisor(signed_divisor_magnitude);
+    if (dividend_negative)
+        signed_dividend = -signed_dividend;
+    if (divisor_negative)
+        signed_divisor = -signed_divisor;
+
+    verify_wide_signed_division(
+        signed_dividend,
+        signed_divisor,
+        make_wide_signed_reference<Bits>(ref_signed_dividend_magnitude, dividend_negative),
+        make_wide_signed_reference<Bits>(ref_signed_divisor_magnitude, divisor_negative));
+
+    if ((control & 0x0fu) == 0x0fu)
+        exercise_wide_signed_min_division<Bits>();
+}
+
 inline bool equal_unsigned_bits(const gint::UInt256 & actual, const uint256_reference & expected)
 {
     for (unsigned limb = 0; limb < 4; ++limb)
@@ -307,6 +588,13 @@ inline void exercise_division(const uint8_t * data, size_t size)
         ref_unsigned_divisor.limbs[0] = 1;
     }
     verify_unsigned_division(unsigned_dividend, unsigned_divisor, ref_unsigned_dividend, ref_unsigned_divisor);
+
+    // Keep the established 256-bit checks on every input, then alternate the
+    // larger widths to exercise their distinct limb loops and signed wrappers.
+    if ((control & 0x40u) == 0)
+        exercise_wide_division<512>(data, size);
+    else
+        exercise_wide_division<1024>(data, size);
 
     if (control == 0xffu)
     {
