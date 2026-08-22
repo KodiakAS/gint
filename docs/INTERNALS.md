@@ -62,7 +62,8 @@ preprocessor：普通模块必须以唯一、规范的 `#pragma once` 开始；�
 `// GINT_REENTRANT_DEFINITION_PASS` 开始，并在每个 include site 重放。本地 quoted
 include 只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
 `#include_next`、`__has_include`、`__has_include_next`、`__has_embed`、
-module/import 控制行、块注释、raw string、pragma operator、trigraph、digraph 和
+module/import 控制行、块注释、raw string、pragma operator、trigraph、全部六种
+digraph token（`<:`、`:>`、`<%`、`%>`、`%:`、`%:%:`）和
 非规范续行都会使生成失败。危险预处理运算符即使通过宏别名出现也会被拒绝；token
 paste 仅允许用于项目定义的配置 namespace 宏。会让源码图和扁平头产生不同值的
 `__BASE_FILE__`、`__FILE__`、`__FILE_NAME__`、`__INCLUDE_LEVEL__`、`__LINE__`、

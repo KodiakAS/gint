@@ -90,8 +90,7 @@ CONDITIONAL_BRANCH_RE = re.compile(
 CONDITIONAL_END_RE = re.compile(
     br"^[ \t\v\f]*#[ \t\v\f]*endif(?:[ \t\v\f]|$)"
 )
-PREPROCESSOR_DIRECTIVE_RE = re.compile(br"^[ \t\v\f]*(?:#|%:)")
-DIGRAPH_DIRECTIVE_RE = re.compile(br"^[ \t\v\f]*%:")
+PREPROCESSOR_DIRECTIVE_RE = re.compile(br"^[ \t\v\f]*#")
 DIRECTIVE_NAME_RE = re.compile(br"^[ \t\v\f]*#[ \t\v\f]*([A-Za-z_][A-Za-z_0-9]*)")
 DEFINE_DIRECTIVE_RE = re.compile(
     br"^[ \t\v\f]*#[ \t\v\f]*define(?:[ \t\v\f]|$)"
@@ -101,6 +100,7 @@ UNSUPPORTED_INCLUDE_DIRECTIVE_RE = re.compile(
 )
 FILE_SEARCH_OPERATOR_RE = re.compile(br"\b(?:__has_embed|__has_include|__has_include_next)\b")
 TRIGRAPH_RE = re.compile(br"\?\?[=/'()!<>-]")
+DIGRAPH_RE = re.compile(br"(?:%:%:|<:|:>|<%|%>|%:)")
 PRAGMA_OPERATOR_RE = re.compile(br"\b(?:_Pragma|__pragma)\b")
 FILE_CONTEXT_MACRO_RE = re.compile(
     br"\b(?:__BASE_FILE__|__FILE__|__FILE_NAME__|__INCLUDE_LEVEL__|__LINE__|__TIMESTAMP__)\b"
@@ -175,6 +175,12 @@ def logical_line_groups(content, description):
         raise AmalgamationError(
             "trigraphs are not supported at {0}:{1}".format(description, line_number)
         )
+    digraph = DIGRAPH_RE.search(content)
+    if digraph:
+        line_number = content.count(b"\n", 0, digraph.start()) + 1
+        raise AmalgamationError(
+            "digraphs are not supported at {0}:{1}".format(description, line_number)
+        )
     lines = content.splitlines(True)
     groups = []
     index = 0
@@ -246,12 +252,6 @@ def logical_line_groups(content, description):
 def validate_directive_spelling(logical_line, was_spliced, description, line_number):
     if not PREPROCESSOR_DIRECTIVE_RE.match(logical_line):
         return
-    if DIGRAPH_DIRECTIVE_RE.match(logical_line):
-        raise AmalgamationError(
-            "digraph preprocessing directive is not supported at {0}:{1}".format(
-                description, line_number
-            )
-        )
     if UNSUPPORTED_INCLUDE_DIRECTIVE_RE.match(logical_line):
         raise AmalgamationError(
             "#import and #include_next are not supported at {0}:{1}".format(
