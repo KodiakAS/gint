@@ -45,8 +45,6 @@ TEST(WideIntegerNumericLimits, Basic)
     static_assert(std::numeric_limits<S>::is_modulo, "numeric_limits<S>::is_modulo");
 
     // digit counts
-    const int U_bits = static_cast<int>(sizeof(U) * 8);
-    const int S_bits = static_cast<int>(sizeof(S) * 8);
     static_assert(std::numeric_limits<U>::digits == sizeof(U) * 8, "digits U");
     static_assert(std::numeric_limits<S>::digits == sizeof(S) * 8 - 1, "digits S");
     static_assert(std::numeric_limits<U>::digits10 == (sizeof(U) * 8) * 30103 / 100000, "digits10 U");

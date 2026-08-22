@@ -148,6 +148,8 @@ TEST(WideIntegerProperty, Int256DivModIdentityAndRemainderSign)
         EXPECT_EQ(quotient * divisor + remainder, dividend);
         EXPECT_LT(abs_s256(remainder), abs_s256(divisor));
         if (remainder != gint::Int256(0))
+        {
             EXPECT_EQ(remainder < gint::Int256(0), dividend < gint::Int256(0));
+        }
     }
 }
