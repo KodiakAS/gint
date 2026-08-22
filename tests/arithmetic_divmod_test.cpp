@@ -503,10 +503,8 @@ TEST(WideIntegerDivision, SingleLimbZero)
 {
     using U128 = gint::integer<128, unsigned>;
     U128 one = 1;
-    U128 zero = 0;
     auto q = one / (one + one);
-    (void)q;
-    EXPECT_EQ(zero, U128(0));
+    EXPECT_EQ(q, U128(0));
 }
 
 TEST(WideIntegerDivision, SingleLimbBasic)
