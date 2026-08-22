@@ -579,6 +579,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
             (b'#pragma once\n#if __has_include_next("other.hpp")\n#endif\n', "file-search preprocessing operators"),
             (b'#pragma once\n#if __has_embed("other.bin")\n#endif\n', "file-search preprocessing operators"),
             (b'#pragma once\n#if __has_em\\\nbed("other.bin")\n#endif\n', "file-search preprocessing operators"),
+            (b'#pragma once\n#define H __has_include\n#if H("other.hpp")\n#endif\n', "file-search preprocessing operators"),
             (b'#pragma once\n#inclu\\\nde "other.hpp"\n', "line-spliced preprocessing directive"),
             (b'#pragma once\n#include "other.hpp"\n#/**/include "other.hpp"\n', "block comments are not supported"),
             (b'#pragma once\n#include "other.hpp"\n#include/**/ "other.hpp"\n', "block comments are not supported"),
@@ -588,8 +589,17 @@ class GenerateAmalgamationTest(unittest.TestCase):
             (b'#pragma once\n#include "other.hpp"\n??=include "other.hpp"\n', "trigraphs are not supported"),
             (b'#pragma once\n#include "other.hpp"\n_Pragma("once")\n', "pragma operators are not supported"),
             (b'#pragma once\n#include "other.hpp"\n#define P(x) _Pragma(#x)\nP(once)\n', "pragma operators are not supported"),
+            (b'#pragma once\n#define P _Pragma\nP("once")\n', "pragma operators are not supported"),
             (b'#pragma once\n#include "other.hpp"\n__pragma(once)\n', "pragma operators are not supported"),
             (b'#pragma once\n#include "other.hpp"\n_Pra\\\ngma("once")\n', "pragma operators are not supported"),
+            (b'#pragma once\n#define CAT_I(a, b) a##b\n#define CAT(a, b) CAT_I(a, b)\nCAT(_Pr, agma)("once")\n', "token-pasting operators are not supported"),
+            (b'#pragma once\n#define CAT(a, b) a %:%: b\nCAT(_Pr, agma)("once")\n', "token-pasting operators are not supported"),
+            (b"#pragma once\nint line = __LINE__;\n", "file-context predefined macros"),
+            (b"#pragma once\nint level = __INCLUDE_LEVEL__;\n", "file-context predefined macros"),
+            (b"#pragma once\nconst char * file = __FILE__;\n", "file-context predefined macros"),
+            (b"#pragma once\nconst char * file_name = __FILE_NAME__;\n", "file-context predefined macros"),
+            (b"#pragma once\nconst char * base_file = __BASE_FILE__;\n", "file-context predefined macros"),
+            (b"#pragma once\nconst char * timestamp = __TIMESTAMP__;\n", "file-context predefined macros"),
             (b'#pragma once\n#include "other.hpp"\n#import "other.hpp"\n', "#import and #include_next are not supported"),
             (b'#pragma once\n#include "other.hpp"\n#include_next "other.hpp"\n', "#import and #include_next are not supported"),
             (b'#pragma once\n#include "other.hpp"\n#unknown_directive\n', "unsupported preprocessing directive"),
@@ -620,6 +630,18 @@ class GenerateAmalgamationTest(unittest.TestCase):
                     AMALGAMATION.AmalgamationError, expected_error
                 ):
                     AMALGAMATION.build_amalgamation(self.root)
+
+    def test_allows_only_the_project_config_namespace_token_paste(self):
+        content = (
+            b"#pragma once\n"
+            b"#define GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \\\n"
+            b"    config_d##divzero##_g##gcc_tuned##_c##clang_tuned##_a##aarch64_asm##_e##exceptions\n"
+        )
+        self.write_bytes("src/gint/gint.hpp", content)
+        self.assertEqual(
+            AMALGAMATION.build_amalgamation(self.root),
+            content[len(b"#pragma once\n") :],
+        )
 
     def test_preserves_line_spliced_macro_definitions(self):
         self.write_bytes(

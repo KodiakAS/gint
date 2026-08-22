@@ -99,11 +99,21 @@ DEFINE_DIRECTIVE_RE = re.compile(
 UNSUPPORTED_INCLUDE_DIRECTIVE_RE = re.compile(
     br"^[ \t\v\f]*#[ \t\v\f]*(?:import|include_next)(?:[ \t\v\f]|$)"
 )
-FILE_SEARCH_OPERATOR_RE = re.compile(
-    br"\b(?:__has_embed|__has_include|__has_include_next)\s*\("
-)
+FILE_SEARCH_OPERATOR_RE = re.compile(br"\b(?:__has_embed|__has_include|__has_include_next)\b")
 TRIGRAPH_RE = re.compile(br"\?\?[=/'()!<>-]")
-PRAGMA_OPERATOR_RE = re.compile(br"\b(?:_Pragma|__pragma)\s*\(")
+PRAGMA_OPERATOR_RE = re.compile(br"\b(?:_Pragma|__pragma)\b")
+FILE_CONTEXT_MACRO_RE = re.compile(
+    br"\b(?:__BASE_FILE__|__FILE__|__FILE_NAME__|__INCLUDE_LEVEL__|__LINE__|__TIMESTAMP__)\b"
+)
+TOKEN_PASTE_RE = re.compile(br"(?:##|%:%:)")
+ALLOWED_TOKEN_PASTE_RE = re.compile(
+    br"^[ \t\v\f]*#[ \t\v\f]*define[ \t\v\f]+GINT_DETAIL_CONFIG_NAMESPACE_I"
+    br"\([ \t\v\f]*divzero[ \t\v\f]*,[ \t\v\f]*gcc_tuned[ \t\v\f]*,"
+    br"[ \t\v\f]*clang_tuned[ \t\v\f]*,[ \t\v\f]*aarch64_asm[ \t\v\f]*,"
+    br"[ \t\v\f]*exceptions[ \t\v\f]*\)[ \t\v\f]+"
+    br"config_d##divzero##_g##gcc_tuned##_c##clang_tuned##_a##aarch64_asm##_e##exceptions"
+    br"[ \t\v\f]*\n$"
+)
 RAW_STRING_RE = re.compile(br'(?:u8|u|U|L)?R"')
 WHITESPACE_SPLICE_RE = re.compile(br"\\[ \t\v\f]+\n")
 MODULE_CONTROL_LINE_RE = re.compile(
@@ -202,6 +212,18 @@ def logical_line_groups(content, description):
         if FILE_SEARCH_OPERATOR_RE.search(logical_line):
             raise AmalgamationError(
                 "file-search preprocessing operators are not supported at {0}:{1}".format(
+                    description, start_line
+                )
+            )
+        if FILE_CONTEXT_MACRO_RE.search(logical_line):
+            raise AmalgamationError(
+                "file-context predefined macros are not supported at {0}:{1}".format(
+                    description, start_line
+                )
+            )
+        if TOKEN_PASTE_RE.search(logical_line) and not ALLOWED_TOKEN_PASTE_RE.match(logical_line):
+            raise AmalgamationError(
+                "token-pasting operators are not supported at {0}:{1}".format(
                     description, start_line
                 )
             )

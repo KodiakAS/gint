@@ -5750,6 +5750,13 @@ struct hash<gint::integer<Bits, Signed>>
 
 #    endif // core or IO definition pass requires configuration
 #endif // GINT_DETAIL_HEADER_PASS_ACTIVE
+
+#if !defined(GINT_DETAIL_CORE_ONLY) && defined(GINT_DETAIL_CORE_DEFINITIONS_INCLUDED)
+#    if !defined(GINT_DETAIL_IO_PASS_IN_PROGRESS) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
+#        error "include gint IO internals through <gint/io.hpp> or <gint/gint.hpp> after <gint/core.hpp>"
+#    endif
+#endif
+
 // Intentionally unguarded: core and IO are separate, repeatable definition
 // passes. The amalgamation contract admits only classified lifecycle fragments.
 
@@ -5970,6 +5977,13 @@ struct hash<gint::integer<Bits, Signed>>
 
 #    endif // core or IO definition pass requires configuration
 #endif // GINT_DETAIL_HEADER_PASS_ACTIVE
+
+#if !defined(GINT_DETAIL_CORE_ONLY) && defined(GINT_DETAIL_CORE_DEFINITIONS_INCLUDED)
+#    if !defined(GINT_DETAIL_IO_PASS_IN_PROGRESS) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
+#        error "include gint IO internals through <gint/io.hpp> or <gint/gint.hpp> after <gint/core.hpp>"
+#    endif
+#endif
+
 // Keep IO-only dependencies outside the core prelude. Unlike the generated
 // distribution header, normal internal headers retain #pragma once state, so a
 // core-only pass cannot rely on prelude.hpp being entered again during a later

@@ -52,7 +52,9 @@ pass-local 环境的 frontier 模块直接声明 lifecycle 依赖：
 `configuration_pass.hpp` 只由 `primitives.hpp`、`string_stream.hpp`、`fmt.hpp` 各直接
 包含一次。这样后续模块不会依赖较早模块的间接 include 时序副作用。
 `cleanup_pass.hpp` 只由 `core.hpp`、`io.hpp` 各直接包含一次，且 cleanup 必须是两个
-入口的最后一条有效语句。
+入口的最后一条有效语句。`string_stream.hpp` 和 `fmt.hpp` 可作为独立翻译单元入口；
+core definitions 已完成后，IO definition pass 必须通过 `io.hpp` 或 `gint.hpp` 建立，
+直接包含这两个 IO frontier 会给出明确诊断。
 
 生成器将内部源视为受限、fail-closed 的 C++ 头文件方言，而不是尝试实现完整
 preprocessor：普通模块必须以唯一、规范的 `#pragma once` 开始；只有 manifest 中
@@ -61,8 +63,11 @@ preprocessor：普通模块必须以唯一、规范的 `#pragma once` 开始；�
 include 只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
 `#include_next`、`__has_include`、`__has_include_next`、`__has_embed`、
 module/import 控制行、块注释、raw string、pragma operator、trigraph、digraph 和
-非规范续行都会使生成失败。quoted include 必须是非空相对路径且不得包含空或
-`.` 组件；`..` 只能在 `src/gint` 内沿真实存在且非符号链接的目录回退，不得逃出
+非规范续行都会使生成失败。危险预处理运算符即使通过宏别名出现也会被拒绝；token
+paste 仅允许用于项目定义的配置 namespace 宏。会让源码图和扁平头产生不同值的
+`__BASE_FILE__`、`__FILE__`、`__FILE_NAME__`、`__INCLUDE_LEVEL__`、`__LINE__`、
+`__TIMESTAMP__` 同样不属于内部头方言。quoted include 必须是非空相对路径且不得
+包含空或 `.` 组件；`..` 只能在 `src/gint` 内沿真实存在且非符号链接的目录回退，不得逃出
 源树或穿越缺失/符号链接组件。路径按物理文件身份去重和判环，并拒绝 symlink、
 hardlink alias 与非精确大小写。普通模块按物理文件身份去重，fragment 保持判环但
 按 include site 展开。维护生成头需要 Python 3.5 或更高版本。

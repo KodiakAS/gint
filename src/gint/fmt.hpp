@@ -1,6 +1,13 @@
 #pragma once
 
 #include "configuration_pass.hpp"
+
+#if !defined(GINT_DETAIL_CORE_ONLY) && defined(GINT_DETAIL_CORE_DEFINITIONS_INCLUDED)
+#    if !defined(GINT_DETAIL_IO_PASS_IN_PROGRESS) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
+#        error "include gint IO internals through <gint/io.hpp> or <gint/gint.hpp> after <gint/core.hpp>"
+#    endif
+#endif
+
 #include "string_stream.hpp"
 
 #if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
