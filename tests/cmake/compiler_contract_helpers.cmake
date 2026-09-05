@@ -33,4 +33,3 @@ function(expect_configure_failure name compiler_id compiler_version simulate_id 
         )
     endif()
 endfunction()
-
