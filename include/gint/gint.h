@@ -1,12 +1,20 @@
+#pragma once
+
+// Fixed-width integer arithmetic.
+// Compiler requirements, version macros, and shared standard-library headers.
+
 #if defined(_MSC_VER)
 #    error "gint does not support MSVC or clang-cl; use GCC or Clang with the GNU ABI"
 #elif !defined(__GNUC__) && !defined(__clang__)
 #    error "gint requires GCC, Clang, or AppleClang"
 #endif
 
-#if defined(__GNUC__) && !defined(__clang__) \
-    && (__GNUC__ < 4 || (__GNUC__ == 4 && (__GNUC_MINOR__ < 8 || (__GNUC_MINOR__ == 8 && __GNUC_PATCHLEVEL__ < 5))))
-#    error "gint requires GCC 4.8.5 or later"
+#if defined(__GNUC__) && !defined(__clang__)
+#    if __GNUC__ < 4
+#        error "gint requires GCC 4.8.5 or later"
+#    elif __GNUC__ == 4 && (__GNUC_MINOR__ < 8 || (__GNUC_MINOR__ == 8 && __GNUC_PATCHLEVEL__ < 5))
+#        error "gint requires GCC 4.8.5 or later"
+#    endif
 #endif
 
 #if __cplusplus < 201103L
@@ -29,107 +37,96 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
-#include <iosfwd>
+#include <ios>
 #include <limits>
+#include <ostream>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
-
-#ifndef GINT_DETAIL_CORE_ONLY
-#    include <cstring>
-#    include <ios>
-#    include <ostream>
-#    include <string>
-#endif
-
-#if defined(GINT_ENABLE_FMT) && !defined(GINT_DETAIL_CORE_ONLY)
-#    include <locale>
-#    include <fmt/format.h>
-#endif
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #    include <x86intrin.h>
 #endif
 
-#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-#    define GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-#    define GINT_DETAIL_HEADER_PASS_ACTIVE
+// Private feature policies, compiler attributes, and the configuration namespace.
 
-#    define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
-#    define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
-#    define GINT_FORCE_INLINE inline __attribute__((always_inline))
+#define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
+#define GINT_FORCE_INLINE inline __attribute__((always_inline))
 
-#    if defined(__clang__)
-#        define GINT_CLANG_NOINLINE __attribute__((noinline))
-#    else
-#        define GINT_CLANG_NOINLINE
-#    endif
+#if defined(__clang__)
+#    define GINT_CLANG_NOINLINE __attribute__((noinline))
+#else
+#    define GINT_CLANG_NOINLINE
+#endif
 
-#    define GINT_NOINLINE __attribute__((noinline))
-#    define GINT_COLD __attribute__((cold))
-#    define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
+#define GINT_NOINLINE __attribute__((noinline))
+#define GINT_COLD __attribute__((cold))
+#define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
 
-#    if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
-#        define GINT_DETAIL_EXCEPTIONS_ENABLED 1
-#        define GINT_THROW(exception) throw exception
-#    else
-#        define GINT_DETAIL_EXCEPTIONS_ENABLED 0
-#        define GINT_THROW(exception) ::std::abort()
-#    endif
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#    define GINT_DETAIL_EXCEPTIONS_ENABLED 1
+#    define GINT_THROW(exception) throw exception
+#else
+#    define GINT_DETAIL_EXCEPTIONS_ENABLED 0
+#    define GINT_THROW(exception) ::std::abort()
+#endif
 
-#    if defined(GINT_ENABLE_DIVZERO_CHECKS)
-#        define GINT_DETAIL_DIVZERO_CHECKS 1
-#        define GINT_ZERO_CHECK(cond, msg) \
-            do \
-            { \
-                if (GINT_UNLIKELY(cond)) \
-                    GINT_THROW(std::domain_error(msg)); \
-            } while (false)
-#    else
-#        define GINT_DETAIL_DIVZERO_CHECKS 0
-#        define GINT_ZERO_CHECK(cond, msg) \
-            do \
-            { \
-            } while (false)
-#    endif
-#    define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
-#    define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
+#if defined(GINT_ENABLE_DIVZERO_CHECKS)
+#    define GINT_DETAIL_DIVZERO_CHECKS 1
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+            if (GINT_UNLIKELY(cond)) \
+                GINT_THROW(std::domain_error(msg)); \
+        } while (false)
+#else
+#    define GINT_DETAIL_DIVZERO_CHECKS 0
+#    define GINT_ZERO_CHECK(cond, msg) \
+        do \
+        { \
+        } while (false)
+#endif
+#define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
+#define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
 
-#    if __cplusplus >= 201402L
-#        define GINT_CONSTEXPR14 constexpr
-#    else
-#        define GINT_CONSTEXPR14
-#    endif
+#if __cplusplus >= 201402L
+#    define GINT_CONSTEXPR14 constexpr
+#else
+#    define GINT_CONSTEXPR14
+#endif
 
-#    if defined(__GNUC__) || defined(__clang__)
-#        define GINT_RESTRICT __restrict
-#    else
-#        define GINT_RESTRICT
-#    endif
+#if defined(__GNUC__) || defined(__clang__)
+#    define GINT_RESTRICT __restrict
+#else
+#    define GINT_RESTRICT
+#endif
 
-#    ifdef __has_builtin
-#        define GINT_DETAIL_HAS_BUILTIN(x) __has_builtin(x)
-#    else
-#        define GINT_DETAIL_HAS_BUILTIN(x) 0
-#    endif
+#ifdef __has_builtin
+#    define GINT_DETAIL_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#    define GINT_DETAIL_HAS_BUILTIN(x) 0
+#endif
 
-#    if GINT_DETAIL_HAS_BUILTIN(__builtin_is_constant_evaluated)
-#        define GINT_HAS_IS_CONSTANT_EVALUATED 1
-#    else
-#        define GINT_HAS_IS_CONSTANT_EVALUATED 0
-#    endif
+#if GINT_DETAIL_HAS_BUILTIN(__builtin_is_constant_evaluated)
+#    define GINT_HAS_IS_CONSTANT_EVALUATED 1
+#else
+#    define GINT_HAS_IS_CONSTANT_EVALUATED 0
+#endif
 
-#    if defined(__aarch64__)
-#        define GINT_ARCH_AARCH64 1
-#    else
-#        define GINT_ARCH_AARCH64 0
-#    endif
+#if defined(__aarch64__)
+#    define GINT_ARCH_AARCH64 1
+#else
+#    define GINT_ARCH_AARCH64 0
+#endif
 
-#    if defined(__x86_64__)
-#        define GINT_ARCH_X86_64 1
-#    else
-#        define GINT_ARCH_X86_64 0
-#    endif
+#if defined(__x86_64__)
+#    define GINT_ARCH_X86_64 1
+#else
+#    define GINT_ARCH_X86_64 0
+#endif
 
 // Public configuration boundary:
 // - User-facing switches are GINT_ENABLE_FMT, GINT_ENABLE_DIVZERO_CHECKS,
@@ -137,68 +134,68 @@
 //   GINT_ENABLE_AARCH64_LIMB_ASM.
 // - Fast paths are governed internally by the four platform policies below.
 //   Keep one-off compiler defect checks separate from algorithm selection.
-#    ifndef GINT_ENABLE_AARCH64_LIMB_ASM
-#        if GINT_ARCH_AARCH64
-#            define GINT_ENABLE_AARCH64_LIMB_ASM 1
-#        else
-#            define GINT_ENABLE_AARCH64_LIMB_ASM 0
-#        endif
+#ifndef GINT_ENABLE_AARCH64_LIMB_ASM
+#    if GINT_ARCH_AARCH64
+#        define GINT_ENABLE_AARCH64_LIMB_ASM 1
+#    else
+#        define GINT_ENABLE_AARCH64_LIMB_ASM 0
 #    endif
+#endif
 
 // Compiler-tuned path policy:
 // - GCC benefits from selected small-number/division/modulo fast paths.
 // - Clang benefits from a narrower modulo fast path and otherwise prefers
 //   several generic paths that optimize better under AppleClang on AArch64.
-#    ifndef GINT_GCC_TUNED_PATHS
-#        if defined(__clang__)
-#            define GINT_GCC_TUNED_PATHS 0
-#        elif defined(__GNUC__)
-#            define GINT_GCC_TUNED_PATHS 1
-#        else
-#            define GINT_GCC_TUNED_PATHS 0
-#        endif
+#ifndef GINT_GCC_TUNED_PATHS
+#    if defined(__clang__)
+#        define GINT_GCC_TUNED_PATHS 0
+#    elif defined(__GNUC__)
+#        define GINT_GCC_TUNED_PATHS 1
+#    else
+#        define GINT_GCC_TUNED_PATHS 0
 #    endif
+#endif
 
-#    ifndef GINT_CLANG_TUNED_PATHS
-#        if defined(__clang__)
-#            define GINT_CLANG_TUNED_PATHS 1
-#        else
-#            define GINT_CLANG_TUNED_PATHS 0
-#        endif
+#ifndef GINT_CLANG_TUNED_PATHS
+#    if defined(__clang__)
+#        define GINT_CLANG_TUNED_PATHS 1
+#    else
+#        define GINT_CLANG_TUNED_PATHS 0
 #    endif
+#endif
 
-#    if GINT_GCC_TUNED_PATHS && GINT_CLANG_TUNED_PATHS
-#        error "GINT_GCC_TUNED_PATHS and GINT_CLANG_TUNED_PATHS are mutually exclusive"
-#    endif
+#if GINT_GCC_TUNED_PATHS && GINT_CLANG_TUNED_PATHS
+#    error "GINT_GCC_TUNED_PATHS and GINT_CLANG_TUNED_PATHS are mutually exclusive"
+#endif
 
-#    define GINT_DETAIL_X86_64_GCC (GINT_ARCH_X86_64 && GINT_GCC_TUNED_PATHS)
-#    define GINT_DETAIL_X86_64_CLANG (GINT_ARCH_X86_64 && GINT_CLANG_TUNED_PATHS)
-#    define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
-#    define GINT_DETAIL_AARCH64_CLANG (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#define GINT_DETAIL_X86_64_GCC (GINT_ARCH_X86_64 && GINT_GCC_TUNED_PATHS)
+#define GINT_DETAIL_X86_64_CLANG (GINT_ARCH_X86_64 && GINT_CLANG_TUNED_PATHS)
+#define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
+#define GINT_DETAIL_AARCH64_CLANG (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
 
 // GCC only exposes the x86_64 carry/borrow intrinsics used below starting in
 // GCC 7. Older supported GCC releases use the scalar __int128 implementation.
-#    if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 7
-#        define GINT_DETAIL_X86_64_CARRY_INTRINSICS 0
-#    else
-#        define GINT_DETAIL_X86_64_CARRY_INTRINSICS (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG)
-#    endif
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 7
+#    define GINT_DETAIL_X86_64_CARRY_INTRINSICS 0
+#else
+#    define GINT_DETAIL_X86_64_CARRY_INTRINSICS (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG)
+#endif
 
 // GCC before 9 rejects intrinsics inside C++17 constexpr functions even when
 // guarded by __builtin_is_constant_evaluated().
-#    if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9 && __cplusplus < 202002L
-#        define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 0
-#    else
-#        define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 1
-#    endif
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9 && __cplusplus < 202002L
+#    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 0
+#else
+#    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 1
+#endif
 
-#    ifndef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
-#        if GINT_GCC_TUNED_PATHS
-#            define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_NOINLINE
-#        else
-#            define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_FORCE_INLINE
-#        endif
+#ifndef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#    if GINT_GCC_TUNED_PATHS
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_NOINLINE
+#    else
+#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_FORCE_INLINE
 #    endif
+#endif
 
 // Internal fast-path index and validation contract:
 // - Add/Sub: x86 carry/borrow intrinsics, AArch64 limb asm, and AArch64
@@ -211,47 +208,49 @@
 //   Recheck Shift/LeftVariable with Add/Sub neighbors.
 // - Div/Mod: positive-limb, int128, two-limb divisor, quotient multiply,
 //   and large-direct remainder paths. Recheck Div/ and Mod/ together.
-#    if GINT_DETAIL_X86_64_GCC
-#        define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
-#        define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
-#    else
-#        define GINT_WIDE_SHIFT_INLINE GINT_FORCE_INLINE
-#        define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
-#    endif
+#if GINT_DETAIL_X86_64_GCC
+#    define GINT_WIDE_SHIFT_INLINE inline GINT_NOINLINE GINT_COLD
+#    define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
+#else
+#    define GINT_WIDE_SHIFT_INLINE GINT_FORCE_INLINE
+#    define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
+#endif
 
-#    if GINT_GCC_TUNED_PATHS
-#        define GINT_DETAIL_GCC_TUNED_POLICY 1
-#    else
-#        define GINT_DETAIL_GCC_TUNED_POLICY 0
-#    endif
+#if GINT_GCC_TUNED_PATHS
+#    define GINT_DETAIL_GCC_TUNED_POLICY 1
+#else
+#    define GINT_DETAIL_GCC_TUNED_POLICY 0
+#endif
 
-#    if GINT_CLANG_TUNED_PATHS
-#        define GINT_DETAIL_CLANG_TUNED_POLICY 1
-#    else
-#        define GINT_DETAIL_CLANG_TUNED_POLICY 0
-#    endif
+#if GINT_CLANG_TUNED_PATHS
+#    define GINT_DETAIL_CLANG_TUNED_POLICY 1
+#else
+#    define GINT_DETAIL_CLANG_TUNED_POLICY 0
+#endif
 
-#    if GINT_ENABLE_AARCH64_LIMB_ASM
-#        define GINT_DETAIL_AARCH64_ASM_POLICY 1
-#    else
-#        define GINT_DETAIL_AARCH64_ASM_POLICY 0
-#    endif
+#if GINT_ENABLE_AARCH64_LIMB_ASM
+#    define GINT_DETAIL_AARCH64_ASM_POLICY 1
+#else
+#    define GINT_DETAIL_AARCH64_ASM_POLICY 0
+#endif
 
 // Encode every user-selectable code-generation/semantic policy in the ABI.
 // The inline namespace is invisible at the source level (`gint::integer` keeps
 // working), while differently configured translation units get distinct
 // symbols instead of linker-order-dependent COMDAT selection.
-#    define GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
-        config_d##divzero##_g##gcc_tuned##_c##clang_tuned##_a##aarch64_asm##_e##exceptions
-#    define GINT_DETAIL_CONFIG_NAMESPACE_II(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
-        GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions)
-#    define GINT_DETAIL_CONFIG_NAMESPACE \
-        GINT_DETAIL_CONFIG_NAMESPACE_II( \
-            GINT_DETAIL_DIVZERO_CHECKS, \
-            GINT_DETAIL_GCC_TUNED_POLICY, \
-            GINT_DETAIL_CLANG_TUNED_POLICY, \
-            GINT_DETAIL_AARCH64_ASM_POLICY, \
-            GINT_DETAIL_EXCEPTIONS_ENABLED)
+#define GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
+    config_d##divzero##_g##gcc_tuned##_c##clang_tuned##_a##aarch64_asm##_e##exceptions
+#define GINT_DETAIL_CONFIG_NAMESPACE_II(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
+    GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions)
+#define GINT_DETAIL_CONFIG_NAMESPACE \
+    GINT_DETAIL_CONFIG_NAMESPACE_II( \
+        GINT_DETAIL_DIVZERO_CHECKS, \
+        GINT_DETAIL_GCC_TUNED_POLICY, \
+        GINT_DETAIL_CLANG_TUNED_POLICY, \
+        GINT_DETAIL_AARCH64_ASM_POLICY, \
+        GINT_DETAIL_EXCEPTIONS_ENABLED)
+
+// Integer forward declarations, type traits, and fixed-size limb operations.
 
 namespace gint
 {
@@ -270,10 +269,10 @@ using UInt256 = integer<256, unsigned>;
 //=== Internal helper utilities ==============================================
 namespace detail
 {
-#    ifdef GINT_TEST_ACCESS
+#ifdef GINT_TEST_ACCESS
 template <size_t Bits, typename Signed>
 struct integer_test_access;
-#    endif
+#endif
 
 template <size_t Bits, typename Signed>
 integer<Bits, Signed> parse_string_range(const char * begin, const char * end, unsigned base);
@@ -483,7 +482,7 @@ GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
+#if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned char carry = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -492,7 +491,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         dst[i] = static_cast<uint64_t>(r);
     }
     return;
-#    elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
+#elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
     unsigned long long carry = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -503,7 +502,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         carry = carry_out;
     }
     return;
-#    endif
+#endif
     add_limbs_copy_scalar<L>(dst, lhs, rhs);
 }
 
@@ -522,7 +521,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t 
 template <>
 GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_CLANG && GINT_DETAIL_X86_64_CARRY_INTRINSICS
+#if GINT_DETAIL_X86_64_CLANG && GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned long long r0;
     unsigned long long r1;
     unsigned long long r2;
@@ -536,7 +535,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
     dst[2] = static_cast<uint64_t>(r2);
     dst[3] = static_cast<uint64_t>(r3);
     return;
-#    elif GINT_ARCH_AARCH64 && GINT_ENABLE_AARCH64_LIMB_ASM
+#elif GINT_ARCH_AARCH64 && GINT_ENABLE_AARCH64_LIMB_ASM
     asm volatile("ldp x8, x9, [%[lhs]]\n\t"
                  "ldp x10, x11, [%[lhs], #16]\n\t"
                  "ldp x12, x13, [%[rhs]]\n\t"
@@ -551,7 +550,7 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
                  : [dst] "r"(dst), [lhs] "r"(lhs), [rhs] "r"(rhs)
                  : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "cc", "memory");
     return;
-#    endif
+#endif
     using u128 = unsigned __int128;
     const u128 lo_a = (u128(lhs[1]) << 64) | lhs[0];
     const u128 lo_b = (u128(rhs[1]) << 64) | rhs[0];
@@ -571,18 +570,18 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
 template <size_t L>
 GINT_CONSTEXPR14 inline void add_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         add_limbs_copy_scalar<L>(dst, lhs, rhs);
         return;
     }
     add_limbs_copy_runtime<L>(dst, lhs, rhs);
-#    elif __cplusplus >= 201402L
+#elif __cplusplus >= 201402L
     add_limbs_copy_scalar<L>(dst, lhs, rhs);
-#    else
+#else
     add_limbs_copy_runtime<L>(dst, lhs, rhs);
-#    endif
+#endif
 }
 
 template <size_t L>
@@ -607,7 +606,7 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
+#if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned char borrow = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -616,7 +615,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         dst[i] = static_cast<uint64_t>(r);
     }
     return;
-#    elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
+#elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
     unsigned long long borrow = 0;
     for (size_t i = 0; i < L; ++i)
     {
@@ -627,7 +626,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * l
         borrow = borrow_out;
     }
     return;
-#    endif
+#endif
     sub_limbs_copy_scalar<L>(dst, lhs, rhs);
 }
 
@@ -640,7 +639,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<2>(uint64_t * dst, const uint64_t 
 template <>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_CARRY_INTRINSICS
+#if GINT_DETAIL_X86_64_CARRY_INTRINSICS
     unsigned long long r0;
     unsigned long long r1;
     unsigned long long r2;
@@ -654,7 +653,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
     dst[2] = static_cast<uint64_t>(r2);
     dst[3] = static_cast<uint64_t>(r3);
     return;
-#    elif GINT_ARCH_AARCH64 && GINT_ENABLE_AARCH64_LIMB_ASM
+#elif GINT_ARCH_AARCH64 && GINT_ENABLE_AARCH64_LIMB_ASM
     asm volatile("ldp x8, x9, [%[lhs]]\n\t"
                  "ldp x10, x11, [%[lhs], #16]\n\t"
                  "ldp x12, x13, [%[rhs]]\n\t"
@@ -669,7 +668,7 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
                  : [dst] "r"(dst), [lhs] "r"(lhs), [rhs] "r"(rhs)
                  : "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "cc", "memory");
     return;
-#    endif
+#endif
     using u128 = unsigned __int128;
     const u128 lo_a = (u128(lhs[1]) << 64) | lhs[0];
     const u128 lo_b = (u128(rhs[1]) << 64) | rhs[0];
@@ -689,18 +688,18 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
 template <size_t L>
 GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         sub_limbs_copy_scalar<L>(dst, lhs, rhs);
         return;
     }
     sub_limbs_copy_runtime<L>(dst, lhs, rhs);
-#    elif __cplusplus >= 201402L
+#elif __cplusplus >= 201402L
     sub_limbs_copy_scalar<L>(dst, lhs, rhs);
-#    else
+#else
     sub_limbs_copy_runtime<L>(dst, lhs, rhs);
-#    endif
+#endif
 }
 
 template <size_t L>
@@ -765,22 +764,22 @@ template <>
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 bit_xor_limbs<2>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
     if (__builtin_is_constant_evaluated())
     {
         dst[0] = lhs[0] ^ rhs[0];
         dst[1] = lhs[1] ^ rhs[1];
         return;
     }
-#    endif
-#    if GINT_ARCH_X86_64 && defined(__SSE2__) && GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE
+#endif
+#if GINT_ARCH_X86_64 && defined(__SSE2__) && GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE
     const __m128i l = _mm_loadu_si128(reinterpret_cast<const __m128i *>(lhs));
     const __m128i r = _mm_loadu_si128(reinterpret_cast<const __m128i *>(rhs));
     _mm_storeu_si128(reinterpret_cast<__m128i *>(dst), _mm_xor_si128(l, r));
-#    else
+#else
     dst[0] = lhs[0] ^ rhs[0];
     dst[1] = lhs[1] ^ rhs[1];
-#    endif
+#endif
 }
 
 template <>
@@ -793,7 +792,7 @@ bit_xor_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lh
     dst[3] = lhs[3] ^ rhs[3];
 }
 
-#    if GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_CLANG
 template <>
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 bit_xor_limbs<16>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
@@ -815,12 +814,12 @@ bit_xor_limbs<16>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT l
     dst[14] = lhs[14] ^ rhs[14];
     dst[15] = lhs[15] ^ rhs[15];
 }
-#    endif
+#endif
 
 GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
 {
     using u128 = unsigned __int128;
-#    if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
+#if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
     u128 cur = u128(lhs[0]) * rhs;
     res[0] = static_cast<uint64_t>(cur);
     cur = u128(lhs[1]) * rhs + (cur >> 64);
@@ -829,7 +828,7 @@ GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const ui
     res[2] = static_cast<uint64_t>(cur);
     cur = u128(lhs[3]) * rhs + (cur >> 64);
     res[3] = static_cast<uint64_t>(cur);
-#    else
+#else
     u128 carry = 0;
     for (size_t i = 0; i < 4; ++i)
     {
@@ -837,7 +836,7 @@ GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const ui
         res[i] = static_cast<uint64_t>(cur);
         carry = cur >> 64;
     }
-#    endif
+#endif
 }
 
 GINT_FORCE_INLINE void
@@ -899,7 +898,7 @@ GINT_FORCE_INLINE
 bool mul_limbs4_try_small_operand(
     uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#    if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
+#if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
     using u128 = unsigned __int128;
     if ((rhs[1] | rhs[2] | rhs[3]) == 0)
     {
@@ -959,15 +958,15 @@ bool mul_limbs4_try_small_operand(
         }
         return true;
     }
-#    else
+#else
     (void)res;
     (void)lhs;
     (void)rhs;
-#    endif
+#endif
     return false;
 }
 
-#    if GINT_DETAIL_X86_64_GCC
+#if GINT_DETAIL_X86_64_GCC
 inline GINT_NOINLINE GINT_COLD void mul_limbs4_u64(uint64_t * GINT_RESTRICT res, uint64_t lhs, uint64_t rhs) noexcept
 {
     const unsigned __int128 p = static_cast<unsigned __int128>(lhs) * rhs;
@@ -976,7 +975,7 @@ inline GINT_NOINLINE GINT_COLD void mul_limbs4_u64(uint64_t * GINT_RESTRICT res,
     res[2] = 0;
     res[3] = 0;
 }
-#    endif
+#endif
 
 // Perform fixed-width multiplication using the generic schoolbook method.
 // Only the low L limbs are retained.
@@ -1025,7 +1024,7 @@ GINT_FORCE_INLINE void
 mul_limbs4_general(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
     using u128 = unsigned __int128;
-#    if GINT_ARCH_X86_64
+#if GINT_ARCH_X86_64
     const u128 a01 = (u128(lhs[1]) << 64) | lhs[0];
     const u128 a23 = (u128(lhs[3]) << 64) | lhs[2];
     const u128 a0 = lhs[0];
@@ -1055,7 +1054,7 @@ mul_limbs4_general(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT 
 
     res[1] = static_cast<uint64_t>(r12);
     res[2] = static_cast<uint64_t>(r12 >> 64);
-#    else
+#else
     const uint64_t a0 = lhs[0], a1 = lhs[1], a2 = lhs[2], a3 = lhs[3];
     const uint64_t b0 = rhs[0], b1 = rhs[1], b2 = rhs[2], b3 = rhs[3];
 
@@ -1105,21 +1104,21 @@ mul_limbs4_general(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT 
         u128 lo_acc = u128(static_cast<uint64_t>(carry)) + lo_add;
         res[3] = static_cast<uint64_t>(lo_acc);
     }
-#    endif
+#endif
 }
 
 template <>
 GINT_FORCE_INLINE void
 mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#    if GINT_DETAIL_X86_64_GCC
+#if GINT_DETAIL_X86_64_GCC
     if (GINT_LIKELY((lhs[3] | rhs[3]) == 0 && (lhs[2] | rhs[2] | lhs[1] | rhs[1]) == 0))
     {
         mul_limbs4_u64(res, lhs[0], rhs[0]);
         return;
     }
-#    endif
-#    if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
+#endif
+#if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
     const bool lhs_above_128 = (lhs[2] | lhs[3]) != 0;
     const bool rhs_above_128 = (rhs[2] | rhs[3]) != 0;
     if (GINT_LIKELY(lhs_above_128 && rhs_above_128))
@@ -1129,7 +1128,7 @@ mul_limbs<4>(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, c
     }
     if (mul_limbs4_try_small_operand(res, lhs, rhs))
         return;
-#    endif
+#endif
     mul_limbs4_general(res, lhs, rhs);
 }
 
@@ -1150,10 +1149,10 @@ template <size_t L>
 GINT_FORCE_INLINE void
 mul_limbs_result(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#    if !GINT_DETAIL_X86_64_GCC
+#if !GINT_DETAIL_X86_64_GCC
     if (L > 4 && GINT_UNLIKELY(lhs[L - 1] == 0 || rhs[L - 1] == 0) && mul_try_single_limb_operand<L>(res, lhs, rhs))
         return;
-#    endif
+#endif
     mul_limbs_schoolbook_result<L>(res, lhs, rhs);
 }
 
@@ -1266,6 +1265,16 @@ GINT_FORCE_INLINE void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
 
 } // namespace detail
 
+} // namespace GINT_DETAIL_CONFIG_NAMESPACE
+} // namespace gint
+
+// The integer class: storage, operators, conversions, and private arithmetic kernels.
+
+namespace gint
+{
+inline namespace GINT_DETAIL_CONFIG_NAMESPACE
+{
+
 //=== String and stream declarations =========================================
 template <size_t Bits, typename Signed>
 std::string to_string(const integer<Bits, Signed> & value);
@@ -1309,9 +1318,9 @@ public:
     friend class integer;
     friend class std::numeric_limits<integer<Bits, Signed>>;
     friend struct std::hash<integer<Bits, Signed>>;
-#    ifdef GINT_TEST_ACCESS
+#ifdef GINT_TEST_ACCESS
     friend struct detail::integer_test_access<Bits, Signed>;
-#    endif
+#endif
 
 private:
     struct uninitialized_tag
@@ -1952,7 +1961,7 @@ private:
         return integer();
     }
 
-#    if !GINT_GCC_TUNED_PATHS
+#if !GINT_GCC_TUNED_PATHS
     template <size_t L = limbs>
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), integer>::type
     shift_right_positive_value(const integer & lhs, size_t n) noexcept
@@ -1966,13 +1975,13 @@ private:
     {
         return shift_right_value(lhs, static_cast<int>(n));
     }
-#    endif
+#endif
 
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_unsigned_value(const integer & lhs, unsigned n) noexcept
     {
         if (GINT_UNLIKELY(n >= Bits))
             return integer();
-#    if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
+#if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
         if (limbs <= 8)
         {
             integer result = lhs;
@@ -1980,24 +1989,24 @@ private:
             return result;
         }
         return shift_left_value_by_size_in_range(lhs, n);
-#    else
+#else
         integer result = lhs;
         result <<= static_cast<int>(n);
         return result;
-#    endif
+#endif
     }
 
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_unsigned_value(const integer & lhs, unsigned n) noexcept
     {
         if (GINT_UNLIKELY(n >= Bits))
             return shifted_out_value(lhs);
-#    if !GINT_GCC_TUNED_PATHS
+#if !GINT_GCC_TUNED_PATHS
         return shift_right_positive_value(lhs, n);
-#    else
+#else
         integer result = lhs;
         result >>= static_cast<int>(n);
         return result;
-#    endif
+#endif
     }
 
     template <typename T>
@@ -2007,7 +2016,7 @@ private:
             return lhs;
         if (shift_amount_reaches_width(n))
             return integer();
-#    if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
+#if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
         if (limbs <= 8)
         {
             integer result = lhs;
@@ -2015,11 +2024,11 @@ private:
             return result;
         }
         return shift_left_value(lhs, static_cast<int>(n));
-#    else
+#else
         integer result = lhs;
         result <<= static_cast<int>(n);
         return result;
-#    endif
+#endif
     }
 
     template <typename T>
@@ -2029,13 +2038,13 @@ private:
             return lhs;
         if (shift_amount_reaches_width(n))
             return shifted_out_value(lhs);
-#    if !GINT_GCC_TUNED_PATHS
+#if !GINT_GCC_TUNED_PATHS
         return shift_right_positive_value(lhs, static_cast<size_t>(n));
-#    else
+#else
         integer result = lhs;
         result >>= static_cast<int>(n);
         return result;
-#    endif
+#endif
     }
 
     GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE integer & shift_left_assign_wide(size_t limb_shift, unsigned bit_shift) noexcept
@@ -2100,14 +2109,14 @@ private:
         return *this;
     }
 
-#    if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
+#if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size_in_range(const integer & value, size_t shift) noexcept
     {
-#        if __cplusplus >= 201402L
+#    if __cplusplus >= 201402L
         integer result;
-#        else
+#    else
         integer result(uninitialized_tag{});
-#        endif
+#    endif
         const size_t limb_shift = shift / 64;
         const unsigned bit_shift = static_cast<unsigned>(shift % 64);
         if (bit_shift)
@@ -2157,9 +2166,9 @@ private:
         return shift_left_value_by_size(value, static_cast<size_t>(n));
     }
 
-#    endif
+#endif
 
-#    if !GINT_GCC_TUNED_PATHS
+#if !GINT_GCC_TUNED_PATHS
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE void
     shift_right_value_into(integer & result, const integer & value, size_t shift, limb_type fill) noexcept
     {
@@ -2209,7 +2218,7 @@ private:
         const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
         const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
         const size_t shift = static_cast<size_t>(n);
-#        if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
         if (!__builtin_is_constant_evaluated())
         {
             integer result(uninitialized_tag{});
@@ -2217,15 +2226,15 @@ private:
             return result;
         }
         integer result;
-#        elif __cplusplus >= 201402L
+#    elif __cplusplus >= 201402L
         integer result;
-#        else
+#    else
         integer result(uninitialized_tag{});
-#        endif
+#    endif
         shift_right_value_into(result, value, shift, fill);
         return result;
     }
-#    endif
+#endif
 
 public:
     // Increment and decrement
@@ -2324,13 +2333,13 @@ public:
     GINT_CONSTEXPR14 friend integer operator-(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
-#    if GINT_DETAIL_X86_64_GCC
+#if GINT_DETAIL_X86_64_GCC
         if (limbs == 4 && (rhs.data_[1] | rhs.data_[2] | rhs.data_[3]) == 0)
         {
             detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs.data_[0]);
             return result;
         }
-#    endif
+#endif
         detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
@@ -2387,14 +2396,14 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator&(const integer & lhs, const integer & rhs) noexcept
     {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
         if (__builtin_is_constant_evaluated())
         {
             integer result;
             detail::bit_and_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
             return result;
         }
-#    endif
+#endif
         integer result(uninitialized_tag{});
         detail::bit_and_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
@@ -2414,14 +2423,14 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator|(const integer & lhs, const integer & rhs) noexcept
     {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
         if (__builtin_is_constant_evaluated())
         {
             integer result;
             detail::bit_or_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
             return result;
         }
-#    endif
+#endif
         integer result(uninitialized_tag{});
         detail::bit_or_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
@@ -2441,14 +2450,14 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator^(const integer & lhs, const integer & rhs) noexcept
     {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
         if (__builtin_is_constant_evaluated())
         {
             integer result;
             detail::bit_xor_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
             return result;
         }
-#    endif
+#endif
         integer result(uninitialized_tag{});
         detail::bit_xor_limbs<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
@@ -2466,7 +2475,7 @@ public:
         return integer(lhs) ^ rhs;
     }
 
-#    if GINT_GCC_TUNED_PATHS
+#if GINT_GCC_TUNED_PATHS
     GINT_CONSTEXPR14 friend integer operator<<(integer lhs, int n) noexcept
     {
         lhs <<= n;
@@ -2478,7 +2487,7 @@ public:
         lhs >>= n;
         return lhs;
     }
-#    else
+#else
     template <size_t L = limbs, typename std::enable_if<(L <= 8), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(integer lhs, int n) noexcept
     {
@@ -2504,7 +2513,7 @@ public:
     {
         return shift_right_value(lhs, n);
     }
-#    endif
+#endif
 
     template <size_t L = limbs, typename std::enable_if<(L == 2 && Bits == 128), int>::type = 0>
     GINT_CONSTEXPR14 friend integer operator<<(const integer & lhs, unsigned n) noexcept
@@ -2564,11 +2573,11 @@ public:
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
         integer result(uninitialized_tag{});
-#    if GINT_DETAIL_X86_64_GCC
+#if GINT_DETAIL_X86_64_GCC
         if (limbs > 4 && GINT_UNLIKELY(lhs.data_[limbs - 1] == 0 || rhs.data_[limbs - 1] == 0)
             && detail::mul_try_single_limb_operand<limbs>(result.data_, lhs.data_, rhs.data_))
             return result;
-#    endif
+#endif
         // Dispatch to the limb-wise multiplication routine which selects the
         // appropriate algorithm based on operand size.
         detail::mul_limbs_result<limbs>(result.data_, lhs.data_, rhs.data_);
@@ -2611,19 +2620,19 @@ public:
 
     friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, const integer & rhs)
     {
-#    if GINT_GCC_TUNED_PATHS
+#if GINT_GCC_TUNED_PATHS
         limb_type positive_limb_divisor;
         if (positive_single_limb_value(rhs, positive_limb_divisor))
         {
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
-#        if GINT_DETAIL_AARCH64_GCC
+#    if GINT_DETAIL_AARCH64_GCC
             if (limbs == 2 && std::is_same<Signed, signed>::value && positive_limb_divisor > 0xFFFFFFFFULL
                 && (positive_limb_divisor & (positive_limb_divisor - 1)) == 0)
                 return div_by_positive_power_of_two(lhs, static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
-#        endif
+#    endif
             return div_by_positive_limb(lhs, positive_limb_divisor);
         }
-#    elif GINT_DETAIL_AARCH64_CLANG
+#elif GINT_DETAIL_AARCH64_CLANG
         if (limbs == 2)
         {
             int positive_pow_bit;
@@ -2637,7 +2646,7 @@ public:
                 return div_by_positive_limb(lhs, positive_limb_divisor);
             }
         }
-#    endif
+#endif
 
         int positive_pow_bit;
         if (positive_power_of_two_fastpath_divisor(rhs, positive_pow_bit))
@@ -2652,10 +2661,10 @@ public:
         {
             lhs_neg = lhs.data_[limbs - 1] >> 63;
             rhs_neg = divisor.data_[limbs - 1] >> 63;
-#    if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
             if (lhs_neg && rhs_neg && negative_negative_div_quotient_is_zero(lhs, divisor))
                 return integer();
-#    endif
+#endif
             const limb_type min_magnitude = static_cast<limb_type>(1ULL << 63);
             // Check the full min pattern only after the high limb matches it.
             if (lhs_neg)
@@ -2759,7 +2768,7 @@ public:
     friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, const integer & rhs)
     {
         GINT_MODZERO_CHECK(rhs.is_zero());
-#    if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
         if (limbs == 2)
         {
             limb_type positive_limb_divisor;
@@ -2768,54 +2777,54 @@ public:
                 integer result;
                 if (std::is_same<Signed, signed>::value && (lhs.data_[1] >> 63))
                 {
-#        if GINT_DETAIL_AARCH64_GCC
+#    if GINT_DETAIL_AARCH64_GCC
                     return rem_negative_int128_by_positive_limb(lhs, positive_limb_divisor);
-#        else
+#    else
                     using Unsigned = integer<Bits, unsigned>;
                     Unsigned lhs_mag;
                     copy_abs_magnitude(lhs_mag, lhs, true);
                     result.data_[0] = lhs_mag.mod_small(positive_limb_divisor);
                     negate_for_division(result);
                     return result;
-#        endif
+#    endif
                 }
 
-#        if GINT_DETAIL_AARCH64_GCC
+#    if GINT_DETAIL_AARCH64_GCC
                 using u128 = unsigned __int128;
                 const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
                 result.data_[0] = static_cast<limb_type>(lhs_raw % positive_limb_divisor);
-#        else
+#    else
                 result.data_[0] = lhs.mod_small(positive_limb_divisor);
-#        endif
+#    endif
                 return result;
             }
         }
-#    endif
-#    if GINT_CLANG_TUNED_PATHS || GINT_ARCH_X86_64
+#endif
+#if GINT_CLANG_TUNED_PATHS || GINT_ARCH_X86_64
         if (!(limbs == 2 && (GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG)))
         {
             limb_type positive_limb_divisor;
             if (positive_single_limb_value(rhs, positive_limb_divisor))
                 return rem_by_positive_limb(lhs, positive_limb_divisor);
         }
-#    endif
-#    if GINT_GCC_TUNED_PATHS
+#endif
+#if GINT_GCC_TUNED_PATHS
         if (std::is_same<Signed, signed>::value)
         {
             const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
-#        if GINT_DETAIL_X86_64_GCC
+#    if GINT_DETAIL_X86_64_GCC
             const bool lhs_neg = lhs.data_[limbs - 1] >> 63;
             if (!lhs_neg && !rhs_neg)
                 return rem_unsigned_magnitude(lhs, rhs);
-#        endif
+#    endif
             return rem_signed_magnitude(lhs, rhs, rhs_neg);
         }
         else
         {
             return rem_unsigned_magnitude(lhs, rhs);
         }
-#    else
-#        if GINT_CLANG_TUNED_PATHS
+#else
+#    if GINT_CLANG_TUNED_PATHS
         if (limbs >= 4)
         {
             if (std::is_same<Signed, signed>::value)
@@ -2825,12 +2834,12 @@ public:
             }
             return rem_unsigned_magnitude_with_large_direct(lhs, rhs);
         }
-#        endif
+#    endif
         integer q = lhs / rhs;
         q *= rhs;
         lhs -= q;
         return lhs;
-#    endif
+#endif
     }
 
     friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, limb_type rhs)
@@ -2959,10 +2968,10 @@ public:
 
     friend constexpr bool operator==(const integer & lhs, const integer & rhs) noexcept
     {
-#    if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L && !GINT_GCC_TUNED_PATHS
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L && !GINT_GCC_TUNED_PATHS
         if (!__builtin_is_constant_evaluated() && limbs == 16)
             return detail::limbs_equal_runtime_1024(lhs.data_, rhs.data_);
-#    endif
+#endif
         return detail::limbs_equal<limbs - 1>::eval(lhs, rhs);
     }
 
@@ -3572,7 +3581,7 @@ private:
             }
             return static_cast<limb_type>(data_[0] & (div - 1));
         }
-#    if GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_CLANG
         if (limbs == 2 && div > 0xFFFFFFFFULL)
         {
             const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
@@ -3581,11 +3590,11 @@ private:
             quotient.data_[1] = static_cast<limb_type>(q >> 64);
             return static_cast<limb_type>(num % div);
         }
-#    endif
-#    if GINT_ARCH_X86_64
-#        if GINT_CLANG_TUNED_PATHS
+#endif
+#if GINT_ARCH_X86_64
+#    if GINT_CLANG_TUNED_PATHS
         if (div != 10000000000000000000ULL)
-#        endif
+#    endif
         {
             u128 rem = 0;
             for (size_t i = n; i-- > 0;)
@@ -3596,7 +3605,7 @@ private:
             }
             return static_cast<limb_type>(rem);
         }
-#    endif
+#endif
         // Fast path: 32-bit divisor using reciprocal-multiply in base 2^32.
         // Compute rinv = floor((2^64-1)/d32). For each 64-bit chunk T
         // (formed by (rem<<32)|word32), q_est = high64(T * rinv); correct by
@@ -3749,22 +3758,22 @@ private:
         if ((div & (div - 1)) == 0)
             return static_cast<limb_type>(data_[0] & (div - 1));
 
-#    if GINT_DETAIL_AARCH64_CLANG || GINT_DETAIL_AARCH64_GCC
+#if GINT_DETAIL_AARCH64_CLANG || GINT_DETAIL_AARCH64_GCC
         if (limbs == 2 && div > 0xFFFFFFFFULL)
         {
             const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
             return static_cast<limb_type>(num % div);
         }
-#    endif
+#endif
 
-#    if GINT_ARCH_X86_64
+#if GINT_ARCH_X86_64
         {
             u128 rem = 0;
             for (size_t i = n; i-- > 0;)
                 rem = ((rem << 64) | data_[i]) % div;
             return static_cast<limb_type>(rem);
         }
-#    endif
+#endif
 
         if (div <= 0xFFFFFFFFULL)
         {
@@ -4011,13 +4020,13 @@ private:
     static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
     positive_power_of_two_fastpath_divisor(const integer & v, int & bit_index) noexcept
     {
-#    if GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_CLANG
         return positive_power_of_two_value(v, bit_index);
-#    else
+#else
         (void)v;
         (void)bit_index;
         return false;
-#    endif
+#endif
     }
 
     static GINT_FORCE_INLINE integer div_by_positive_power_of_two(integer lhs, int pow_bit) noexcept
@@ -4039,7 +4048,7 @@ private:
     static GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR typename std::enable_if<(L == 2), bool>::type
     negative_negative_div_quotient_is_zero(const integer & lhs, const integer & rhs) noexcept
     {
-#    if GINT_ARCH_AARCH64
+#if GINT_ARCH_AARCH64
         // For two negative two's-complement values, larger raw bits mean smaller magnitude.
         unsigned result;
         __asm__("cmp %[lhs_hi], %[rhs_hi]\n"
@@ -4049,9 +4058,9 @@ private:
                 : [lhs_hi] "r"(lhs.data_[1]), [rhs_hi] "r"(rhs.data_[1]), [lhs_lo] "r"(lhs.data_[0]), [rhs_lo] "r"(rhs.data_[0])
                 : "cc");
         return result != 0;
-#    else
+#else
         return lhs.data_[1] > rhs.data_[1] || (lhs.data_[1] == rhs.data_[1] && lhs.data_[0] > rhs.data_[0]);
-#    endif
+#endif
     }
 
     template <size_t L = limbs>
@@ -4067,11 +4076,11 @@ private:
         integer result;
         if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
         {
-#    if GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_CLANG
             if (GINT_UNLIKELY(divisor > 0xFFFFFFFFULL && (divisor & (divisor - 1)) != 0)
                 && div_signed_int128_by_positive_limb(lhs, divisor, result))
                 return result;
-#    endif
+#endif
             negate_for_division(lhs);
             lhs.div_mod_small(divisor, result);
             negate_for_division(result);
@@ -4088,11 +4097,11 @@ private:
         integer result;
         if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
         {
-#    if GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_CLANG
             if (GINT_UNLIKELY(divisor > 0xFFFFFFFFULL && (divisor & (divisor - 1)) != 0)
                 && div_signed_int128_by_positive_limb(lhs, divisor, result))
                 return result;
-#    endif
+#endif
             negate_for_division(lhs);
             lhs.div_mod_small(divisor, result);
             negate_for_division(result);
@@ -4201,13 +4210,13 @@ private:
         copy_abs_magnitude(lhs_mag, lhs, lhs_neg);
         copy_abs_magnitude(rhs_mag, rhs, rhs_neg);
 
-#    if GINT_DETAIL_AARCH64_GCC
+#if GINT_DETAIL_AARCH64_GCC
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
-#    elif GINT_CLANG_TUNED_PATHS
+#elif GINT_CLANG_TUNED_PATHS
         Unsigned rem_mag = rem_signed_magnitude_unsigned(lhs_mag, rhs_mag);
-#    else
+#else
         Unsigned rem_mag = Unsigned::rem_unsigned_magnitude(lhs_mag, rhs_mag);
-#    endif
+#endif
         integer result(uninitialized_tag{});
         for (size_t i = 0; i < limbs; ++i)
             result.data_[i] = rem_mag.data_[i];
@@ -4216,7 +4225,7 @@ private:
         return result;
     }
 
-#    if GINT_CLANG_TUNED_PATHS
+#if GINT_CLANG_TUNED_PATHS
     template <size_t L = limbs>
     static GINT_FORCE_INLINE typename std::enable_if<(L >= 8), integer<Bits, unsigned>>::type
     rem_signed_magnitude_unsigned(const integer<Bits, unsigned> & lhs_mag, const integer<Bits, unsigned> & rhs_mag) noexcept
@@ -4230,7 +4239,7 @@ private:
     {
         return integer<Bits, unsigned>::rem_unsigned_magnitude(lhs_mag, rhs_mag);
     }
-#    endif
+#endif
 
     static integer rem_unsigned_magnitude(const integer & lhs, const integer & divisor) noexcept
     {
@@ -4252,18 +4261,18 @@ private:
             return result;
         }
 
-#    if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
         if (limbs == 4 && divisor_limbs == 4)
             return rem_large_4(lhs, divisor);
-#    endif
+#endif
 
         integer quotient;
         if (limbs == 2)
-#    if GINT_DETAIL_AARCH64_GCC
+#if GINT_DETAIL_AARCH64_GCC
             quotient = div_128_native(lhs, divisor);
-#    else
+#else
             quotient = div_128(lhs, divisor);
-#    endif
+#endif
         else if (divisor_limbs == 2)
             quotient = div_large_2(lhs, divisor);
         else if (divisor_limbs == 3)
@@ -4274,7 +4283,7 @@ private:
             quotient = div_large(lhs, divisor, divisor_limbs);
 
         result = lhs;
-#    if GINT_GCC_TUNED_PATHS
+#if GINT_GCC_TUNED_PATHS
         if (limbs == 4 && quotient.data_[2] == 0 && quotient.data_[3] == 0)
         {
             integer product(uninitialized_tag{});
@@ -4285,7 +4294,7 @@ private:
             result -= product;
             return result;
         }
-#    endif
+#endif
         quotient *= divisor;
         result -= quotient;
         return result;
@@ -4293,7 +4302,7 @@ private:
 
     static integer rem_unsigned_magnitude_with_large_direct(const integer & lhs, const integer & divisor) noexcept
     {
-#    if GINT_DETAIL_AARCH64_GCC || GINT_CLANG_TUNED_PATHS
+#if GINT_DETAIL_AARCH64_GCC || GINT_CLANG_TUNED_PATHS
         if (((GINT_DETAIL_AARCH64_GCC && limbs >= 4) || (GINT_CLANG_TUNED_PATHS && limbs >= 8))
             && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
         {
@@ -4303,7 +4312,7 @@ private:
                 return lhs & (divisor - integer(1));
             return rem_large(lhs, divisor, divisor_limbs);
         }
-#    endif
+#endif
         return rem_unsigned_magnitude(lhs, divisor);
     }
 
@@ -4367,7 +4376,7 @@ private:
     template <size_t L = limbs>
     static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
     {
-#    if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
+#if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
         integer result;
         if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
             return result;
@@ -4390,7 +4399,7 @@ private:
             result.data_[1] = 0;
             return result;
         }
-#    endif
+#endif
         return div_128_native(lhs, rhs);
     }
 
@@ -4424,7 +4433,7 @@ private:
         return result;
     }
 
-#    if GINT_GCC_TUNED_PATHS
+#if GINT_GCC_TUNED_PATHS
     GINT_FORCE_INLINE static limb_type left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
     {
         limb_type cur = src[i];
@@ -4489,7 +4498,7 @@ private:
         quotient.data_[0] = q;
         return quotient;
     }
-#    endif
+#endif
 
     template <bool WantRemainder>
     static GINT_NOINLINE integer div_or_rem_large_core(integer lhs, const integer & divisor, size_t v_limbs, size_t u_limbs) noexcept
@@ -4583,14 +4592,14 @@ private:
     static integer div_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         const size_t dividend_limbs = used_limbs(lhs);
-#    if GINT_GCC_TUNED_PATHS
+#if GINT_GCC_TUNED_PATHS
         if (dividend_limbs == div_limbs && div_limbs >= 2)
             return div_large_single_limb_quotient(lhs, divisor, div_limbs);
-#    endif
+#endif
         return div_or_rem_large_core<false>(lhs, divisor, div_limbs, dividend_limbs);
     }
 
-#    if GINT_DETAIL_AARCH64_GCC
+#if GINT_DETAIL_AARCH64_GCC
     static limb_type rem_estimate_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         using u128 = unsigned __int128;
@@ -4688,15 +4697,15 @@ private:
         }
         return lhs;
     }
-#    endif
+#endif
 
     static integer rem_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
         const size_t dividend_limbs = used_limbs(lhs);
-#    if GINT_DETAIL_AARCH64_GCC
+#if GINT_DETAIL_AARCH64_GCC
         if (dividend_limbs == div_limbs && div_limbs >= 2)
             return rem_large_single_limb_quotient(lhs, divisor, div_limbs);
-#    endif
+#endif
         return div_or_rem_large_core<true>(lhs, divisor, div_limbs, dividend_limbs);
     }
 
@@ -5261,15 +5270,15 @@ inline divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> &
     return result;
 }
 
-#    if __cplusplus < 201703L
+#if __cplusplus < 201703L
 template <size_t Bits, typename Signed>
 constexpr size_t integer<Bits, Signed>::bits;
 
 template <size_t Bits, typename Signed>
 constexpr size_t integer<Bits, Signed>::limbs;
-#    endif
+#endif
 
-#    ifdef GINT_TEST_ACCESS
+#ifdef GINT_TEST_ACCESS
 namespace detail
 {
 template <size_t Bits, typename Signed>
@@ -5310,18 +5319,22 @@ struct integer_test_access
     }
 };
 } // namespace detail
-#    endif
+#endif
 
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
-#    if defined(__clang__)
-#        pragma clang diagnostic push
-#        pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#    elif defined(__GNUC__)
-#        pragma GCC diagnostic push
-#        pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#    endif
+// Standard-library integration.
+
+// std::numeric_limits and std::hash specializations for gint integers.
+
+#if defined(__clang__)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 namespace std
 {
@@ -5430,68 +5443,15 @@ struct hash<gint::integer<Bits, Signed>>
 };
 } // namespace std
 
-#    if defined(__clang__)
-#        pragma clang diagnostic pop
-#    elif defined(__GNUC__)
-#        pragma GCC diagnostic pop
-#    endif
+#if defined(__clang__)
+#    pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic pop
+#endif
 
-#endif // GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+// String conversion and stream output.
 
-#if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
-#    define GINT_DETAIL_IO_DEFINITIONS_INCLUDED
-
-// A translation unit may include <gint/core.h> first and upgrade to the
-// umbrella header later. The core pass cleans up its implementation macros, so
-// recreate the small subset needed by the string/stream/fmt extension pass.
-#    ifndef GINT_DETAIL_HEADER_PASS_ACTIVE
-#        define GINT_DETAIL_HEADER_PASS_ACTIVE
-#        define GINT_FORCE_INLINE inline __attribute__((always_inline))
-#        define GINT_NOINLINE __attribute__((noinline))
-#        if defined(__x86_64__) && GINT_GCC_TUNED_PATHS
-#            define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
-#        else
-#            define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
-#        endif
-#        if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
-#            define GINT_DETAIL_EXCEPTIONS_ENABLED 1
-#            define GINT_THROW(exception) throw exception
-#        else
-#            define GINT_DETAIL_EXCEPTIONS_ENABLED 0
-#            define GINT_THROW(exception) ::std::abort()
-#        endif
-#        if defined(GINT_ENABLE_DIVZERO_CHECKS)
-#            define GINT_DETAIL_DIVZERO_CHECKS 1
-#        else
-#            define GINT_DETAIL_DIVZERO_CHECKS 0
-#        endif
-#        if GINT_GCC_TUNED_PATHS
-#            define GINT_DETAIL_GCC_TUNED_POLICY 1
-#        else
-#            define GINT_DETAIL_GCC_TUNED_POLICY 0
-#        endif
-#        if GINT_CLANG_TUNED_PATHS
-#            define GINT_DETAIL_CLANG_TUNED_POLICY 1
-#        else
-#            define GINT_DETAIL_CLANG_TUNED_POLICY 0
-#        endif
-#        if GINT_ENABLE_AARCH64_LIMB_ASM
-#            define GINT_DETAIL_AARCH64_ASM_POLICY 1
-#        else
-#            define GINT_DETAIL_AARCH64_ASM_POLICY 0
-#        endif
-#        define GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
-            config_d##divzero##_g##gcc_tuned##_c##clang_tuned##_a##aarch64_asm##_e##exceptions
-#        define GINT_DETAIL_CONFIG_NAMESPACE_II(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions) \
-            GINT_DETAIL_CONFIG_NAMESPACE_I(divzero, gcc_tuned, clang_tuned, aarch64_asm, exceptions)
-#        define GINT_DETAIL_CONFIG_NAMESPACE \
-            GINT_DETAIL_CONFIG_NAMESPACE_II( \
-                GINT_DETAIL_DIVZERO_CHECKS, \
-                GINT_DETAIL_GCC_TUNED_POLICY, \
-                GINT_DETAIL_CLANG_TUNED_POLICY, \
-                GINT_DETAIL_AARCH64_ASM_POLICY, \
-                GINT_DETAIL_EXCEPTIONS_ENABLED)
-#    endif
+// Decimal/base conversion, string parsing, and stream output for integers.
 
 namespace gint
 {
@@ -5946,7 +5906,14 @@ inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed>
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
-#    ifdef GINT_ENABLE_FMT
+// Optional fmt integration.
+
+// Optional fmt formatter, built on the shared integer-to-text conversion helpers.
+
+#ifdef GINT_ENABLE_FMT
+#    include <locale>
+#    include <fmt/format.h>
+
 namespace fmt
 {
 template <size_t Bits, typename Signed>
@@ -6040,13 +6007,13 @@ struct formatter<gint::integer<Bits, Signed>>
                 fill[0] = '0';
                 fill_size = 1;
             }
-#        if FMT_VERSION < 100000
+#    if FMT_VERSION < 100000
             else
             {
                 // fmt 9 overwrites only the first code unit, retaining fill size.
                 fill[0] = '0';
             }
-#        endif
+#    endif
             ++it;
         }
 
@@ -6157,17 +6124,17 @@ struct formatter<gint::integer<Bits, Signed>>
     template <typename FormatArg>
     static unsigned visit_dynamic_width_arg(const FormatArg & arg)
     {
-#        if FMT_VERSION >= 120000
+#    if FMT_VERSION >= 120000
         return arg.visit(dynamic_width_visitor{});
-#        else
+#    else
         return fmt::visit_format_arg(dynamic_width_visitor{}, arg);
-#        endif
+#    endif
     }
 
     template <typename LocaleRef>
     static void apply_locale_grouping(std::string & digits, LocaleRef loc)
     {
-#        if !defined(FMT_USE_LOCALE) || FMT_USE_LOCALE
+#    if !defined(FMT_USE_LOCALE) || FMT_USE_LOCALE
         const std::locale locale = loc.template get<std::locale>();
         const std::numpunct<char> & punct = std::use_facet<std::numpunct<char>>(locale);
         const std::string grouping = punct.grouping();
@@ -6204,10 +6171,10 @@ struct formatter<gint::integer<Bits, Signed>>
             grouped.insert(0, digits, 0, end);
         }
         digits.swap(grouped);
-#        else
+#    else
         (void)digits;
         (void)loc;
-#        endif
+#    endif
     }
 
     template <typename FormatContext>
@@ -6316,47 +6283,41 @@ struct formatter<gint::integer<Bits, Signed>>
     } // LCOV_EXCL_LINE
 };
 } // namespace fmt
-#    endif
-
-#endif // !GINT_DETAIL_CORE_ONLY && !GINT_DETAIL_IO_DEFINITIONS_INCLUDED
-
-//=== Macro cleanup =============================================================
-
-#ifdef GINT_DETAIL_HEADER_PASS_ACTIVE
-
-#    undef GINT_UNLIKELY
-#    undef GINT_LIKELY
-#    undef GINT_THROW
-#    undef GINT_DETAIL_EXCEPTIONS_ENABLED
-#    undef GINT_DETAIL_DIVZERO_CHECKS
-#    undef GINT_ZERO_CHECK
-#    undef GINT_DIVZERO_CHECK
-#    undef GINT_MODZERO_CHECK
-#    undef GINT_CONSTEXPR14
-#    undef GINT_FORCE_INLINE
-#    undef GINT_CLANG_NOINLINE
-#    undef GINT_NOINLINE
-#    undef GINT_COLD
-#    undef GINT_HIDDEN_VISIBILITY
-#    undef GINT_RESTRICT
-#    undef GINT_DETAIL_HAS_BUILTIN
-#    undef GINT_HAS_IS_CONSTANT_EVALUATED
-#    undef GINT_ARCH_AARCH64
-#    undef GINT_ARCH_X86_64
-#    undef GINT_DETAIL_X86_64_GCC
-#    undef GINT_DETAIL_X86_64_CLANG
-#    undef GINT_DETAIL_X86_64_CARRY_INTRINSICS
-#    undef GINT_DETAIL_AARCH64_GCC
-#    undef GINT_DETAIL_AARCH64_CLANG
-#    undef GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE
-#    undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
-#    undef GINT_WIDE_SHIFT_INLINE
-#    undef GINT_WIDE_PARSE_INLINE
-#    undef GINT_DETAIL_GCC_TUNED_POLICY
-#    undef GINT_DETAIL_CLANG_TUNED_POLICY
-#    undef GINT_DETAIL_AARCH64_ASM_POLICY
-#    undef GINT_DETAIL_CONFIG_NAMESPACE_I
-#    undef GINT_DETAIL_CONFIG_NAMESPACE_II
-#    undef GINT_DETAIL_CONFIG_NAMESPACE
-#    undef GINT_DETAIL_HEADER_PASS_ACTIVE
 #endif
+
+// Clean up private macros after all definitions.
+// Keep private implementation macros inside the complete gint header.
+#undef GINT_UNLIKELY
+#undef GINT_LIKELY
+#undef GINT_THROW
+#undef GINT_DETAIL_EXCEPTIONS_ENABLED
+#undef GINT_DETAIL_DIVZERO_CHECKS
+#undef GINT_ZERO_CHECK
+#undef GINT_DIVZERO_CHECK
+#undef GINT_MODZERO_CHECK
+#undef GINT_CONSTEXPR14
+#undef GINT_FORCE_INLINE
+#undef GINT_CLANG_NOINLINE
+#undef GINT_NOINLINE
+#undef GINT_COLD
+#undef GINT_HIDDEN_VISIBILITY
+#undef GINT_RESTRICT
+#undef GINT_DETAIL_HAS_BUILTIN
+#undef GINT_HAS_IS_CONSTANT_EVALUATED
+#undef GINT_ARCH_AARCH64
+#undef GINT_ARCH_X86_64
+#undef GINT_DETAIL_X86_64_GCC
+#undef GINT_DETAIL_X86_64_CLANG
+#undef GINT_DETAIL_X86_64_CARRY_INTRINSICS
+#undef GINT_DETAIL_AARCH64_GCC
+#undef GINT_DETAIL_AARCH64_CLANG
+#undef GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE
+#undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
+#undef GINT_WIDE_SHIFT_INLINE
+#undef GINT_WIDE_PARSE_INLINE
+#undef GINT_DETAIL_GCC_TUNED_POLICY
+#undef GINT_DETAIL_CLANG_TUNED_POLICY
+#undef GINT_DETAIL_AARCH64_ASM_POLICY
+#undef GINT_DETAIL_CONFIG_NAMESPACE_I
+#undef GINT_DETAIL_CONFIG_NAMESPACE_II
+#undef GINT_DETAIL_CONFIG_NAMESPACE

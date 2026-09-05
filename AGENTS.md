@@ -10,16 +10,18 @@ gint 是严格固定位宽的 C++11 header-only 宽整数库。完成变更意�
 - 公共 API 最低为 C++11；不得把 C++14/17/20 语法引入公共头文件或必要构建路径。
 - 支持范围只以 [`docs/SUPPORT.md`](docs/SUPPORT.md) 为准；实现依赖 `__int128`
   和 GCC/Clang builtin，不扩展到 MSVC、32-bit 或 big-endian。
-- `include/gint/gint.h` 是可单独复制的完整入口，`include/gint/core.h` 是可选算术
-  入口。CMake 只导出 `gint::gint`、`gint::checked` 两个 `INTERFACE_LIBRARY`，
+- `include/gint/gint.h` 是唯一公开头文件，可单独复制并始终包含字符串和 stream
+  接口；fmt 适配仍按需启用。CMake 只导出 `gint::gint`、`gint::checked` 两个 `INTERFACE_LIBRARY`，
   安装不得产生二进制库。
 - 当前开发版本线为 `0.9.x`。修改版本时同步 `CMakeLists.txt` 的 `project()` 与
-  `include/gint/gint.h` 的 `GINT_VERSION_*`。
+  `src/gint/prelude.hpp` 的 `GINT_VERSION_*`，再生成并核对
+  `include/gint/gint.h`。
 
 ## 仓库地图与权威来源
 
-- `include/gint/`：公开头文件及实现；`tests/`：unit、consumer/package、
-  differential、fuzz 和性能工具测试；`bench/`：gint benchmark 与三方 comparison。
+- `include/gint/`：公开生成头；`src/gint/`：可由语言服务直接解析的内部 `.hpp`
+  源图；`tests/`：unit、consumer/package、differential、fuzz 和性能工具测试；
+  `bench/`：gint benchmark 与三方 comparison。
 - `cmake/`、`scripts/`、`.github/`：集成、验证脚本与 CI；`docs/`：长期契约；
   `third_party/` 默认只读，除非任务明确要求更新依赖。
 - 文档职责由 [`docs/README.md`](docs/README.md) 定义。公共语义看
@@ -51,10 +53,18 @@ gint 是严格固定位宽的 C++11 header-only 宽整数库。完成变更意�
 
 - 所有变更至少运行 `git diff --check`。仅文档变更检查链接、路径和命令即可，
   不要求完整测试。
+- 修改 `src/gint/*.hpp` 后运行 `make amalgamate`，并以
+  `make internal-headers-check amalgamate-check` 验证内部头和已提交生成头同步。
+- 内部头必须保持可独立解析；生成器只接受受限、fail-closed 的预处理方言：本地
+  quoted include 位于顶层无条件上下文，路径必须是规范的非空相对路径，且不得
+  逃出源树或穿越缺失/符号链接组件；禁止条件/宏/内部 angle include、文件搜索
+  operator、module/import 控制行、块注释、raw string、pragma operator、trigraph、
+  digraph 和非规范续行。所有内部头必须以唯一的 `#pragma once` 开始，按文件身份只展开一次。完整
+  输入、角色和依赖方向契约见 [`docs/INTERNALS.md`](docs/INTERNALS.md)。
 - C++ 先运行能覆盖变更的精确测试，再运行 `make test`。correctness bug 先保存
   最小复现，并增加能在旧实现失败的回归测试。
 - 公共头文件、CMake 或安装变更必须覆盖 C++11 `-Wall -Wextra -Werror`、
-  `gint.h` 独立包含、`core.h` 独立及 `core.h -> gint.h` 两阶段包含、
+  `gint.h` 独立及重复包含、
   consumer/package contract、CMake 3.13 和精确安装清单。header、consumer、
   package 与安装 contract 由 `CMakeLists.txt` 和 `tests/cmake/` 维护并随
   `make test` 执行；最低 CMake 版本使用对应的 3.13 lane 验证。

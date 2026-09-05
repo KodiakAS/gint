@@ -10,8 +10,15 @@
 - 增加项目版本、单头文件版本宏和可安装的 `gintConfigVersion.cmake`。
 - 增加 `gint::gint`、`gint::checked` 两个 header-only CMake targets，以及
   package version 与安装清单验证。
-- 增加 `<gint/core.h>` 精简算术入口和同时返回商、余数的 `gint::divmod`。
+- 增加同时返回商、余数的 `gint::divmod`。
 - 增加正式支持策略、集成说明、升级指南和发布清单。
+- 将单头文件实现拆分为可被 clangd、IDE 和静态分析器直接解析的内部 `.hpp`
+  依赖图，并增加确定性 amalgamation 生成器、模块分层、
+  内部头编译契约与同步门禁；用户交付物仍是已提交的 `gint.h`，不新增 consumer
+  构建依赖。
+- 生成器统一处理逻辑行与预处理指令，拒绝续行 token、条件 include、非规范 pragma
+  和文件上下文依赖的绕过形式；维护者测试增加当前工具链下源码图与独立生成头的
+  编译及运行对照，测试构建需要 Python 3.5+。
 
 ### 修复
 

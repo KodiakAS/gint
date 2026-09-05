@@ -40,7 +40,6 @@ if(GINT_CONSUMER_KIND STREQUAL "package")
         set(GINT_INSTALL_DATA_DIR "share/gint")
     endif()
     set(expected_install_files
-        "include/gint/core.h"
         "include/gint/gint.h"
         "${GINT_INSTALL_CMAKE_DIR}/gintConfig.cmake"
         "${GINT_INSTALL_CMAKE_DIR}/gintConfigVersion.cmake"

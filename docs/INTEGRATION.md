@@ -18,12 +18,6 @@ using U256 = gint::integer<256, unsigned>;
 U256 value = (U256(1) << 128) + 42;
 ```
 
-### 精简算术接口
-
-纯算术翻译单元可以包含 `<gint/core.h>`，跳过字符串、stream 和 `fmt` 实现的
-解析。使用这个入口时应同时分发 `core.h` 与 `gint.h`；`core.h` 会从同目录包含
-后者。之后在同一翻译单元中再包含 `<gint/gint.h>`，可以补齐完整接口。
-
 ## CMake
 
 ### 源码树消费

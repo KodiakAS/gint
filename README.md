@@ -16,7 +16,7 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 - Exact-width storage and modulo-2^N arithmetic.
 - Header-only integration with no library to build or link.
 - A C++11 public API with native integer and `__int128` interoperability.
-- Optional arithmetic-only and checked-division interfaces.
+- Optional checked division by zero.
 - Specialized hot paths backed by reproducible code-generation and performance
   validation.
 
@@ -37,8 +37,14 @@ int main()
 ```
 
 Copy [`include/gint/gint.h`](include/gint/gint.h) into your include path for
-the simplest integration. No generated header or link-time dependency is
+the simplest integration. No generation step or link-time dependency is
 required.
+
+Normal `.hpp` files under `src/gint` are the development source of truth; the
+committed `gint.h` is their deterministic single-header distribution. This is
+a maintainer workflow, so consumers never need Python or a generation step.
+See the [implementation notes](docs/INTERNALS.md) for the source-graph and
+language-service contract.
 
 For an installed CMake package:
 
@@ -47,9 +53,9 @@ find_package(gint 0.9 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
-Use `gint::checked` to enable checked division by zero. Arithmetic-only
-translation units may vendor both public headers and include
-`<gint/core.h>`. See the [integration guide](docs/INTEGRATION.md) for source
+Use `gint::checked` to enable checked division by zero. The single public
+header always includes string and stream support. See the
+[integration guide](docs/INTEGRATION.md) for source
 tree consumption, optional `fmt` support, and exception-free builds.
 
 ## Support
