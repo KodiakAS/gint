@@ -81,7 +81,7 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_EQ(fmt::format("{:>6d}", U128(42)), "    42");
     EXPECT_EQ(fmt::format("{:<6d}", U128(42)), "42    ");
     EXPECT_EQ(fmt::format("{:^6d}", U128(42)), "  42  ");
-#if FMT_VERSION < 120000
+#if FMT_VERSION < 100000
     EXPECT_EQ(fmt::format("{:<08d}", U128(42)), "42000000");
     EXPECT_EQ(fmt::format("{:^08d}", U128(42)), "00042000");
     EXPECT_EQ(fmt::format("{:x<08d}", U128(42)), "42000000");
@@ -158,4 +158,34 @@ TEST(fmt_support, format_integer_locale_specs)
     EXPECT_EQ(fmt::format(locale, "{: 014L}", S128(1234567)), fmt::format(locale, "{: 014L}", 1234567));
     EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(0x12d687)), fmt::format(locale, "{:#014Lx}", 0x12d687));
     EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(-0x12d687)), fmt::format(locale, "{:#014Lx}", -0x12d687));
+}
+
+TEST(fmt_support, utf8_fill_matches_native)
+{
+    const char * fills[] = {"*", "é", "界", "😀"};
+    const char aligns[] = {'<', '>', '^'};
+    for (const char * fill : fills)
+        for (char align : aligns)
+            for (int value : {42, -42})
+                for (int width : {0, 2, 6, 7})
+                {
+                    const std::string prefix = std::string("{:") + fill + align;
+                    const std::string fixed = prefix + std::to_string(width) + "}";
+                    const std::string dynamic = prefix + "{}}";
+                    EXPECT_EQ(fmt::format(fmt::runtime(fixed), gint::Int128(value)), fmt::format(fmt::runtime(fixed), value));
+                    EXPECT_EQ(
+                        fmt::format(fmt::runtime(dynamic), gint::Int128(value), width), fmt::format(fmt::runtime(dynamic), value, width));
+                }
+    EXPECT_EQ(fmt::format(FMT_STRING("{:界>6}"), gint::Int128(42)), "界界界界42");
+    EXPECT_EQ(fmt::format(FMT_STRING("{:😀^{}}"), gint::Int128(42), 7), fmt::format(FMT_STRING("{:😀^{}}"), 42, 7));
+}
+
+TEST(fmt_support, utf8_fill_zero_flag_and_named_width)
+{
+    for (const char * spec : {"{:界<06}", "{:界>06}", "{:界^06}"})
+        EXPECT_EQ(fmt::format(fmt::runtime(spec), gint::Int128(42)), fmt::format(fmt::runtime(spec), 42));
+    EXPECT_EQ(
+        fmt::format(FMT_STRING("{:é>{width}}"), gint::Int128(42), fmt::arg("width", 6)),
+        fmt::format(FMT_STRING("{:é>{width}}"), 42, fmt::arg("width", 6)));
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:\xf0\x9f"), gint::Int128(42))), fmt::format_error);
 }

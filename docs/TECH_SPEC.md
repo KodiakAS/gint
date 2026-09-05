@@ -101,7 +101,8 @@ unchecked 行为是明确的库语义，用于避免底层整数除法 UB；它�
 - `gint::from_string<Int>(text, base)`：解析 `std::string` 或 C 字符串；
 - `operator<<`：遵循 `std::hex`、`std::oct`、`std::showbase`、符号、宽度、填充
   和对齐等整数 stream 标志；
-- 定义 `GINT_ENABLE_FMT` 后提供 `fmt::formatter`。
+- 定义 `GINT_ENABLE_FMT` 后提供 `fmt::formatter`，填充支持单个 UTF-8 字符，
+  可配合左、右、居中对齐及静态或动态宽度。
 
 有符号负数的十进制 stream 输出使用 `-` 前缀；十六进制和八进制输出使用当前
 固定位宽的补码 bit pattern，与原生整数的非十进制展示习惯一致。

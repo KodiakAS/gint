@@ -5952,7 +5952,8 @@ namespace fmt
 template <size_t Bits, typename Signed>
 struct formatter<gint::integer<Bits, Signed>>
 {
-    char fill = ' ';
+    char fill[4] = {' ', 0, 0, 0};
+    unsigned fill_size = 1;
     char align = '>';
     bool explicit_align = false;
     char sign = 0;
@@ -5968,6 +5969,19 @@ struct formatter<gint::integer<Bits, Signed>>
 
     static FMT_CONSTEXPR bool is_name_char(char ch) { return is_name_start(ch) || (ch >= '0' && ch <= '9'); }
 
+    void insert_fill(std::string & text, size_t position, size_t count) const
+    {
+        if (fill_size == 1)
+        {
+            text.insert(position, count, fill[0]);
+            return;
+        }
+        std::string padding;
+        for (size_t i = 0; i < count; ++i)
+            padding.append(fill, fill_size);
+        text.insert(position, padding);
+    }
+
     template <typename ParseContext>
     FMT_CONSTEXPR auto parse(ParseContext & ctx) -> typename ParseContext::iterator
     {
@@ -5976,13 +5990,22 @@ struct formatter<gint::integer<Bits, Signed>>
         if (it == end || *it == '}')
             return it;
 
+        // Alignment follows one UTF-8 code point, which can occupy 1-4 bytes.
+        const unsigned char lead = static_cast<unsigned char>(*it);
+        const unsigned code_units = (lead >= 0xc0 && lead < 0xe0) ? 2u
+            : (lead >= 0xe0 && lead < 0xf0)                       ? 3u
+            : (lead >= 0xf0 && lead < 0xf8)                       ? 4u
+                                                                  : 1u;
         auto next = it;
-        ++next;
+        for (unsigned i = 0; i < code_units && next != end; ++i)
+            ++next;
         if (next != end && (*next == '<' || *next == '>' || *next == '^'))
         {
             if (*it == '{' || *it == '}')
                 GINT_THROW(fmt::format_error("invalid fill character"));
-            fill = *it;
+            fill_size = code_units;
+            for (unsigned i = 0; i < fill_size; ++i, ++it)
+                fill[i] = *it;
             align = *next;
             explicit_align = true;
             it = next;
@@ -6014,12 +6037,14 @@ struct formatter<gint::integer<Bits, Signed>>
             if (align == '>' && !explicit_align)
             {
                 align = '=';
-                fill = '0';
+                fill[0] = '0';
+                fill_size = 1;
             }
-#        if FMT_VERSION < 120000
+#        if FMT_VERSION < 100000
             else
             {
-                fill = '0';
+                // fmt 9 overwrites only the first code unit, retaining fill size.
+                fill[0] = '0';
             }
 #        endif
             ++it;
@@ -6269,22 +6294,22 @@ struct formatter<gint::integer<Bits, Signed>>
             const char effective_align = (presentation == 'c' && !explicit_align && align == '>') ? '<' : align;
             if (effective_align == '<')
             {
-                text.append(padding, fill);
+                insert_fill(text, text.size(), padding);
             }
             else if (effective_align == '^')
             {
                 const size_t left = padding / 2;
                 const size_t right = padding - left;
-                text.insert(0, left, fill);
-                text.append(right, fill);
+                insert_fill(text, 0, left);
+                insert_fill(text, text.size(), right);
             }
             else if (effective_align == '=' && !use_localized_digits && !prefix.empty())
             {
-                text = prefix + std::string(padding, fill) + digits;
+                insert_fill(text, prefix.size(), padding);
             }
             else
             {
-                text.insert(0, padding, fill);
+                insert_fill(text, 0, padding);
             }
         }
 
