@@ -66,7 +66,9 @@ TEST(WideIntegerDivision, NativeSmallRemainderMatchesWordOracle)
             const int64_t rem = remainder(magnitude, divisor);
             EXPECT_EQ(signed_value % divisor, S256(negative ? -rem : rem));
             if (divisor <= 0x7fffffffU)
+            {
                 EXPECT_EQ(signed_value % -static_cast<int32_t>(divisor), S256(negative ? -rem : rem));
+            }
         }
         for (int64_t divisor : divisors64)
         {
@@ -74,7 +76,9 @@ TEST(WideIntegerDivision, NativeSmallRemainderMatchesWordOracle)
             const int64_t rem = remainder(magnitude, abs_divisor);
             EXPECT_EQ(signed_value % divisor, S256(negative ? -rem : rem));
             if (divisor > 0)
+            {
                 EXPECT_EQ(unsigned_value % divisor, U256(remainder(words, abs_divisor)));
+            }
         }
     }
 }
