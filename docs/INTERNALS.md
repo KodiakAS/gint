@@ -23,7 +23,7 @@ context；clangd 仍会以 heuristic 选择 header command，因此这里不承�
 会话必然选中同一个 target。
 
 `include/gint/gint.h` 是唯一公开头文件，始终包含字符串和 stream 接口；fmt 仍由
-`GINT_ENABLE_FMT` 控制。内部按职责拆分，不提供公开的纯算术入口或分阶段升级。
+`GINT_ENABLE_FMT` 控制。内部按职责拆分，为维护者提供清晰的源码边界。
 
 ### 模块角色与依赖
 

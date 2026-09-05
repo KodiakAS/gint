@@ -19,7 +19,7 @@ make test
 `include/gint/gint.h`。修改内部头后先运行 `make amalgamate`，提交前运行
 `make internal-headers-check amalgamate-check`，确保每个内部头可独立解析且交付头
 同步。新增或移动内部头时还要在生成器 manifest 中声明角色和顺序；所有模块使用
-`#pragma once`，不支持可重复展开的片段。
+`#pragma once`，每个头只展开一次。
 
 测试构建需要 CMake、GoogleTest、`fmt` 和 Python 3.5+；Python 用于生成器与编译器
 对照测试，普通消费者不需要它。可复现的 Linux 依赖与编译器环境见

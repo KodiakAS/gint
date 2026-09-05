@@ -16,7 +16,7 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 - Exact-width storage and modulo-2^N arithmetic.
 - Header-only integration with no library to build or link.
 - A C++11 public API with native integer and `__int128` interoperability.
-- Optional arithmetic-only and checked-division interfaces.
+- Optional checked division by zero.
 - Specialized hot paths backed by reproducible code-generation and performance
   validation.
 

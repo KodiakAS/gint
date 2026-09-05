@@ -20,9 +20,6 @@ target_link_libraries(my_target PRIVATE gint::gint)
 ## 直接分发头文件
 
 - 项目只需分发并更新 `include/gint/gint.h`。
-- 使用过开发版 `<gint/core.h>` 的项目应改为 `<gint/gint.h>`；该入口已删除，
-  字符串和 stream 现在始终包含，不再支持纯算术模式。更新既有安装目录时移除
-  旧的 `include/gint/core.h`，或安装到干净前缀，避免遗留旧头文件。
 - 更新后全量重编译所有包含 gint 的翻译单元；header-only 实现不会通过运行时
   动态库升级生效。
 - 可用 `GINT_VERSION_MAJOR/MINOR/PATCH` 与 `GINT_VERSION` 做编译期版本检查。

@@ -165,7 +165,6 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.assertNotIn(b'#include "', content)
         self.assertEqual(content.count(b"#pragma once"), 1)
         self.assertTrue(content.startswith(b"#pragma once\n"))
-        self.assertNotIn(b"GINT_DETAIL_CORE_ONLY", content)
         self.assertEqual(content.count(b"define GINT_DETAIL_CONFIG_NAMESPACE_I("), 1)
         self.assertEqual(content.count(b"undef GINT_DETAIL_CONFIG_NAMESPACE_I\n"), 1)
 

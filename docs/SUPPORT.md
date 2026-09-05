@@ -44,7 +44,7 @@ Linux x86_64 的最低 GCC 版本不用于降低 AArch64 baseline。三个正式
 gint 保持 header-only：
 
 - 单独复制 `include/gint/gint.h` 是一级集成方式；
-- 只提供完整入口，不提供省略字符串和 stream 的纯算术头；
+- `gint.h` 始终包含字符串和 stream 接口，fmt 适配按需启用；
 - CMake 只导出 `gint::gint` 与 `gint::checked` 两个 `INTERFACE_LIBRARY`；
 - 安装产物不包含静态库或动态库。
 
