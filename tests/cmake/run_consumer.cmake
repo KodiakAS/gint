@@ -2,6 +2,14 @@ if(NOT DEFINED GINT_CONSUMER_KIND OR NOT DEFINED GINT_SOURCE_DIR OR NOT DEFINED 
     message(FATAL_ERROR "GINT_CONSUMER_KIND, GINT_SOURCE_DIR, and GINT_BINARY_DIR are required")
 endif()
 
+if(GINT_CONSUMER_MULTI_CONFIG AND NOT GINT_CONSUMER_CONFIG)
+    message(FATAL_ERROR "multi-config consumer tests require ctest -C <configuration>")
+endif()
+set(build_args)
+if(GINT_CONSUMER_CONFIG)
+    list(APPEND build_args --config "${GINT_CONSUMER_CONFIG}")
+endif()
+
 set(consumer_source "${GINT_SOURCE_DIR}/tests/consumer/${GINT_CONSUMER_KIND}")
 if(DEFINED GINT_CONSUMER_CASE)
     set(consumer_case "${GINT_CONSUMER_CASE}")
@@ -17,6 +25,7 @@ if(GINT_CONSUMER_KIND STREQUAL "package")
     execute_process(
         COMMAND "${CMAKE_COMMAND}"
             "-DCMAKE_INSTALL_PREFIX=${install_prefix}"
+            "-DCMAKE_INSTALL_CONFIG_NAME=${GINT_CONSUMER_CONFIG}"
             -P "${GINT_BINARY_DIR}/cmake_install.cmake"
         RESULT_VARIABLE result
     )
@@ -76,6 +85,16 @@ else()
     message(FATAL_ERROR "unknown consumer kind: ${GINT_CONSUMER_KIND}")
 endif()
 
+if(GINT_CONSUMER_GENERATOR)
+    list(APPEND configure_args -G "${GINT_CONSUMER_GENERATOR}")
+endif()
+if(GINT_CONSUMER_GENERATOR_PLATFORM)
+    list(APPEND configure_args -A "${GINT_CONSUMER_GENERATOR_PLATFORM}")
+endif()
+if(GINT_CONSUMER_GENERATOR_TOOLSET)
+    list(APPEND configure_args -T "${GINT_CONSUMER_GENERATOR_TOOLSET}")
+endif()
+
 list(APPEND configure_args
     -C "${GINT_BINARY_DIR}/consumer-toolchain.cmake"
     "-DGINT_COMPILER_CHECK=${GINT_BINARY_DIR}/consumer-compiler-check.cmake"
@@ -115,7 +134,7 @@ if(NOT result EQUAL 0)
 endif()
 
 execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${consumer_build}"
+    COMMAND "${CMAKE_COMMAND}" --build "${consumer_build}" ${build_args}
     RESULT_VARIABLE result
 )
 if(NOT result EQUAL 0)

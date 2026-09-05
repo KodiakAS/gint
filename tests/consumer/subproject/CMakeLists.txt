@@ -9,10 +9,10 @@ if(NOT GINT_SOURCE_DIR)
     message(FATAL_ERROR "GINT_SOURCE_DIR is required")
 endif()
 
-set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
+set(gint_parent_build_type "${CMAKE_BUILD_TYPE}")
 add_subdirectory(${GINT_SOURCE_DIR} gint-src)
 
-if(NOT CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "${gint_parent_build_type}")
     message(FATAL_ERROR "gint changed its parent project's CMAKE_BUILD_TYPE")
 endif()
 if(TARGET gint_tests OR TARGET perf_benchmark_int256)

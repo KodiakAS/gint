@@ -156,6 +156,7 @@ if(GINT_BUILD_TESTS)
     # preserves paths with spaces and list-valued architecture settings.
     set(GINT_CONSUMER_TOOLCHAIN_VARIABLES
         CMAKE_CXX_COMPILER CMAKE_CXX_COMPILER_ARG1 CMAKE_TOOLCHAIN_FILE
+        CMAKE_BUILD_TYPE CMAKE_CONFIGURATION_TYPES CMAKE_GENERATOR_INSTANCE CMAKE_MAKE_PROGRAM
         CMAKE_CXX_COMPILER_TARGET CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN
         CMAKE_SYSROOT CMAKE_SYSROOT_COMPILE CMAKE_SYSROOT_LINK
         CMAKE_OSX_SYSROOT CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
@@ -187,7 +188,9 @@ if(GINT_BUILD_TESTS)
         "    message(FATAL_ERROR \"consumer compiler differs from parent toolchain\")\n"
         "endif()\n")
 
-    foreach(variable IN LISTS gint_consumer_flag_variables)
+    set(gint_consumer_checked_variables ${gint_consumer_flag_variables}
+        CMAKE_BUILD_TYPE CMAKE_CONFIGURATION_TYPES)
+    foreach(variable IN LISTS gint_consumer_checked_variables)
         if(DEFINED ${variable})
             file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/consumer-compiler-check.cmake"
                 "if(NOT ${variable} STREQUAL [==[${${variable}}]==])\n"
@@ -196,8 +199,18 @@ if(GINT_BUILD_TESTS)
         endif()
     endforeach()
 
+    get_property(gint_consumer_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    set(GINT_CONSUMER_BUILD_ARGS
+        "-DGINT_CONSUMER_GENERATOR=${CMAKE_GENERATOR}"
+        "-DGINT_CONSUMER_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "-DGINT_CONSUMER_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "-DGINT_CONSUMER_MULTI_CONFIG=${gint_consumer_multi_config}"
+        "-DGINT_CONSUMER_CONFIG=$<CONFIG>"
+    )
+
     add_test(NAME consumer.subproject
         COMMAND ${CMAKE_COMMAND}
+            ${GINT_CONSUMER_BUILD_ARGS}
             -DGINT_CONSUMER_KIND=subproject
             -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
             -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
@@ -218,6 +231,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_EXPECT_PACKAGE_VERSION=${PROJECT_VERSION}
                 -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -227,6 +241,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_exact
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-exact
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION}
@@ -239,6 +254,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_compatible
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-compatible
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
@@ -250,6 +266,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_newer_rejected
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-newer-rejected
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${GINT_TEST_NEWER_PATCH}
@@ -261,6 +278,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_other_minor_rejected
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-other-minor-rejected
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${GINT_TEST_OTHER_MINOR}
