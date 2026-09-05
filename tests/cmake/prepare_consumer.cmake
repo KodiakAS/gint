@@ -79,4 +79,3 @@ set(GINT_CONSUMER_BUILD_ARGS
     "-DGINT_CONSUMER_MULTI_CONFIG=${gint_consumer_multi_config}"
     "-DGINT_CONSUMER_CONFIG=$<CONFIG>"
 )
-
