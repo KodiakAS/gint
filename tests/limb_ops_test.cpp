@@ -138,7 +138,7 @@ TEST(LimbOps, InPlaceShiftsUseTheSuppliedFill)
 {
     using Shift = gint::detail::limb_shift<4>;
     uint64_t value[4] = {1, 2, 3, 4};
-    Shift::shift_left_assign(value, 1, 1);
+    Shift::shift_left_assign(value, 65);
     const std::array<uint64_t, 4> left = {{0, 2, 4, 6}};
     for (size_t i = 0; i < 4; ++i)
         EXPECT_EQ(value[i], left[i]);

@@ -497,9 +497,7 @@ public:
             detail::fill_limbs<limbs>(data_, 0);
             return *this;
         }
-        const size_t limb_shift = shift / 64;
-        const int bit_shift = static_cast<int>(shift % 64);
-        detail::limb_shift<limbs>::shift_left_assign(data_, limb_shift, bit_shift);
+        detail::limb_shift<limbs>::shift_left_assign(data_, shift);
         return *this;
     }
 

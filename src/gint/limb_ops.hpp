@@ -1172,7 +1172,8 @@ inline void copy_magnitude_limbs(uint64_t * dst, const uint64_t * src, bool neg)
 }
 
 //=== Limb shifts ============================================================
-// In-place shifts require a nonzero total shift, limb_shift < limbs, and bit_shift < 64.
+// In-place shifts require a nonzero total shift within the array width.
+// Decoded right-shift offsets require limb_shift < limbs and bit_shift < 64.
 // Out-of-place outputs must not overlap inputs. The integer layer chooses zero or sign-extension fill.
 template <size_t Limbs>
 struct limb_shift
@@ -1180,8 +1181,10 @@ struct limb_shift
     using limb_type = uint64_t;
     static constexpr size_t limbs = Limbs;
 
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void shift_left_assign(limb_type (&data)[limbs], size_t limb_shift, int bit_shift) noexcept
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void shift_left_assign(limb_type (&data)[limbs], size_t shift) noexcept
     {
+        size_t limb_shift = shift / 64;
+        int bit_shift = shift % 64;
         if (limbs == 4)
         {
             const uint64_t src0 = static_cast<uint64_t>(data[0]);
@@ -1712,7 +1715,7 @@ struct limb_float
         else
         {
             magnitude_buffer rec = scaled;
-            limb_shift<limbs>::shift_left_assign(rec.words, static_cast<size_t>(shift) / 64, shift % 64);
+            limb_shift<limbs>::shift_left_assign(rec.words, static_cast<size_t>(shift));
             return equal_limbs(rec.words, lhs_abs) ? 0 : 1; // lhs has extra low bits -> larger
         }
     }
