@@ -152,8 +152,19 @@ if(GINT_BUILD_TESTS)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_cmake_compiler_contract.cmake
     )
 
+    include("${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/prepare_consumer.cmake")
+    add_test(NAME consumer.toolchain_forwarding
+        COMMAND ${CMAKE_COMMAND}
+            "-DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            "-DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DGINT_TEST_GENERATOR=${CMAKE_GENERATOR}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_consumer_toolchain.cmake
+    )
+
     add_test(NAME consumer.subproject
         COMMAND ${CMAKE_COMMAND}
+            ${GINT_CONSUMER_BUILD_ARGS}
             -DGINT_CONSUMER_KIND=subproject
             -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
             -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
@@ -174,6 +185,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_EXPECT_PACKAGE_VERSION=${PROJECT_VERSION}
                 -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -183,6 +195,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_exact
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-exact
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION}
@@ -195,6 +208,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_compatible
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-compatible
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
@@ -206,6 +220,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_newer_rejected
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-newer-rejected
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${GINT_TEST_NEWER_PATCH}
@@ -217,6 +232,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_other_minor_rejected
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-other-minor-rejected
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${GINT_TEST_OTHER_MINOR}
