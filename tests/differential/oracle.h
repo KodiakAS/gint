@@ -30,34 +30,30 @@ inline uint8_t input_byte(const uint8_t * data, size_t size, size_t index)
     return size == 0 ? uint8_t(0) : data[index % size];
 }
 
-struct uint256_reference
+template <size_t LimbCount>
+struct reference_uint
 {
-    uint64_t limbs[4];
+    uint64_t limbs[LimbCount];
 
-    uint256_reference()
-        : limbs{0, 0, 0, 0}
-    {
-    }
-};
-
-struct uint1024_reference
-{
-    uint64_t limbs[16];
-
-    uint1024_reference()
+    reference_uint()
         : limbs()
     {
     }
 };
 
-inline bool reference_is_zero(const uint256_reference & value)
+template <size_t LimbCount>
+bool wide_reference_is_zero(const reference_uint<LimbCount> & value)
 {
-    return (value.limbs[0] | value.limbs[1] | value.limbs[2] | value.limbs[3]) == 0;
+    uint64_t combined = 0;
+    for (size_t i = 0; i < LimbCount; ++i)
+        combined |= value.limbs[i];
+    return combined == 0;
 }
 
-inline int reference_compare(const uint256_reference & lhs, const uint256_reference & rhs)
+template <size_t LimbCount>
+int wide_reference_compare(const reference_uint<LimbCount> & lhs, const reference_uint<LimbCount> & rhs)
 {
-    for (size_t i = 4; i-- > 0;)
+    for (size_t i = LimbCount; i-- > 0;)
     {
         if (lhs.limbs[i] < rhs.limbs[i])
             return -1;
@@ -67,30 +63,34 @@ inline int reference_compare(const uint256_reference & lhs, const uint256_refere
     return 0;
 }
 
-inline bool reference_bit(const uint256_reference & value, unsigned bit)
+template <size_t LimbCount>
+bool wide_reference_bit(const reference_uint<LimbCount> & value, size_t bit)
 {
     return ((value.limbs[bit / 64] >> (bit % 64)) & 1u) != 0;
 }
 
-inline void reference_set_bit(uint256_reference & value, unsigned bit)
+template <size_t LimbCount>
+void wide_reference_set_bit(reference_uint<LimbCount> & value, size_t bit)
 {
     value.limbs[bit / 64] |= uint64_t(1) << (bit % 64);
 }
 
-inline bool reference_shift_left_one(uint256_reference & value)
+template <size_t LimbCount>
+bool wide_reference_shift_left_one(reference_uint<LimbCount> & value)
 {
-    const bool carry = (value.limbs[3] >> 63) != 0;
-    for (size_t i = 4; i-- > 1;)
+    const bool carry = (value.limbs[LimbCount - 1] >> 63) != 0;
+    for (size_t i = LimbCount; i-- > 1;)
         value.limbs[i] = (value.limbs[i] << 1) | (value.limbs[i - 1] >> 63);
     value.limbs[0] <<= 1;
     return carry;
 }
 
-inline uint256_reference reference_subtract(const uint256_reference & lhs, const uint256_reference & rhs)
+template <size_t LimbCount>
+reference_uint<LimbCount> wide_reference_subtract(const reference_uint<LimbCount> & lhs, const reference_uint<LimbCount> & rhs)
 {
-    uint256_reference result;
+    reference_uint<LimbCount> result;
     uint64_t borrow = 0;
-    for (size_t i = 0; i < 4; ++i)
+    for (size_t i = 0; i < LimbCount; ++i)
     {
         const uint128_t subtrahend = static_cast<uint128_t>(rhs.limbs[i]) + borrow;
         result.limbs[i] = lhs.limbs[i] - static_cast<uint64_t>(subtrahend);
@@ -99,10 +99,11 @@ inline uint256_reference reference_subtract(const uint256_reference & lhs, const
     return result;
 }
 
-inline void reference_negate(uint256_reference & value)
+template <size_t LimbCount>
+void wide_reference_negate(reference_uint<LimbCount> & value)
 {
     uint64_t carry = 1;
-    for (size_t i = 0; i < 4; ++i)
+    for (size_t i = 0; i < LimbCount; ++i)
     {
         const uint128_t sum = static_cast<uint128_t>(~value.limbs[i]) + carry;
         value.limbs[i] = static_cast<uint64_t>(sum);
@@ -110,66 +111,37 @@ inline void reference_negate(uint256_reference & value)
     }
 }
 
-inline void reference_mul_add(uint256_reference & value, unsigned multiplier, unsigned addend)
+template <size_t LimbCount>
+struct wide_reference_divmod_result
 {
-    uint128_t carry = addend;
-    for (size_t i = 0; i < 4; ++i)
-    {
-        const uint128_t product = static_cast<uint128_t>(value.limbs[i]) * multiplier + carry;
-        value.limbs[i] = static_cast<uint64_t>(product);
-        carry = product >> 64;
-    }
-}
-
-inline void reference_mul_add(uint1024_reference & value, unsigned multiplier, unsigned addend)
-{
-    uint128_t carry = addend;
-    for (size_t i = 0; i < 16; ++i)
-    {
-        const uint128_t product = static_cast<uint128_t>(value.limbs[i]) * multiplier + carry;
-        value.limbs[i] = static_cast<uint64_t>(product);
-        carry = product >> 64;
-    }
-}
-
-inline void reference_negate(uint1024_reference & value)
-{
-    uint64_t carry = 1;
-    for (size_t i = 0; i < 16; ++i)
-    {
-        const uint128_t sum = static_cast<uint128_t>(~value.limbs[i]) + carry;
-        value.limbs[i] = static_cast<uint64_t>(sum);
-        carry = static_cast<uint64_t>(sum >> 64);
-    }
-}
-
-struct reference_divmod_result
-{
-    uint256_reference quotient;
-    uint256_reference remainder;
+    reference_uint<LimbCount> quotient;
+    reference_uint<LimbCount> remainder;
 };
 
-inline reference_divmod_result reference_divmod(const uint256_reference & dividend, const uint256_reference & divisor)
+template <size_t LimbCount>
+wide_reference_divmod_result<LimbCount>
+wide_reference_divmod(const reference_uint<LimbCount> & dividend, const reference_uint<LimbCount> & divisor)
 {
-    require(!reference_is_zero(divisor), "reference division by zero");
-    reference_divmod_result result;
-    for (unsigned bit = 256; bit-- > 0;)
+    require(!wide_reference_is_zero(divisor), "wide reference division by zero");
+    wide_reference_divmod_result<LimbCount> result;
+    for (size_t bit = LimbCount * 64; bit-- > 0;)
     {
-        const bool carry = reference_shift_left_one(result.remainder);
-        result.remainder.limbs[0] |= reference_bit(dividend, bit) ? 1u : 0u;
-        if (carry || reference_compare(result.remainder, divisor) >= 0)
+        const bool carry = wide_reference_shift_left_one(result.remainder);
+        result.remainder.limbs[0] |= wide_reference_bit(dividend, bit) ? 1u : 0u;
+        if (carry || wide_reference_compare(result.remainder, divisor) >= 0)
         {
-            result.remainder = reference_subtract(result.remainder, divisor);
-            reference_set_bit(result.quotient, bit);
+            result.remainder = wide_reference_subtract(result.remainder, divisor);
+            wide_reference_set_bit(result.quotient, bit);
         }
     }
     return result;
 }
 
-inline uint256_reference
-reference_from_input(const uint8_t * data, size_t size, size_t offset, size_t byte_count, bool clear_top_bit = false)
+template <size_t LimbCount>
+reference_uint<LimbCount>
+wide_reference_from_input(const uint8_t * data, size_t size, size_t offset, size_t byte_count, bool clear_top_bit = false)
 {
-    uint256_reference value;
+    reference_uint<LimbCount> value;
     for (size_t i = 0; i < byte_count; ++i)
     {
         uint8_t byte = input_byte(data, size, offset + i);
@@ -179,6 +151,22 @@ reference_from_input(const uint8_t * data, size_t size, size_t offset, size_t by
     }
     return value;
 }
+
+template <size_t LimbCount>
+void reference_mul_add(reference_uint<LimbCount> & value, unsigned multiplier, unsigned addend)
+{
+    uint128_t carry = addend;
+    for (size_t i = 0; i < LimbCount; ++i)
+    {
+        const uint128_t product = static_cast<uint128_t>(value.limbs[i]) * multiplier + carry;
+        value.limbs[i] = static_cast<uint64_t>(product);
+        carry = product >> 64;
+    }
+}
+
+using uint256_reference = reference_uint<4>;
+using uint1024_reference = reference_uint<16>;
+using reference_divmod_result = wide_reference_divmod_result<4>;
 
 template <typename UInt>
 struct gint_integer_access;
@@ -207,131 +195,8 @@ UInt gint_from_input(const uint8_t * data, size_t size, size_t offset, size_t by
     return value;
 }
 
-template <size_t LimbCount>
-struct wide_division_reference
-{
-    uint64_t limbs[LimbCount];
-
-    wide_division_reference()
-        : limbs()
-    {
-    }
-};
-
-template <size_t LimbCount>
-bool wide_reference_is_zero(const wide_division_reference<LimbCount> & value)
-{
-    uint64_t combined = 0;
-    for (size_t i = 0; i < LimbCount; ++i)
-        combined |= value.limbs[i];
-    return combined == 0;
-}
-
-template <size_t LimbCount>
-int wide_reference_compare(const wide_division_reference<LimbCount> & lhs, const wide_division_reference<LimbCount> & rhs)
-{
-    for (size_t i = LimbCount; i-- > 0;)
-    {
-        if (lhs.limbs[i] < rhs.limbs[i])
-            return -1;
-        if (lhs.limbs[i] > rhs.limbs[i])
-            return 1;
-    }
-    return 0;
-}
-
-template <size_t LimbCount>
-bool wide_reference_bit(const wide_division_reference<LimbCount> & value, size_t bit)
-{
-    return ((value.limbs[bit / 64] >> (bit % 64)) & 1u) != 0;
-}
-
-template <size_t LimbCount>
-void wide_reference_set_bit(wide_division_reference<LimbCount> & value, size_t bit)
-{
-    value.limbs[bit / 64] |= uint64_t(1) << (bit % 64);
-}
-
-template <size_t LimbCount>
-bool wide_reference_shift_left_one(wide_division_reference<LimbCount> & value)
-{
-    const bool carry = (value.limbs[LimbCount - 1] >> 63) != 0;
-    for (size_t i = LimbCount; i-- > 1;)
-        value.limbs[i] = (value.limbs[i] << 1) | (value.limbs[i - 1] >> 63);
-    value.limbs[0] <<= 1;
-    return carry;
-}
-
-template <size_t LimbCount>
-wide_division_reference<LimbCount>
-wide_reference_subtract(const wide_division_reference<LimbCount> & lhs, const wide_division_reference<LimbCount> & rhs)
-{
-    wide_division_reference<LimbCount> result;
-    uint64_t borrow = 0;
-    for (size_t i = 0; i < LimbCount; ++i)
-    {
-        const uint128_t subtrahend = static_cast<uint128_t>(rhs.limbs[i]) + borrow;
-        result.limbs[i] = lhs.limbs[i] - static_cast<uint64_t>(subtrahend);
-        borrow = static_cast<uint128_t>(lhs.limbs[i]) < subtrahend;
-    }
-    return result;
-}
-
-template <size_t LimbCount>
-void wide_reference_negate(wide_division_reference<LimbCount> & value)
-{
-    uint64_t carry = 1;
-    for (size_t i = 0; i < LimbCount; ++i)
-    {
-        const uint128_t sum = static_cast<uint128_t>(~value.limbs[i]) + carry;
-        value.limbs[i] = static_cast<uint64_t>(sum);
-        carry = static_cast<uint64_t>(sum >> 64);
-    }
-}
-
-template <size_t LimbCount>
-struct wide_reference_divmod_result
-{
-    wide_division_reference<LimbCount> quotient;
-    wide_division_reference<LimbCount> remainder;
-};
-
-template <size_t LimbCount>
-wide_reference_divmod_result<LimbCount>
-wide_reference_divmod(const wide_division_reference<LimbCount> & dividend, const wide_division_reference<LimbCount> & divisor)
-{
-    require(!wide_reference_is_zero(divisor), "wide reference division by zero");
-    wide_reference_divmod_result<LimbCount> result;
-    for (size_t bit = LimbCount * 64; bit-- > 0;)
-    {
-        const bool carry = wide_reference_shift_left_one(result.remainder);
-        result.remainder.limbs[0] |= wide_reference_bit(dividend, bit) ? 1u : 0u;
-        if (carry || wide_reference_compare(result.remainder, divisor) >= 0)
-        {
-            result.remainder = wide_reference_subtract(result.remainder, divisor);
-            wide_reference_set_bit(result.quotient, bit);
-        }
-    }
-    return result;
-}
-
-template <size_t LimbCount>
-wide_division_reference<LimbCount>
-wide_reference_from_input(const uint8_t * data, size_t size, size_t offset, size_t byte_count, bool clear_top_bit = false)
-{
-    wide_division_reference<LimbCount> value;
-    for (size_t i = 0; i < byte_count; ++i)
-    {
-        uint8_t byte = input_byte(data, size, offset + i);
-        if (clear_top_bit && i + 1 == byte_count)
-            byte &= 0x7fu;
-        value.limbs[i / 8] |= uint64_t(byte) << ((i % 8) * 8);
-    }
-    return value;
-}
-
 template <size_t Bits>
-bool equal_wide_unsigned_bits(const gint::integer<Bits, unsigned> & actual, const wide_division_reference<Bits / 64> & expected)
+bool equal_wide_unsigned_bits(const gint::integer<Bits, unsigned> & actual, const reference_uint<Bits / 64> & expected)
 {
     for (size_t limb = 0; limb < Bits / 64; ++limb)
     {
@@ -344,21 +209,21 @@ bool equal_wide_unsigned_bits(const gint::integer<Bits, unsigned> & actual, cons
 template <size_t Bits>
 struct wide_signed_reference
 {
-    wide_division_reference<Bits / 64> magnitude;
+    reference_uint<Bits / 64> magnitude;
     bool negative;
 };
 
 template <size_t Bits>
-wide_signed_reference<Bits> make_wide_signed_reference(wide_division_reference<Bits / 64> magnitude, bool negative)
+wide_signed_reference<Bits> make_wide_signed_reference(reference_uint<Bits / 64> magnitude, bool negative)
 {
     wide_signed_reference<Bits> result = {magnitude, negative && !wide_reference_is_zero(magnitude)};
     return result;
 }
 
 template <size_t Bits>
-wide_division_reference<Bits / 64> wide_signed_reference_bits(const wide_signed_reference<Bits> & value)
+reference_uint<Bits / 64> wide_signed_reference_bits(const wide_signed_reference<Bits> & value)
 {
-    wide_division_reference<Bits / 64> result = value.magnitude;
+    reference_uint<Bits / 64> result = value.magnitude;
     if (value.negative)
         wide_reference_negate(result);
     return result;
@@ -401,7 +266,7 @@ template <size_t Bits>
 void exercise_wide_signed_min_division()
 {
     typedef gint::integer<Bits, signed> Int;
-    typedef wide_division_reference<Bits / 64> Reference;
+    typedef reference_uint<Bits / 64> Reference;
 
     Reference min_magnitude;
     min_magnitude.limbs[Bits / 64 - 1] = uint64_t(1) << 63;
@@ -432,7 +297,7 @@ void exercise_wide_division(const uint8_t * data, size_t size)
     static_assert(Bits == 512 || Bits == 1024, "wide differential division only covers supported large widths");
     typedef gint::integer<Bits, unsigned> UInt;
     typedef gint::integer<Bits, signed> Int;
-    typedef wide_division_reference<Bits / 64> Reference;
+    typedef reference_uint<Bits / 64> Reference;
 
     const size_t value_bytes = Bits / 8;
     const uint8_t control = input_byte(data, size, 1);
@@ -488,52 +353,7 @@ void exercise_wide_division(const uint8_t * data, size_t size)
         exercise_wide_signed_min_division<Bits>();
 }
 
-inline bool equal_unsigned_bits(const gint::UInt256 & actual, const uint256_reference & expected)
-{
-    for (unsigned limb = 0; limb < 4; ++limb)
-    {
-        const uint64_t actual_limb = gint_integer_access<gint::UInt256>::limb(actual, limb);
-        if (actual_limb != expected.limbs[limb])
-            return false;
-    }
-    return true;
-}
-
-inline bool equal_unsigned_bits(const uint1024_t & actual, const uint1024_reference & expected)
-{
-    for (unsigned limb = 0; limb < 16; ++limb)
-    {
-        const uint64_t actual_limb = gint_integer_access<uint1024_t>::limb(actual, limb);
-        if (actual_limb != expected.limbs[limb])
-            return false;
-    }
-    return true;
-}
-
-struct signed_reference
-{
-    uint256_reference magnitude;
-    bool negative;
-};
-
-inline signed_reference make_signed_reference(uint256_reference magnitude, bool negative)
-{
-    signed_reference result = {magnitude, negative && !reference_is_zero(magnitude)};
-    return result;
-}
-
-inline uint256_reference signed_reference_bits(const signed_reference & value)
-{
-    uint256_reference result = value.magnitude;
-    if (value.negative)
-        reference_negate(result);
-    return result;
-}
-
-inline bool equal_signed_bits(const gint::Int256 & actual, const signed_reference & expected)
-{
-    return equal_unsigned_bits(gint::UInt256(actual), signed_reference_bits(expected));
-}
+using signed_reference = wide_signed_reference<256>;
 
 inline void verify_unsigned_division(
     const gint::UInt256 & dividend,
@@ -541,11 +361,11 @@ inline void verify_unsigned_division(
     const uint256_reference & ref_dividend,
     const uint256_reference & ref_divisor)
 {
-    const reference_divmod_result expected = reference_divmod(ref_dividend, ref_divisor);
+    const reference_divmod_result expected = wide_reference_divmod(ref_dividend, ref_divisor);
     const gint::divmod_result<gint::UInt256> result = gint::divmod(dividend, divisor);
 
-    require(equal_unsigned_bits(result.quotient, expected.quotient), "unsigned division quotient differs from bitwise oracle");
-    require(equal_unsigned_bits(result.remainder, expected.remainder), "unsigned division remainder differs from bitwise oracle");
+    require(equal_wide_unsigned_bits(result.quotient, expected.quotient), "unsigned division quotient differs from bitwise oracle");
+    require(equal_wide_unsigned_bits(result.remainder, expected.remainder), "unsigned division remainder differs from bitwise oracle");
     require(result.quotient == dividend / divisor, "unsigned divmod quotient differs from operator/");
     require(result.remainder == dividend % divisor, "unsigned divmod remainder differs from operator%");
     require(result.quotient * divisor + result.remainder == dividend, "unsigned division identity failed");
@@ -558,14 +378,14 @@ inline void verify_signed_division(
     const signed_reference & ref_dividend,
     const signed_reference & ref_divisor)
 {
-    const reference_divmod_result expected_magnitudes = reference_divmod(ref_dividend.magnitude, ref_divisor.magnitude);
+    const reference_divmod_result expected_magnitudes = wide_reference_divmod(ref_dividend.magnitude, ref_divisor.magnitude);
     const signed_reference expected_quotient
-        = make_signed_reference(expected_magnitudes.quotient, ref_dividend.negative != ref_divisor.negative);
-    const signed_reference expected_remainder = make_signed_reference(expected_magnitudes.remainder, ref_dividend.negative);
+        = make_wide_signed_reference<256>(expected_magnitudes.quotient, ref_dividend.negative != ref_divisor.negative);
+    const signed_reference expected_remainder = make_wide_signed_reference<256>(expected_magnitudes.remainder, ref_dividend.negative);
     const gint::divmod_result<gint::Int256> result = gint::divmod(dividend, divisor);
 
-    require(equal_signed_bits(result.quotient, expected_quotient), "signed division quotient differs from bitwise oracle");
-    require(equal_signed_bits(result.remainder, expected_remainder), "signed division remainder differs from bitwise oracle");
+    require(equal_wide_signed_bits(result.quotient, expected_quotient), "signed division quotient differs from bitwise oracle");
+    require(equal_wide_signed_bits(result.remainder, expected_remainder), "signed division remainder differs from bitwise oracle");
     require(result.quotient == dividend / divisor, "signed divmod quotient differs from operator/");
     require(result.remainder == dividend % divisor, "signed divmod remainder differs from operator%");
     require(result.quotient * divisor + result.remainder == dividend, "signed division identity failed");
@@ -580,9 +400,9 @@ inline void exercise_division(const uint8_t * data, size_t size)
 
     const gint::UInt256 unsigned_dividend = gint_from_input<gint::UInt256>(data, size, 2, 32);
     gint::UInt256 unsigned_divisor = gint_from_input<gint::UInt256>(data, size, 34, divisor_bytes);
-    const uint256_reference ref_unsigned_dividend = reference_from_input(data, size, 2, 32);
-    uint256_reference ref_unsigned_divisor = reference_from_input(data, size, 34, divisor_bytes);
-    if (reference_is_zero(ref_unsigned_divisor))
+    const uint256_reference ref_unsigned_dividend = wide_reference_from_input<4>(data, size, 2, 32);
+    uint256_reference ref_unsigned_divisor = wide_reference_from_input<4>(data, size, 34, divisor_bytes);
+    if (wide_reference_is_zero(ref_unsigned_divisor))
     {
         unsigned_divisor = 1;
         ref_unsigned_divisor.limbs[0] = 1;
@@ -605,16 +425,16 @@ inline void exercise_division(const uint8_t * data, size_t size)
         verify_signed_division(
             std::numeric_limits<gint::Int256>::min(),
             gint::Int256(-1),
-            make_signed_reference(min_magnitude, true),
-            make_signed_reference(one, true));
+            make_wide_signed_reference<256>(min_magnitude, true),
+            make_wide_signed_reference<256>(one, true));
         return;
     }
 
     const gint::UInt256 signed_dividend_magnitude = gint_from_input<gint::UInt256>(data, size, 2, 32, true);
     gint::UInt256 signed_divisor_magnitude = gint_from_input<gint::UInt256>(data, size, 34, divisor_bytes, divisor_bytes == 32);
-    const uint256_reference ref_signed_dividend_magnitude = reference_from_input(data, size, 2, 32, true);
-    uint256_reference ref_signed_divisor_magnitude = reference_from_input(data, size, 34, divisor_bytes, divisor_bytes == 32);
-    if (reference_is_zero(ref_signed_divisor_magnitude))
+    const uint256_reference ref_signed_dividend_magnitude = wide_reference_from_input<4>(data, size, 2, 32, true);
+    uint256_reference ref_signed_divisor_magnitude = wide_reference_from_input<4>(data, size, 34, divisor_bytes, divisor_bytes == 32);
+    if (wide_reference_is_zero(ref_signed_divisor_magnitude))
     {
         signed_divisor_magnitude = 1;
         ref_signed_divisor_magnitude.limbs[0] = 1;
@@ -631,8 +451,8 @@ inline void exercise_division(const uint8_t * data, size_t size)
     verify_signed_division(
         signed_dividend,
         signed_divisor,
-        make_signed_reference(ref_signed_dividend_magnitude, dividend_negative),
-        make_signed_reference(ref_signed_divisor_magnitude, divisor_negative));
+        make_wide_signed_reference<256>(ref_signed_dividend_magnitude, dividend_negative),
+        make_wide_signed_reference<256>(ref_signed_divisor_magnitude, divisor_negative));
 }
 
 inline unsigned reference_digit_value(char character)
@@ -704,7 +524,7 @@ inline bool reference_parse(const std::string & text, unsigned base, uint256_ref
         reference_mul_add(result, base, digit);
     }
     if (negative)
-        reference_negate(result);
+        wide_reference_negate(result);
     return true;
 }
 
@@ -739,7 +559,7 @@ inline bool reference_parse_1024_power_of_two(const std::string & text, unsigned
         reference_mul_add(result, base, digit);
     }
     if (negative)
-        reference_negate(result);
+        wide_reference_negate(result);
     return true;
 }
 
@@ -823,7 +643,7 @@ inline void verify_parser_api(const std::string & text, unsigned base)
     {
         const gint::UInt256 actual = gint::from_string<gint::UInt256>(text, base);
         require(valid, "UInt256 string parser accepted invalid input");
-        require(equal_unsigned_bits(actual, expected), "UInt256 string parser differs from multiply-add oracle");
+        require(equal_wide_unsigned_bits(actual, expected), "UInt256 string parser differs from multiply-add oracle");
     }
     catch (const std::invalid_argument &)
     {
@@ -836,7 +656,8 @@ inline void verify_parser_api(const std::string & text, unsigned base)
     {
         const gint::Int256 actual = gint::from_string<gint::Int256>(text, base);
         require(valid, "Int256 string parser accepted invalid input");
-        require(equal_unsigned_bits(gint::UInt256(actual), expected), "Int256 string parser bit pattern differs from reference parser");
+        require(
+            equal_wide_unsigned_bits(gint::UInt256(actual), expected), "Int256 string parser bit pattern differs from reference parser");
     }
     catch (const std::invalid_argument &)
     {
@@ -855,7 +676,7 @@ inline void verify_parser_1024_power_of_two_api(const std::string & text, unsign
     {
         const uint1024_t actual = gint::from_string<uint1024_t>(text, base);
         require(valid, "UInt1024 string parser accepted invalid power-of-two input");
-        require(equal_unsigned_bits(actual, expected), "UInt1024 string parser differs from independent limb oracle");
+        require(equal_wide_unsigned_bits(actual, expected), "UInt1024 string parser differs from independent limb oracle");
     }
     catch (const std::invalid_argument &)
     {
@@ -871,7 +692,7 @@ inline void verify_parser_1024_power_of_two_api(const std::string & text, unsign
     {
         const uint1024_t actual = gint::from_string<uint1024_t>(text.c_str(), base);
         require(c_string_valid, "UInt1024 C-string parser accepted invalid power-of-two input");
-        require(equal_unsigned_bits(actual, c_string_expected), "UInt1024 C-string parser differs from independent limb oracle");
+        require(equal_wide_unsigned_bits(actual, c_string_expected), "UInt1024 C-string parser differs from independent limb oracle");
     }
     catch (const std::invalid_argument &)
     {
@@ -895,7 +716,7 @@ inline void exercise_parser(const uint8_t * data, size_t size)
     {
         const gint::UInt256 actual = gint::from_string<gint::UInt256>(generated.text.c_str(), generated.base);
         require(valid, "UInt256 C-string parser accepted invalid input");
-        require(equal_unsigned_bits(actual, expected), "UInt256 C-string parser differs from reference parser");
+        require(equal_wide_unsigned_bits(actual, expected), "UInt256 C-string parser differs from reference parser");
     }
     catch (const std::invalid_argument &)
     {
@@ -978,11 +799,11 @@ Float reference_binary_float(const uint256_reference & magnitude, bool negative)
     unsigned shift = bit_count - kept_bits;
     uint128_t significand = 0;
     for (unsigned i = 0; i < kept_bits; ++i)
-        significand = (significand << 1) | (reference_bit(magnitude, bit_count - i - 1) ? 1u : 0u);
+        significand = (significand << 1) | (wide_reference_bit(magnitude, bit_count - i - 1) ? 1u : 0u);
 
     if (shift != 0)
     {
-        const bool guard = reference_bit(magnitude, shift - 1);
+        const bool guard = wide_reference_bit(magnitude, shift - 1);
         const bool sticky = reference_any_low_bits(magnitude, shift - 1);
         const bool discarded = guard || sticky;
         bool increment = false;
@@ -1041,7 +862,7 @@ inline void exercise_float_conversion(const uint8_t * data, size_t size)
     require(std::fesetround(rounding_modes[input_byte(data, size, 1) & 3u]) == 0, "fesetround failed");
 
     const gint::UInt256 unsigned_256 = gint_from_input<gint::UInt256>(data, size, 2, 32);
-    const uint256_reference ref_unsigned_256 = reference_from_input(data, size, 2, 32);
+    const uint256_reference ref_unsigned_256 = wide_reference_from_input<4>(data, size, 2, 32);
     require(
         equal_float(static_cast<double>(unsigned_256), reference_binary_float<double>(ref_unsigned_256, false)),
         "UInt256 to double differs from exact oracle");
@@ -1050,7 +871,7 @@ inline void exercise_float_conversion(const uint8_t * data, size_t size)
         "UInt256 to long double differs from exact oracle");
 
     const gint::UInt256 signed_magnitude = gint_from_input<gint::UInt256>(data, size, 2, 32, true);
-    const uint256_reference ref_signed_256 = reference_from_input(data, size, 2, 32, true);
+    const uint256_reference ref_signed_256 = wide_reference_from_input<4>(data, size, 2, 32, true);
     const bool signed_256_negative = (input_byte(data, size, 1) & 0x10u) != 0;
     gint::Int256 signed_256(signed_magnitude);
     if (signed_256_negative)
@@ -1065,7 +886,7 @@ inline void exercise_float_conversion(const uint8_t * data, size_t size)
     // Keep float inputs below 2^120 so every generated value is finite on all
     // supported GCC/Clang targets while still exercising many discarded bits.
     const gint::UInt128 unsigned_128 = gint_from_input<gint::UInt128>(data, size, 2, 15);
-    const uint256_reference ref_unsigned_128 = reference_from_input(data, size, 2, 15);
+    const uint256_reference ref_unsigned_128 = wide_reference_from_input<4>(data, size, 2, 15);
     require(
         equal_float(static_cast<float>(unsigned_128), reference_binary_float<float>(ref_unsigned_128, false)),
         "UInt128 to float differs from exact oracle");

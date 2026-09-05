@@ -64,7 +64,7 @@ void verify_division_oracle_against_native()
         gint_differential::uint256_reference ref_divisor;
         ref_divisor.limbs[0] = static_cast<uint64_t>(divisor);
         ref_divisor.limbs[1] = static_cast<uint64_t>(divisor >> 64);
-        const gint_differential::reference_divmod_result result = gint_differential::reference_divmod(ref_dividend, ref_divisor);
+        const gint_differential::reference_divmod_result result = gint_differential::wide_reference_divmod(ref_dividend, ref_divisor);
 
         const gint_differential::uint128_t quotient
             = (static_cast<gint_differential::uint128_t>(result.quotient.limbs[1]) << 64) | result.quotient.limbs[0];
@@ -77,10 +77,10 @@ void verify_division_oracle_against_native()
             result.remainder.limbs[2] == 0 && result.remainder.limbs[3] == 0 && remainder == dividend % divisor,
             "bitwise division oracle disagrees with native UInt128 remainder");
 
-        gint_differential::wide_division_reference<2> wide_ref_dividend;
+        gint_differential::reference_uint<2> wide_ref_dividend;
         wide_ref_dividend.limbs[0] = static_cast<uint64_t>(dividend);
         wide_ref_dividend.limbs[1] = static_cast<uint64_t>(dividend >> 64);
-        gint_differential::wide_division_reference<2> wide_ref_divisor;
+        gint_differential::reference_uint<2> wide_ref_divisor;
         wide_ref_divisor.limbs[0] = static_cast<uint64_t>(divisor);
         wide_ref_divisor.limbs[1] = static_cast<uint64_t>(divisor >> 64);
         const gint_differential::wide_reference_divmod_result<2> wide_result

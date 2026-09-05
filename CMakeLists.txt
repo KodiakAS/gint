@@ -350,8 +350,19 @@ if(GINT_BUILD_TESTS)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_cmake_compiler_contract.cmake
     )
 
+    include("${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/prepare_consumer.cmake")
+    add_test(NAME consumer.toolchain_forwarding
+        COMMAND ${CMAKE_COMMAND}
+            "-DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            "-DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DGINT_TEST_GENERATOR=${CMAKE_GENERATOR}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_consumer_toolchain.cmake
+    )
+
     add_test(NAME consumer.subproject
         COMMAND ${CMAKE_COMMAND}
+            ${GINT_CONSUMER_BUILD_ARGS}
             -DGINT_CONSUMER_KIND=subproject
             -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
             -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
@@ -372,6 +383,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_EXPECT_PACKAGE_VERSION=${PROJECT_VERSION}
                 -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -381,6 +393,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_exact
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-exact
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION}
@@ -393,6 +406,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_compatible
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-compatible
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
@@ -404,6 +418,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_newer_rejected
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-newer-rejected
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${GINT_TEST_NEWER_PATCH}
@@ -415,6 +430,7 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.version_other_minor_rejected
             COMMAND ${CMAKE_COMMAND}
                 ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_CONSUMER_KIND=package
                 -DGINT_CONSUMER_CASE=package-version-other-minor-rejected
                 -DGINT_PACKAGE_VERSION=${PROJECT_VERSION_MAJOR}.${GINT_TEST_OTHER_MINOR}
@@ -454,86 +470,54 @@ if(GINT_BUILD_TESTS)
         tests/stream_test.cpp
     )
 
-    add_executable(gint_tests ${GINT_TEST_SOURCES})
-    target_include_directories(gint_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(gint_tests PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_compile_options(gint_tests PRIVATE ${GINT_TEST_OPTIONS})
-    if(GINT_TEST_LINK_OPTIONS)
-        target_link_options(gint_tests PRIVATE ${GINT_TEST_LINK_OPTIONS})
-    endif()
-    # fmt support is required by some tests; enable globally for the test target
-    target_compile_definitions(gint_tests PRIVATE GINT_ENABLE_FMT GINT_TEST_ACCESS)
-    target_link_libraries(gint_tests PRIVATE GTest::gtest_main fmt::fmt)
+    # Keep each policy/optimization variant in its own executable. Only the
+    # target setup is shared; Release intentionally omits debug instrumentation.
+    function(add_gint_unit_test target sources standard prefix)
+        cmake_parse_arguments(TEST "RELEASE" "" "DEFINITIONS;LIBRARIES" ${ARGN})
+        add_executable(${target} ${sources})
+        target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        set_target_properties(${target} PROPERTIES
+            CXX_STANDARD ${standard} CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        if(TEST_RELEASE)
+            target_compile_options(${target} PRIVATE ${GINT_TEST_RELEASE_OPTIONS})
+        else()
+            target_compile_options(${target} PRIVATE ${GINT_TEST_OPTIONS})
+            if(GINT_TEST_LINK_OPTIONS)
+                target_link_options(${target} PRIVATE ${GINT_TEST_LINK_OPTIONS})
+            endif()
+        endif()
+        target_compile_definitions(${target} PRIVATE ${TEST_DEFINITIONS})
+        target_link_libraries(${target} PRIVATE GTest::gtest_main ${TEST_LIBRARIES})
+        gtest_discover_tests(${target}
+            TEST_PREFIX "${prefix}" NO_PRETTY_VALUES DISCOVERY_TIMEOUT 60)
+    endfunction()
 
-    # Increase discovery timeout to avoid flaky timeouts when listing tests
-    gtest_discover_tests(gint_tests
-        NO_PRETTY_VALUES
-        DISCOVERY_TIMEOUT 60
-    )
+    set(GINT_CORE_TEST_ARGS DEFINITIONS GINT_ENABLE_FMT GINT_TEST_ACCESS LIBRARIES fmt::fmt)
+    set(GINT_FASTPATH_TEST_ARGS DEFINITIONS GINT_GCC_TUNED_PATHS=1 GINT_CLANG_TUNED_PATHS=0)
+    add_gint_unit_test(gint_tests "${GINT_TEST_SOURCES}" 11 "" ${GINT_CORE_TEST_ARGS})
 
-    # Run the same C++11 unit tests under Release/O3 by default. This catches
-    # optimization-sensitive issues in the header-only fast paths while keeping
-    # the primary test target debuggable.
+    # Exercise the same C++11 cases under O3 to catch optimization-sensitive bugs.
     if(GINT_BUILD_TESTS_RELEASE AND NOT ENABLE_COVERAGE)
-        add_executable(gint_tests_release ${GINT_TEST_SOURCES})
-        target_include_directories(gint_tests_release PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        set_target_properties(gint_tests_release PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-        target_compile_options(gint_tests_release PRIVATE ${GINT_TEST_RELEASE_OPTIONS})
-        target_compile_definitions(gint_tests_release PRIVATE GINT_ENABLE_FMT GINT_TEST_ACCESS)
-        target_link_libraries(gint_tests_release PRIVATE GTest::gtest_main fmt::fmt)
-        gtest_discover_tests(gint_tests_release
-            NO_PRETTY_VALUES
-            TEST_PREFIX release.
-            DISCOVERY_TIMEOUT 60
-        )
+        add_gint_unit_test(gint_tests_release "${GINT_TEST_SOURCES}" 11 "release."
+            RELEASE ${GINT_CORE_TEST_ARGS})
     endif()
 
-    add_executable(gint_tests_no_divzero_checks tests/divzero_unchecked_test.cpp)
-    target_include_directories(gint_tests_no_divzero_checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(gint_tests_no_divzero_checks PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_compile_options(gint_tests_no_divzero_checks PRIVATE ${GINT_TEST_OPTIONS})
-    if(GINT_TEST_LINK_OPTIONS)
-        target_link_options(gint_tests_no_divzero_checks PRIVATE ${GINT_TEST_LINK_OPTIONS})
-    endif()
-    target_link_libraries(gint_tests_no_divzero_checks PRIVATE GTest::gtest_main)
-    gtest_discover_tests(gint_tests_no_divzero_checks
-        TEST_PREFIX no_divzero_checks.
-        NO_PRETTY_VALUES
-        DISCOVERY_TIMEOUT 60
-    )
-
-    add_executable(gint_tests_no_divzero_checks_fastpaths tests/divzero_unchecked_test.cpp)
-    target_include_directories(gint_tests_no_divzero_checks_fastpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(gint_tests_no_divzero_checks_fastpaths PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_compile_options(gint_tests_no_divzero_checks_fastpaths PRIVATE ${GINT_TEST_OPTIONS})
-    target_compile_definitions(gint_tests_no_divzero_checks_fastpaths PRIVATE GINT_GCC_TUNED_PATHS=1 GINT_CLANG_TUNED_PATHS=0)
-    if(GINT_TEST_LINK_OPTIONS)
-        target_link_options(gint_tests_no_divzero_checks_fastpaths PRIVATE ${GINT_TEST_LINK_OPTIONS})
-    endif()
-    target_link_libraries(gint_tests_no_divzero_checks_fastpaths PRIVATE GTest::gtest_main)
-    gtest_discover_tests(gint_tests_no_divzero_checks_fastpaths
-        TEST_PREFIX no_divzero_checks_fastpaths.
-        NO_PRETTY_VALUES
-        DISCOVERY_TIMEOUT 60
-    )
+    add_gint_unit_test(gint_tests_no_divzero_checks tests/divzero_unchecked_test.cpp 11 "no_divzero_checks.")
+    add_gint_unit_test(gint_tests_no_divzero_checks_fastpaths tests/divzero_unchecked_test.cpp 11
+        "no_divzero_checks_fastpaths." ${GINT_FASTPATH_TEST_ARGS})
 
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_library(gint_divzero_checked_dso SHARED tests/divzero_dso_library.cpp)
-        target_include_directories(gint_divzero_checked_dso PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        set_target_properties(gint_divzero_checked_dso PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-        target_compile_options(gint_divzero_checked_dso PRIVATE ${GINT_TEST_OPTIONS})
+        foreach(policy IN ITEMS checked unchecked)
+            set(target gint_divzero_${policy}_dso)
+            add_library(${target} SHARED tests/divzero_dso_library.cpp)
+            target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+            set_target_properties(${target} PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+            target_compile_options(${target} PRIVATE ${GINT_TEST_OPTIONS})
+            if(GINT_TEST_LINK_OPTIONS)
+                target_link_options(${target} PRIVATE ${GINT_TEST_LINK_OPTIONS})
+            endif()
+        endforeach()
         target_compile_definitions(gint_divzero_checked_dso PRIVATE GINT_ENABLE_DIVZERO_CHECKS)
-        if(GINT_TEST_LINK_OPTIONS)
-            target_link_options(gint_divzero_checked_dso PRIVATE ${GINT_TEST_LINK_OPTIONS})
-        endif()
-
-        add_library(gint_divzero_unchecked_dso SHARED tests/divzero_dso_library.cpp)
-        target_include_directories(gint_divzero_unchecked_dso PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        set_target_properties(gint_divzero_unchecked_dso PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-        target_compile_options(gint_divzero_unchecked_dso PRIVATE ${GINT_TEST_OPTIONS})
-        if(GINT_TEST_LINK_OPTIONS)
-            target_link_options(gint_divzero_unchecked_dso PRIVATE ${GINT_TEST_LINK_OPTIONS})
-        endif()
 
         add_executable(gint_tests_divzero_dso tests/divzero_dso_loader_test.cpp)
         target_compile_definitions(gint_tests_divzero_dso
@@ -555,49 +539,15 @@ if(GINT_BUILD_TESTS)
         )
     endif()
 
-    add_executable(gint_tests_gcc_tuned_fastpaths tests/gcc_tuned_fastpaths_test.cpp)
-    target_include_directories(gint_tests_gcc_tuned_fastpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(gint_tests_gcc_tuned_fastpaths PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_compile_options(gint_tests_gcc_tuned_fastpaths PRIVATE ${GINT_TEST_OPTIONS})
-    target_compile_definitions(gint_tests_gcc_tuned_fastpaths PRIVATE GINT_GCC_TUNED_PATHS=1 GINT_CLANG_TUNED_PATHS=0)
-    if(GINT_TEST_LINK_OPTIONS)
-        target_link_options(gint_tests_gcc_tuned_fastpaths PRIVATE ${GINT_TEST_LINK_OPTIONS})
-    endif()
-    target_link_libraries(gint_tests_gcc_tuned_fastpaths PRIVATE GTest::gtest_main)
-    gtest_discover_tests(gint_tests_gcc_tuned_fastpaths
-        TEST_PREFIX gcc_tuned_fastpaths.
-        NO_PRETTY_VALUES
-        DISCOVERY_TIMEOUT 60
-    )
+    add_gint_unit_test(gint_tests_gcc_tuned_fastpaths tests/gcc_tuned_fastpaths_test.cpp 11
+        "gcc_tuned_fastpaths." ${GINT_FASTPATH_TEST_ARGS})
+    add_gint_unit_test(gint_tests_divzero_checks tests/exceptions_overflow_test.cpp 11 "divzero_checks.")
 
-    add_executable(gint_tests_divzero_checks tests/exceptions_overflow_test.cpp)
-    target_include_directories(gint_tests_divzero_checks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    set_target_properties(gint_tests_divzero_checks PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_compile_options(gint_tests_divzero_checks PRIVATE ${GINT_TEST_OPTIONS})
-    if(GINT_TEST_LINK_OPTIONS)
-        target_link_options(gint_tests_divzero_checks PRIVATE ${GINT_TEST_LINK_OPTIONS})
-    endif()
-    target_link_libraries(gint_tests_divzero_checks PRIVATE GTest::gtest_main)
-    gtest_discover_tests(gint_tests_divzero_checks
-        TEST_PREFIX divzero_checks.
-        NO_PRETTY_VALUES
-        DISCOVERY_TIMEOUT 60
-    )
-
-    # Optionally compile the core unit test suite under C++17 when explicitly enabled
+    # Optionally compile the core unit test suite under C++17 when explicitly enabled.
     if(GINT_BUILD_TESTS_CXX17)
         check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
         if(HAS_CXX17)
-            add_executable(gint_tests_cxx17 ${GINT_TEST_SOURCES})
-            target_include_directories(gint_tests_cxx17 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-            set_target_properties(gint_tests_cxx17 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-            target_compile_options(gint_tests_cxx17 PRIVATE ${GINT_TEST_OPTIONS})
-            if(GINT_TEST_LINK_OPTIONS)
-                target_link_options(gint_tests_cxx17 PRIVATE ${GINT_TEST_LINK_OPTIONS})
-            endif()
-            target_compile_definitions(gint_tests_cxx17 PRIVATE GINT_ENABLE_FMT GINT_TEST_ACCESS)
-            target_link_libraries(gint_tests_cxx17 PRIVATE GTest::gtest_main fmt::fmt)
-            gtest_discover_tests(gint_tests_cxx17 NO_PRETTY_VALUES DISCOVERY_TIMEOUT 60)
+            add_gint_unit_test(gint_tests_cxx17 "${GINT_TEST_SOURCES}" 17 "" ${GINT_CORE_TEST_ARGS})
         endif()
     endif()
 endif()

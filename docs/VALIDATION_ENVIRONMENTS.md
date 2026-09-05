@@ -32,6 +32,21 @@ runs/<scope>/...     # 当前任务的构建与结果
 scope 只用于隔离产物，不表示机器位置。同一 scope 切换编译器时仍必须使用独立
 build 目录，避免复用旧 CMake cache。
 
+## consumer 子构建的配置边界
+
+consumer/package 测试保留选定的 C++ 编译器、工具链和平台/sysroot 设置、通用及
+配置专用的编译/链接 flags，以及生成器和活动配置。多配置生成器需要使用
+`ctest -C <配置>`。子构建仍独立配置，保持 C++11 consumer 和隔离安装前缀。
+
+自定义工具链输入按 CMake 的 `CMAKE_TRY_COMPILE_PLATFORM_VARIABLES` 声明传递，
+包括空值、布尔值和列表；工具链文件须能在不同源码/构建目录中重复使用。
+不复制整个父 cache、项目选项、查找结果、目标属性或任意环境变量。
+这不扩展 `SUPPORT.md` 的平台矩阵，也不承诺重放任意外部构建环境。
+
+`consumer.toolchain_forwarding` 用真实子编译验证通用/Release flags、配置选择和
+声明的工具链输入，避免仅检查 cache 相等而漏掉实际命令变化。最低 CMake lane
+也执行该测试；Ninja Multi-Config 在支持它的现代 CMake 上验证。
+
 ## 初始化当前环境
 
 ```sh

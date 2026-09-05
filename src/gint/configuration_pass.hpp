@@ -8,15 +8,9 @@
 #    if !defined(GINT_DETAIL_CORE_DEFINITIONS_INCLUDED) || defined(GINT_DETAIL_IO_PASS_IN_PROGRESS)
 #        define GINT_DETAIL_HEADER_PASS_ACTIVE
 
-#        if defined(__GNUC__) || defined(__clang__)
-#            define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
-#            define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
-#            define GINT_FORCE_INLINE inline __attribute__((always_inline))
-#        else
-#            define GINT_UNLIKELY(x) (x)
-#            define GINT_LIKELY(x) (x)
-#            define GINT_FORCE_INLINE inline
-#        endif
+#        define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#        define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
+#        define GINT_FORCE_INLINE inline __attribute__((always_inline))
 
 #        if defined(__clang__)
 #            define GINT_CLANG_NOINLINE __attribute__((noinline))
@@ -24,15 +18,9 @@
 #            define GINT_CLANG_NOINLINE
 #        endif
 
-#        if defined(__GNUC__) || defined(__clang__)
-#            define GINT_NOINLINE __attribute__((noinline))
-#            define GINT_COLD __attribute__((cold))
-#            define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
-#        else
-#            define GINT_NOINLINE
-#            define GINT_COLD
-#            define GINT_HIDDEN_VISIBILITY
-#        endif
+#        define GINT_NOINLINE __attribute__((noinline))
+#        define GINT_COLD __attribute__((cold))
+#        define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
 
 #        if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 #            define GINT_DETAIL_EXCEPTIONS_ENABLED 1

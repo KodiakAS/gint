@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 project(gint_package_consumer LANGUAGES CXX)
 
+if(GINT_COMPILER_CHECK)
+    include("${GINT_COMPILER_CHECK}")
+endif()
+
 if(DEFINED GINT_FIND_VERSION)
     if(GINT_FIND_EXACT)
         find_package(gint ${GINT_FIND_VERSION} EXACT CONFIG REQUIRED)
