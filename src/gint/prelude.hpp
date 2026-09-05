@@ -34,12 +34,20 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
-#include <iosfwd>
+#include <ios>
 #include <limits>
+#include <ostream>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #    include <x86intrin.h>
+#endif
+
+#ifdef GINT_ENABLE_FMT
+#    include <locale>
+#    include <fmt/format.h>
 #endif

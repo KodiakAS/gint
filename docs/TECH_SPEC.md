@@ -112,7 +112,7 @@ unchecked 行为是明确的库语义，用于避免底层整数除法 UB；它�
 进制范围是 `2..36`。解析按目标位宽累积，超宽输入按模 `2^Bits` 截断。空输入、
 非法前缀、非法数字或空指针抛出 `std::invalid_argument`。
 
-`<gint/core.h>` 不提供字符串、stream 或 `fmt` 实现；接口选择见
+`<gint/gint.h>` 始终提供字符串和 stream，`fmt` 适配按需启用；集成方式见
 [集成指南](INTEGRATION.md)。
 
 ## 7. 浮点除模边界

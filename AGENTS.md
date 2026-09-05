@@ -10,8 +10,8 @@ gint 是严格固定位宽的 C++11 header-only 宽整数库。完成变更意�
 - 公共 API 最低为 C++11；不得把 C++14/17/20 语法引入公共头文件或必要构建路径。
 - 支持范围只以 [`docs/SUPPORT.md`](docs/SUPPORT.md) 为准；实现依赖 `__int128`
   和 GCC/Clang builtin，不扩展到 MSVC、32-bit 或 big-endian。
-- `include/gint/gint.h` 是可单独复制的完整入口，`include/gint/core.h` 是可选算术
-  入口。CMake 只导出 `gint::gint`、`gint::checked` 两个 `INTERFACE_LIBRARY`，
+- `include/gint/gint.h` 是唯一公开头文件，可单独复制并始终包含字符串和 stream
+  接口；fmt 适配仍按需启用。CMake 只导出 `gint::gint`、`gint::checked` 两个 `INTERFACE_LIBRARY`，
   安装不得产生二进制库。
 - 当前开发版本线为 `0.9.x`。修改版本时同步 `CMakeLists.txt` 的 `project()` 与
   `src/gint/prelude.hpp` 的 `GINT_VERSION_*`，再生成并核对
@@ -59,13 +59,12 @@ gint 是严格固定位宽的 C++11 header-only 宽整数库。完成变更意�
   quoted include 位于顶层无条件上下文，路径必须是规范的非空相对路径，且不得
   逃出源树或穿越缺失/符号链接组件；禁止条件/宏/内部 angle include、文件搜索
   operator、module/import 控制行、块注释、raw string、pragma operator、trigraph、
-  digraph 和非规范续行。普通模块必须以唯一的 `#pragma once` 开始；只有 manifest
-  分类的 definition-pass lifecycle fragment 可使用规定 marker 并重复展开。完整
+  digraph 和非规范续行。所有内部头必须以唯一的 `#pragma once` 开始，按文件身份只展开一次。完整
   输入、角色和依赖方向契约见 [`docs/INTERNALS.md`](docs/INTERNALS.md)。
 - C++ 先运行能覆盖变更的精确测试，再运行 `make test`。correctness bug 先保存
   最小复现，并增加能在旧实现失败的回归测试。
 - 公共头文件、CMake 或安装变更必须覆盖 C++11 `-Wall -Wextra -Werror`、
-  `gint.h` 独立包含、`core.h` 独立及 `core.h -> gint.h` 两阶段包含、
+  `gint.h` 独立及重复包含、
   consumer/package contract、CMake 3.13 和精确安装清单。header、consumer、
   package 与安装 contract 由 `CMakeLists.txt` 和 `tests/cmake/` 维护并随
   `make test` 执行；最低 CMake 版本使用对应的 3.13 lane 验证。

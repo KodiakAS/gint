@@ -19,8 +19,10 @@ target_link_libraries(my_target PRIVATE gint::gint)
 
 ## 直接分发头文件
 
-- 只使用 umbrella header 的项目可以仅替换 `include/gint/gint.h`。
-- 使用 `<gint/core.h>` 的项目必须同时更新两个公共头文件。
+- 项目只需分发并更新 `include/gint/gint.h`。
+- 使用过开发版 `<gint/core.h>` 的项目应改为 `<gint/gint.h>`；该入口已删除，
+  字符串和 stream 现在始终包含，不再支持纯算术模式。更新既有安装目录时移除
+  旧的 `include/gint/core.h`，或安装到干净前缀，避免遗留旧头文件。
 - 更新后全量重编译所有包含 gint 的翻译单元；header-only 实现不会通过运行时
   动态库升级生效。
 - 可用 `GINT_VERSION_MAJOR/MINOR/PATCH` 与 `GINT_VERSION` 做编译期版本检查。
@@ -31,7 +33,6 @@ target_link_libraries(my_target PRIVATE gint::gint)
 
 - 原有 `#include <gint/gint.h>` 和单头文件方式继续有效；
 - CMake 消费者可以使用版本化 package、`gint::gint` 和 `gint::checked`；
-- `core.h` 是可选精简入口，不取代 `gint.h`；
 - 安装物新增 package version metadata 与 `LICENSE`，但不增加二进制库；
 - compiler frontend、平台和最低版本以当前[支持策略](SUPPORT.md)为准，旧工具链
   不应通过关闭 tuned path 绕过能力门禁。

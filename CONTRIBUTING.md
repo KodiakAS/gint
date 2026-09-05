@@ -18,9 +18,8 @@ make test
 实现的 source of truth 是 `src/gint/*.hpp`；不要直接编辑生成并提交的
 `include/gint/gint.h`。修改内部头后先运行 `make amalgamate`，提交前运行
 `make internal-headers-check amalgamate-check`，确保每个内部头可独立解析且交付头
-同步。新增或移动内部头时还要在生成器 manifest 中声明角色和顺序；普通模块使用
-`#pragma once`，可重复包含的 definition-pass fragment 仅限文档规定的 lifecycle
-边界。
+同步。新增或移动内部头时还要在生成器 manifest 中声明角色和顺序；所有模块使用
+`#pragma once`，不支持可重复展开的片段。
 
 测试构建需要 CMake、GoogleTest、`fmt` 和 Python 3.5+；Python 用于生成器与编译器
 对照测试，普通消费者不需要它。可复现的 Linux 依赖与编译器环境见
@@ -32,7 +31,7 @@ make test
 | --- | --- |
 | 仅文档 | 检查相对链接，运行 `git diff --check` |
 | 普通 C++ | 精确回归测试，再运行 `make test` |
-| 公共头文件或 CMake | C++11 单头文件、`core.h`、consumer/package contract |
+| 公共头文件或 CMake | C++11 单头文件、重复包含、consumer/package contract |
 | 解析、除法、移位或浮点 | 主测试外增加 sanitizer 与 differential；适用时增加 fuzz |
 | hot path | 先跑 codegen contract，再做同机同工具链的前后 benchmark |
 | workflow 或性能工具 | `actionlint`、Python 工具测试及对应 smoke |

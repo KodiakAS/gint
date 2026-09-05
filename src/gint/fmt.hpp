@@ -1,18 +1,8 @@
 #pragma once
 
-#include "configuration_pass.hpp"
-
-#if !defined(GINT_DETAIL_CORE_ONLY) && defined(GINT_DETAIL_CORE_DEFINITIONS_INCLUDED)
-#    if !defined(GINT_DETAIL_IO_PASS_IN_PROGRESS) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
-#        error "include gint IO internals through <gint/io.hpp> or <gint/gint.hpp> after <gint/core.hpp>"
-#    endif
-#endif
-
 #include "string_stream.hpp"
 
-#if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
-
-#    ifdef GINT_ENABLE_FMT
+#ifdef GINT_ENABLE_FMT
 namespace fmt
 {
 template <size_t Bits, typename Signed>
@@ -106,13 +96,13 @@ struct formatter<gint::integer<Bits, Signed>>
                 fill[0] = '0';
                 fill_size = 1;
             }
-#        if FMT_VERSION < 100000
+#    if FMT_VERSION < 100000
             else
             {
                 // fmt 9 overwrites only the first code unit, retaining fill size.
                 fill[0] = '0';
             }
-#        endif
+#    endif
             ++it;
         }
 
@@ -223,17 +213,17 @@ struct formatter<gint::integer<Bits, Signed>>
     template <typename FormatArg>
     static unsigned visit_dynamic_width_arg(const FormatArg & arg)
     {
-#        if FMT_VERSION >= 120000
+#    if FMT_VERSION >= 120000
         return arg.visit(dynamic_width_visitor{});
-#        else
+#    else
         return fmt::visit_format_arg(dynamic_width_visitor{}, arg);
-#        endif
+#    endif
     }
 
     template <typename LocaleRef>
     static void apply_locale_grouping(std::string & digits, LocaleRef loc)
     {
-#        if !defined(FMT_USE_LOCALE) || FMT_USE_LOCALE
+#    if !defined(FMT_USE_LOCALE) || FMT_USE_LOCALE
         const std::locale locale = loc.template get<std::locale>();
         const std::numpunct<char> & punct = std::use_facet<std::numpunct<char>>(locale);
         const std::string grouping = punct.grouping();
@@ -270,10 +260,10 @@ struct formatter<gint::integer<Bits, Signed>>
             grouped.insert(0, digits, 0, end);
         }
         digits.swap(grouped);
-#        else
+#    else
         (void)digits;
         (void)loc;
-#        endif
+#    endif
     }
 
     template <typename FormatContext>
@@ -382,6 +372,4 @@ struct formatter<gint::integer<Bits, Signed>>
     } // LCOV_EXCL_LINE
 };
 } // namespace fmt
-#    endif
-
-#endif // !GINT_DETAIL_CORE_ONLY && !GINT_DETAIL_IO_DEFINITIONS_INCLUDED
+#endif

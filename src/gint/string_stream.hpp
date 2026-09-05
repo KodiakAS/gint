@@ -1,17 +1,6 @@
 #pragma once
 
-#include "configuration_pass.hpp"
-
-#if !defined(GINT_DETAIL_CORE_ONLY) && defined(GINT_DETAIL_CORE_DEFINITIONS_INCLUDED)
-#    if !defined(GINT_DETAIL_IO_PASS_IN_PROGRESS) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
-#        error "include gint IO internals through <gint/io.hpp> or <gint/gint.hpp> after <gint/core.hpp>"
-#    endif
-#endif
-
-#include "io_prelude.hpp"
 #include "standard.hpp"
-
-#if !defined(GINT_DETAIL_CORE_ONLY) && !defined(GINT_DETAIL_IO_DEFINITIONS_INCLUDED)
 
 namespace gint
 {
@@ -465,5 +454,3 @@ inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed>
 
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
-
-#endif // !GINT_DETAIL_CORE_ONLY && !GINT_DETAIL_IO_DEFINITIONS_INCLUDED

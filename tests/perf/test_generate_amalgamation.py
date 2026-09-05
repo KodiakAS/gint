@@ -41,13 +41,11 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self,
         manifest,
         role_dependencies,
-        fragment_contracts=None,
     ):
         return AMALGAMATION.build_amalgamation(
             self.root,
             header_manifest=manifest,
             role_dependencies=role_dependencies,
-            fragment_contracts=fragment_contracts,
         )
 
     def test_expands_normal_header_graph_and_deduplicates_dependencies(self):
@@ -69,7 +67,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         )
 
         content = AMALGAMATION.build_amalgamation(self.root)
-        self.assertEqual(content, b"#include <cstdint>\n\nshared\n\nleft\n\nright\n\nroot\n")
+        self.assertEqual(content, b"#pragma once\n\n#include <cstdint>\n\nshared\n\nleft\n\nright\n\nroot\n")
 
         with contextlib.redirect_stdout(io.StringIO()):
             AMALGAMATION.write_output(self.root, AMALGAMATION.DEFAULT_OUTPUT, content)
@@ -83,17 +81,16 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.write_bytes("src/gint/lower.hpp", b"#pragma once\nlower\n")
         roles = {"core": frozenset(("core",))}
         valid_manifest = {
-            "gint.hpp": {"kind": "module", "role": "core", "order": 20},
-            "lower.hpp": {"kind": "module", "role": "core", "order": 10},
+            "gint.hpp": {"role": "core", "order": 20},
+            "lower.hpp": {"role": "core", "order": 10},
         }
         self.assertEqual(
             self.build_with_policy(valid_manifest, roles),
-            b"lower\nroot\n",
+            b"#pragma once\n\nlower\nroot\n",
         )
 
         invalid_manifest = dict(valid_manifest)
         invalid_manifest["gint.hpp"] = {
-            "kind": "module",
             "role": "core",
             "order": 5,
         }
@@ -114,9 +111,9 @@ class GenerateAmalgamationTest(unittest.TestCase):
         )
         self.write_bytes("src/gint/shared.hpp", b"#pragma once\nshared\n")
         manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "left.hpp": {"kind": "module", "role": "branch", "order": 0},
-            "shared.hpp": {"kind": "module", "role": "leaf", "order": 0},
+            "gint.hpp": {"role": "root", "order": 0},
+            "left.hpp": {"role": "branch", "order": 0},
+            "shared.hpp": {"role": "leaf", "order": 0},
         }
         roles = {
             "root": frozenset(("branch",)),
@@ -133,7 +130,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.write_bytes("src/gint/gint.hpp", b"#pragma once\nroot\n")
         self.write_bytes("src/gint/orphan.hpp", b"#pragma once\norphan\n")
         manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
+            "gint.hpp": {"role": "root", "order": 0},
         }
         roles = {"root": frozenset()}
         with self.assertRaisesRegex(
@@ -145,190 +142,14 @@ class GenerateAmalgamationTest(unittest.TestCase):
     def test_module_manifest_must_not_reference_missing_headers(self):
         self.write_bytes("src/gint/gint.hpp", b"#pragma once\nroot\n")
         manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "missing.hpp": {"kind": "module", "role": "root", "order": 10},
+            "gint.hpp": {"role": "root", "order": 0},
+            "missing.hpp": {"role": "root", "order": 10},
         }
         roles = {"root": frozenset(("root",))}
         with self.assertRaisesRegex(
             AMALGAMATION.AmalgamationError,
             "missing manifest header.*missing.hpp",
         ):
-            self.build_with_policy(manifest, roles)
-
-    def test_reentrant_fragment_is_expanded_at_every_direct_include_site(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'#pragma once\n#include "pass.hpp"\n#include "pass.hpp"\nroot\n',
-        )
-        self.write_bytes(
-            "src/gint/pass.hpp",
-            AMALGAMATION.FRAGMENT_MARKER + b"\nfragment\n",
-        )
-        manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "pass.hpp": {"kind": "fragment", "role": "pass", "order": 0},
-        }
-        roles = {
-            "root": frozenset(("pass",)),
-            "pass": frozenset(),
-        }
-        self.assertEqual(
-            self.build_with_policy(manifest, roles),
-            b"fragment\nfragment\nroot\n",
-        )
-
-    def test_fragment_contract_enforces_direct_parent_counts(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'#pragma once\n#include "pass.hpp"\nroot\n',
-        )
-        self.write_bytes(
-            "src/gint/pass.hpp",
-            AMALGAMATION.FRAGMENT_MARKER + b"fragment\n",
-        )
-        manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "pass.hpp": {"kind": "fragment", "role": "pass", "order": 0},
-        }
-        roles = {
-            "root": frozenset(("pass",)),
-            "pass": frozenset(),
-        }
-        contracts = {
-            "pass.hpp": {
-                "parents": {"gint.hpp": 1},
-                "must_be_last": False,
-            },
-        }
-        self.assertEqual(
-            self.build_with_policy(manifest, roles, contracts),
-            b"fragment\nroot\n",
-        )
-
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'#pragma once\n#include "pass.hpp"\n#include "pass.hpp"\nroot\n',
-        )
-        with self.assertRaisesRegex(
-            AMALGAMATION.AmalgamationError,
-            "fragment direct-parent contract mismatch.*gint.hpp x1.*gint.hpp x2",
-        ):
-            self.build_with_policy(manifest, roles, contracts)
-
-    def test_fragment_contract_can_require_last_effective_parent_statement(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'\n#pragma once\n#include "pass.hpp"\n// trailing comment\n\n',
-        )
-        self.write_bytes(
-            "src/gint/pass.hpp",
-            AMALGAMATION.FRAGMENT_MARKER + b"fragment\n",
-        )
-        manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "pass.hpp": {"kind": "fragment", "role": "pass", "order": 0},
-        }
-        roles = {
-            "root": frozenset(("pass",)),
-            "pass": frozenset(),
-        }
-        contracts = {
-            "pass.hpp": {
-                "parents": {"gint.hpp": 1},
-                "must_be_last": True,
-            },
-        }
-        self.assertEqual(
-            self.build_with_policy(manifest, roles, contracts),
-            b"fragment\n// trailing comment\n\n",
-        )
-
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'#pragma once\n#include "pass.hpp"\nroot\n',
-        )
-        with self.assertRaisesRegex(
-            AMALGAMATION.AmalgamationError,
-            "fragment include must be the parent's last effective statement",
-        ):
-            self.build_with_policy(manifest, roles, contracts)
-
-    def test_reentrant_fragment_requires_one_canonical_leading_marker_and_no_pragma(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'#pragma once\n#include "pass.hpp"\nroot\n',
-        )
-        manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "pass.hpp": {"kind": "fragment", "role": "pass", "order": 0},
-        }
-        roles = {
-            "root": frozenset(("pass",)),
-            "pass": frozenset(),
-        }
-        cases = (
-            (b"fragment\n", "canonical marker"),
-            (b"\n" + AMALGAMATION.FRAGMENT_MARKER + b"fragment\n", "canonical marker"),
-            (
-                AMALGAMATION.FRAGMENT_MARKER
-                + AMALGAMATION.FRAGMENT_MARKER
-                + b"fragment\n",
-                "canonical marker",
-            ),
-            (b"// GINT_REENTRANT_DEFINITION_PASS \nfragment\n", "canonical marker"),
-            (
-                AMALGAMATION.FRAGMENT_MARKER + b"#pragma once\nfragment\n",
-                "must not contain #pragma once",
-            ),
-        )
-        for content, expected_error in cases:
-            with self.subTest(content=content):
-                self.write_bytes("src/gint/pass.hpp", content)
-                with self.assertRaisesRegex(
-                    AMALGAMATION.AmalgamationError,
-                    expected_error,
-                ):
-                    self.build_with_policy(manifest, roles)
-
-    def test_normal_module_rejects_reentrant_fragment_marker(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            AMALGAMATION.FRAGMENT_MARKER + b"root\n",
-        )
-        manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-        }
-        roles = {"root": frozenset()}
-        with self.assertRaisesRegex(
-            AMALGAMATION.AmalgamationError,
-            "normal internal header must not contain the reentrant fragment marker",
-        ):
-            self.build_with_policy(manifest, roles)
-
-    def test_reentrant_fragment_cycles_are_rejected(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b'#pragma once\n#include "first.hpp"\nroot\n',
-        )
-        self.write_bytes(
-            "src/gint/first.hpp",
-            AMALGAMATION.FRAGMENT_MARKER + b'#include "second.hpp"\nfirst\n',
-        )
-        self.write_bytes(
-            "src/gint/second.hpp",
-            AMALGAMATION.FRAGMENT_MARKER + b'#include "first.hpp"\nsecond\n',
-        )
-        manifest = {
-            "gint.hpp": {"kind": "module", "role": "root", "order": 0},
-            "first.hpp": {"kind": "fragment", "role": "first", "order": 0},
-            "second.hpp": {"kind": "fragment", "role": "second", "order": 0},
-        }
-        roles = {
-            "root": frozenset(("first",)),
-            "first": frozenset(("second",)),
-            "second": frozenset(("first",)),
-        }
-        with self.assertRaisesRegex(AMALGAMATION.AmalgamationError, "include cycle"):
             self.build_with_policy(manifest, roles)
 
     def test_cli_always_enforces_the_project_module_policy(self):
@@ -339,12 +160,14 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertIn("module manifest", stderr.getvalue())
 
-    def test_project_wrapper_accepts_the_repository_graph_and_strips_fragment_markers(self):
+    def test_project_wrapper_emits_one_complete_once_only_header(self):
         content = AMALGAMATION.build_project_amalgamation(ROOT)
-        self.assertNotIn(AMALGAMATION.FRAGMENT_MARKER, content)
         self.assertNotIn(b'#include "', content)
-        self.assertEqual(content.count(b"define GINT_DETAIL_HEADER_PASS_ACTIVE"), 3)
-        self.assertEqual(content.count(b"undef GINT_DETAIL_HEADER_PASS_ACTIVE"), 2)
+        self.assertEqual(content.count(b"#pragma once"), 1)
+        self.assertTrue(content.startswith(b"#pragma once\n"))
+        self.assertNotIn(b"GINT_DETAIL_CORE_ONLY", content)
+        self.assertEqual(content.count(b"define GINT_DETAIL_CONFIG_NAMESPACE_I("), 1)
+        self.assertEqual(content.count(b"undef GINT_DETAIL_CONFIG_NAMESPACE_I\n"), 1)
 
     def test_project_wrapper_always_supplies_all_production_contracts(self):
         with mock.patch.object(
@@ -361,7 +184,6 @@ class GenerateAmalgamationTest(unittest.TestCase):
             AMALGAMATION.DEFAULT_INPUT,
             header_manifest=AMALGAMATION.PROJECT_HEADER_MANIFEST,
             role_dependencies=AMALGAMATION.PROJECT_ROLE_DEPENDENCIES,
-            fragment_contracts=AMALGAMATION.PROJECT_FRAGMENT_CONTRACTS,
         )
 
     def test_check_detects_stale_output_without_rewriting_it(self):
@@ -433,7 +255,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.write_bytes(
             "src/gint/gint.hpp", b'#pragma once\n#include "detail/part.hpp"\n'
         )
-        self.assertEqual(AMALGAMATION.build_amalgamation(self.root), b"part\n")
+        self.assertEqual(AMALGAMATION.build_amalgamation(self.root), b"#pragma once\n\npart\n")
 
         invalid_paths = (
             (b"", "must not contain empty"),
@@ -465,7 +287,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         )
         self.assertEqual(
             AMALGAMATION.build_amalgamation(self.root),
-            b"configuration\na\nroot\n",
+            b"#pragma once\n\nconfiguration\na\nroot\n",
         )
 
     def test_rejects_parent_include_through_missing_directory(self):
@@ -549,7 +371,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         ):
             with self.subTest(directive=directive):
                 self.write_bytes("src/gint/gint.hpp", b"#pragma once\n" + directive)
-                self.assertEqual(AMALGAMATION.build_amalgamation(self.root), directive)
+                self.assertEqual(AMALGAMATION.build_amalgamation(self.root), b"#pragma once\n\n" + directive)
 
     def test_rejects_nested_internal_angle_include(self):
         self.write_bytes(
@@ -578,7 +400,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         )
         self.assertEqual(
             AMALGAMATION.build_amalgamation(self.root),
-            b"#include <external.hpp>\na\ninternal external\n",
+            b"#pragma once\n\n#include <external.hpp>\na\ninternal external\n",
         )
 
     def test_requires_one_canonical_leading_pragma_once(self):
@@ -714,7 +536,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
             b"#else// fallback\nconstexpr int value = 2;\n#endif// end\n"
         )
         self.write_bytes("src/gint/gint.hpp", b"#pragma once\n" + body)
-        self.assertEqual(AMALGAMATION.build_amalgamation(self.root), body)
+        self.assertEqual(AMALGAMATION.build_amalgamation(self.root), b"#pragma once\n\n" + body)
 
     def test_rejects_additional_noncanonical_once_and_unknown_pragmas(self):
         for directive in (
@@ -792,8 +614,8 @@ class GenerateAmalgamationTest(unittest.TestCase):
     def test_production_graph_rejects_lexical_bypasses(self):
         shutil.rmtree(os.path.join(self.root, "src", "gint"))
         shutil.copytree(os.path.join(ROOT, "src", "gint"), os.path.join(self.root, "src", "gint"))
-        core_path = os.path.join(self.root, "src", "gint", "core.hpp")
-        with open(core_path, "rb") as source:
+        module_path = os.path.join(self.root, "src", "gint", "string_stream.hpp")
+        with open(module_path, "rb") as source:
             original = source.read()
         for replacement in (
             b'#if(0)\n#include "standard.hpp"\n#endif// end\n#include "standard.hpp"',
@@ -803,7 +625,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         ):
             with self.subTest(replacement=replacement):
                 self.write_bytes(
-                    "src/gint/core.hpp", original.replace(b'#include "standard.hpp"', replacement)
+                    "src/gint/string_stream.hpp", original.replace(b'#include "standard.hpp"', replacement)
                 )
                 with self.assertRaises(AMALGAMATION.AmalgamationError):
                     AMALGAMATION.build_project_amalgamation(self.root)
@@ -817,7 +639,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.write_bytes("src/gint/gint.hpp", content)
         self.assertEqual(
             AMALGAMATION.build_amalgamation(self.root),
-            content[len(b"#pragma once\n") :],
+            b"#pragma once\n\n" + content[len(b"#pragma once\n") :],
         )
 
     def test_preserves_line_spliced_macro_definitions(self):
@@ -827,7 +649,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         )
         self.assertEqual(
             AMALGAMATION.build_amalgamation(self.root),
-            b"#define GINT_TEST_MACRO(x) \\\n+  ((x) + 1)\nGINT_TEST_MACRO(1)\n",
+            b"#pragma once\n\n#define GINT_TEST_MACRO(x) \\\n+  ((x) + 1)\nGINT_TEST_MACRO(1)\n",
         )
 
     def test_rejects_unreachable_internal_headers(self):

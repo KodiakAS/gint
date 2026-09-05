@@ -2,15 +2,13 @@
 
 #include "integer.hpp"
 
-#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-
-#    if defined(__clang__)
-#        pragma clang diagnostic push
-#        pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#    elif defined(__GNUC__)
-#        pragma GCC diagnostic push
-#        pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#    endif
+#if defined(__clang__)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 namespace std
 {
@@ -119,10 +117,8 @@ struct hash<gint::integer<Bits, Signed>>
 };
 } // namespace std
 
-#    if defined(__clang__)
-#        pragma clang diagnostic pop
-#    elif defined(__GNUC__)
-#        pragma GCC diagnostic pop
-#    endif
-
-#endif // GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
+#if defined(__clang__)
+#    pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic pop
+#endif

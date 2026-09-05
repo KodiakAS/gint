@@ -1,5 +1,8 @@
 #include <gint/gint.hpp>
 
+// Repeated inclusion must retain the same complete interface.
+#include <gint/gint.hpp>
+
 #include <cstring>
 #include <iostream>
 

@@ -3,23 +3,11 @@
 #ifndef GINT_ENABLE_FMT
 #    error "fmt include-order test requires GINT_ENABLE_FMT"
 #endif
-#ifdef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-#    error "direct string_stream.hpp unexpectedly completed the core definition pass"
-#endif
 
 #include <gint/gint.hpp>
 
-#ifndef GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
-#    error "internal gint.hpp did not complete the core definition pass"
-#endif
-#ifndef GINT_DETAIL_IO_DEFINITIONS_INCLUDED
-#    error "internal gint.hpp did not complete the IO definition pass"
-#endif
-#ifdef GINT_DETAIL_HEADER_PASS_ACTIVE
-#    error "internal gint.hpp leaked its IO definition-pass cleanup marker"
-#endif
 #ifdef GINT_DETAIL_CONFIG_NAMESPACE
-#    error "internal gint.hpp leaked a pass-local configuration macro"
+#    error "internal gint.hpp leaked a private configuration macro"
 #endif
 
 #include <string>

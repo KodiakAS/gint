@@ -53,9 +53,9 @@ find_package(gint 0.9 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
-Use `gint::checked` to enable checked division by zero. Arithmetic-only
-translation units may vendor both public headers and include
-`<gint/core.h>`. See the [integration guide](docs/INTEGRATION.md) for source
+Use `gint::checked` to enable checked division by zero. The single public
+header always includes string and stream support. See the
+[integration guide](docs/INTEGRATION.md) for source
 tree consumption, optional `fmt` support, and exception-free builds.
 
 ## Support

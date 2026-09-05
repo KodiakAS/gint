@@ -22,46 +22,31 @@ distribution header 模型与 [nlohmann/json 的 amalgamation
 context；clangd 仍会以 heuristic 选择 header command，因此这里不承诺每个编辑器
 会话必然选中同一个 target。
 
-`include/gint/gint.h` 本身仍是可独立复制的完整产物。`include/gint/core.h` 通过
-受控的两阶段 include 模式暴露精简入口，不维护第二份算术实现。
+`include/gint/gint.h` 是唯一公开头文件，始终包含字符串和 stream 接口；fmt 仍由
+`GINT_ENABLE_FMT` 控制。内部按职责拆分，不提供公开的纯算术入口或分阶段升级。
 
-### 模块角色与 definition pass
+### 模块角色与依赖
 
-生成器内的 manifest 将每个内部头归入角色并强制依赖方向；新增、删除或漏分类的
-`.hpp` 都会生成失败。角色约束允许同层继续拆分，但不复制一份容易漂移的精确
-include edge 清单：
+生成器 manifest 将每个内部头归入角色并强制依赖方向；新增、删除或漏分类的
+`.hpp` 都会生成失败。角色约束不复制源码中的精确 include edge 清单：
 
 | 角色 | 成员（同角色按顺序递增） | 可依赖角色 |
 | --- | --- | --- |
-| core | `prelude.hpp`、`configuration_pass.hpp`、`primitives.hpp`、`integer.hpp`、`standard.hpp` | 较早的 core |
-| core entry | `core.hpp` | core、cleanup |
-| IO | `io_prelude.hpp`、`string_stream.hpp`、`fmt.hpp` | core、较早的 IO |
-| IO entry | `io.hpp` | core entry、IO、cleanup |
-| cleanup | `cleanup_pass.hpp` | 无 |
-| distribution | `gint.hpp` | IO entry |
+| core | `prelude.hpp`、`configuration.hpp`、`primitives.hpp`、`integer.hpp`、`standard.hpp` | 较早的 core |
+| IO | `string_stream.hpp`、`fmt.hpp` | core、较早的 IO |
+| cleanup | `cleanup.hpp` | 无 |
+| distribution | `gint.hpp` | IO、cleanup |
 
-core 与 IO 是两个相同生命周期的 definition pass。入口先建立
-`*_PASS_IN_PROGRESS`，`configuration_pass.hpp` 从唯一规则源建立 pass-local 宏，
-完成本层定义后由 `cleanup_pass.hpp` 收口。这样无论直接使用内部源码图，还是先包含
-公开 `core.h` 再升级到 `gint.h`，每一遍的 begin/end 与宏清理边界都一致。
-
-这两个 lifecycle fragment 故意可重复包含，但仍使用 `.hpp`，以保留语言服务和独立
-语法检查能力；它们不是可继续承载普通声明/定义的模块。作为角色规则的窄化例外，
-生成器还要求每个可能成为 definition pass 中首个未被 `#pragma once` 跳过、且需要
-pass-local 环境的 frontier 模块直接声明 lifecycle 依赖：
-`configuration_pass.hpp` 只由 `primitives.hpp`、`string_stream.hpp`、`fmt.hpp` 各直接
-包含一次。这样后续模块不会依赖较早模块的间接 include 时序副作用。
-`cleanup_pass.hpp` 只由 `core.hpp`、`io.hpp` 各直接包含一次，且 cleanup 必须是两个
-入口的最后一条有效语句。`string_stream.hpp` 和 `fmt.hpp` 可作为独立翻译单元入口；
-core definitions 已完成后，IO definition pass 必须通过 `io.hpp` 或 `gint.hpp` 建立，
-直接包含这两个 IO frontier 会给出明确诊断。
+所有内部头都使用普通的 `#pragma once`，每个文件只展开一次。`configuration.hpp`
+建立私有实现宏，依赖链依次定义算术、标准库适配、字符串/stream 和 fmt。
+`gint.hpp` 在完整依赖链之后包含 `cleanup.hpp`，统一清理实现宏。内部模块不是
+公共入口；单独解析中间模块时会保留后续定义需要的实现宏，只有完整入口承诺清理。
+内部图测试同时覆盖直接包含完整入口和先包含中间模块再包含完整入口的顺序。
 
 ### 生成器输入与处理契约
 
-生成器处理受限、fail-closed 的 C++ 头文件方言。普通模块必须以唯一、规范的
-`#pragma once` 开始；只有 manifest 中
-两个 definition-pass fragment 可改为以唯一、规范的
-`// GINT_REENTRANT_DEFINITION_PASS` 开始，并在每个 include site 重放。本地 quoted
+生成器处理受限、fail-closed 的 C++ 头文件方言。所有模块必须以唯一、规范的
+`#pragma once` 开始。本地 quoted
 include 只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
 `#include_next`、`__has_include`、`__has_include_next`、`__has_embed`、
 module/import 控制行、块注释、raw string、pragma operator、trigraph、全部六种
@@ -82,8 +67,7 @@ quoted include 必须是非空相对路径且不得
 物理文件别名。外部 angle include 保留原拼写。include 路径不得含反斜杠、空白或
 控制字符，防止分发头残留对内部源树的依赖。
 路径按物理文件身份去重和判环，并拒绝 symlink、
-hardlink alias 与非精确大小写。普通模块按物理文件身份去重，fragment 保持判环但
-按 include site 展开。维护生成头需要 Python 3.5 或更高版本。
+hardlink alias 与非精确大小写。所有模块按物理文件身份去重并判环。维护生成头需要 Python 3.5 或更高版本。
 
 处理阶段依次为：
 
@@ -93,15 +77,15 @@ hardlink alias 与非精确大小写。普通模块按物理文件身份去重�
    `#elif!defined(X)`、`#else// ...`、`#endif// ...` 均按指令处理；重复 else、
    else 之后的 elif、非法参数和未闭合条件直接报错。任何条件臂内的本地 include
    都拒绝展开。
-4. 按源码清单、路径身份与角色约束展开依赖，完成后核对 fragment 次数和位置以及
-   全图可达性；输出检查使用同一份解析规则，禁止遗留内部 include、pragma once
-   或 fragment marker。
+4. 按源码清单、路径身份与角色约束展开依赖，核对全图可达性；输出检查使用同一份
+   解析规则，禁止遗留内部 include 和内部 pragma once。最后为分发头添加唯一的
+   `#pragma once`，使重复包含完整头与原始源码图保持一致。
 
 这套语法层不计算条件表达式，也不实现完整 C++ 宏展开。C++ 语义由编译器门禁验证。
 `generator.compiler_equivalence_0/1` 将同一个依赖图和实际生成的独立头编译为普通
 CMake targets，使用当前配置的编译器、target、sysroot 和 flags，对照声明、条件分支、
 宏清理与运行结果。flat target 没有内部源码 include 路径。Python 测试覆盖拒绝矩阵
-和生产 manifest 下的源码图变体，完整 consumer 测试覆盖 core 到 IO 的两阶段升级。
+和生产 manifest 下的源码图变体，consumer 测试覆盖单头文件独立及重复包含、私有宏清理和完整 IO 接口。
 
 ## 算法结构
 
