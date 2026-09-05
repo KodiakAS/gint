@@ -160,6 +160,18 @@ if(GINT_BUILD_TESTS)
         CMAKE_SYSROOT CMAKE_SYSROOT_COMPILE CMAKE_SYSROOT_LINK
         CMAKE_OSX_SYSROOT CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
     )
+    set(gint_consumer_flag_variables CMAKE_CXX_FLAGS CMAKE_EXE_LINKER_FLAGS)
+    set(gint_consumer_configurations Debug Release RelWithDebInfo MinSizeRel
+        ${CMAKE_BUILD_TYPE} ${CMAKE_CONFIGURATION_TYPES})
+    list(REMOVE_DUPLICATES gint_consumer_configurations)
+    foreach(configuration IN LISTS gint_consumer_configurations)
+        string(TOUPPER "${configuration}" configuration_upper)
+        list(APPEND gint_consumer_flag_variables
+            CMAKE_CXX_FLAGS_${configuration_upper}
+            CMAKE_EXE_LINKER_FLAGS_${configuration_upper})
+    endforeach()
+    list(REMOVE_DUPLICATES gint_consumer_flag_variables)
+    list(APPEND GINT_CONSUMER_TOOLCHAIN_VARIABLES ${gint_consumer_flag_variables})
     set(gint_consumer_toolchain "${CMAKE_CURRENT_BINARY_DIR}/consumer-toolchain.cmake")
     file(WRITE "${gint_consumer_toolchain}" "# Generated consumer toolchain cache.\n")
     foreach(variable IN LISTS GINT_CONSUMER_TOOLCHAIN_VARIABLES)
@@ -174,6 +186,15 @@ if(GINT_BUILD_TESTS)
         "   NOT CMAKE_CXX_COMPILER_VERSION STREQUAL [==[${CMAKE_CXX_COMPILER_VERSION}]==])\n"
         "    message(FATAL_ERROR \"consumer compiler differs from parent toolchain\")\n"
         "endif()\n")
+
+    foreach(variable IN LISTS gint_consumer_flag_variables)
+        if(DEFINED ${variable})
+            file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/consumer-compiler-check.cmake"
+                "if(NOT ${variable} STREQUAL [==[${${variable}}]==])\n"
+                "    message(FATAL_ERROR \"consumer ${variable} differs from parent toolchain\")\n"
+                "endif()\n")
+        endif()
+    endforeach()
 
     add_test(NAME consumer.subproject
         COMMAND ${CMAKE_COMMAND}
