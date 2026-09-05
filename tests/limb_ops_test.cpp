@@ -1,6 +1,7 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 
 namespace
@@ -13,21 +14,21 @@ static_assert(!gint::detail::equal_limbs(equal_words, different_words), "raw equ
 TEST(LimbOps, SmallDivisionOverwritesTheWholeOutput)
 {
     using Division = gint::detail::limb_division<4>;
-    const std::array<uint64_t, 4> dividend = {{17, 3, 1, 0}};
-    std::array<uint64_t, 4> quotient;
-    quotient.fill(~uint64_t(0));
-    EXPECT_EQ(Division::div_mod_small(dividend.data(), 1, quotient.data()), 0u);
-    EXPECT_EQ(quotient, dividend);
+    const uint64_t dividend[4] = {17, 3, 1, 0};
+    uint64_t quotient[4];
+    std::fill_n(quotient, 4, ~uint64_t(0));
+    EXPECT_EQ(Division::div_mod_small(dividend, 1, quotient), 0u);
+    EXPECT_TRUE(std::equal(quotient, quotient + 4, dividend));
 
-    quotient.fill(~uint64_t(0));
-    EXPECT_EQ(Division::div_mod_small(dividend.data(), 64, quotient.data()), 17u);
-    const std::array<uint64_t, 4> expected = {{uint64_t(3) << 58, uint64_t(1) << 58, 0, 0}};
-    EXPECT_EQ(quotient, expected);
+    std::fill_n(quotient, 4, ~uint64_t(0));
+    EXPECT_EQ(Division::div_mod_small(dividend, 64, quotient), 17u);
+    const uint64_t expected[4] = {uint64_t(3) << 58, uint64_t(1) << 58, 0, 0};
+    EXPECT_TRUE(std::equal(quotient, quotient + 4, expected));
 
-    const std::array<uint64_t, 4> zero = {{0, 0, 0, 0}};
-    quotient.fill(~uint64_t(0));
-    EXPECT_EQ(Division::div_mod_small(zero.data(), 7, quotient.data()), 0u);
-    EXPECT_EQ(quotient, zero);
+    const uint64_t zero[4] = {0, 0, 0, 0};
+    std::fill_n(quotient, 4, ~uint64_t(0));
+    EXPECT_EQ(Division::div_mod_small(zero, 7, quotient), 0u);
+    EXPECT_TRUE(std::equal(quotient, quotient + 4, zero));
 }
 
 template <size_t Limbs>
@@ -39,19 +40,21 @@ void check_small_division_used_limbs()
     {
         for (size_t used = 0; used <= Limbs; ++used)
         {
-            std::array<uint64_t, Limbs> dividend = {{0}};
-            std::array<uint64_t, Limbs> expected = {{0}};
+            uint64_t dividend[Limbs] = {};
+            uint64_t expected[Limbs] = {};
             for (size_t i = 0; i < used; ++i)
             {
                 dividend[i] = divisor;
                 expected[i] = 1;
             }
-            const auto original = dividend;
-            std::array<uint64_t, Limbs> quotient;
-            quotient.fill(~uint64_t(0));
-            EXPECT_EQ(Division::div_mod_small(dividend.data(), divisor, quotient.data()), 0u);
-            EXPECT_EQ(quotient, expected);
-            EXPECT_EQ(dividend, original);
+            uint64_t quotient[Limbs];
+            std::fill_n(quotient, Limbs, ~uint64_t(0));
+            EXPECT_EQ(Division::div_mod_small(dividend, divisor, quotient), 0u);
+            for (size_t i = 0; i < Limbs; ++i)
+            {
+                EXPECT_EQ(quotient[i], expected[i]);
+                EXPECT_EQ(dividend[i], expected[i] * divisor);
+            }
         }
     }
 }

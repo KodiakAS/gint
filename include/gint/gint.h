@@ -1427,8 +1427,8 @@ inline void copy_magnitude_limbs(uint64_t * dst, const uint64_t * src, bool neg)
 }
 
 //=== Limb shifts ============================================================
-// In-place shifts require limb_shift < limbs and bit_shift < 64. Out-of-place outputs must
-// not overlap inputs. The integer layer chooses zero or sign-extension fill.
+// In-place shifts require a nonzero total shift, limb_shift < limbs, and bit_shift < 64.
+// Out-of-place outputs must not overlap inputs. The integer layer chooses zero or sign-extension fill.
 template <size_t Limbs>
 struct limb_shift
 {
@@ -2028,7 +2028,7 @@ struct limb_division
 
     template <size_t L = limbs>
     static GINT_SMALL_DIV_INLINE typename std::enable_if<(L == 1), limb_type>::type
-    div_mod_small(const limb_type * data, limb_type div, limb_type * quotient) noexcept
+    div_mod_small(const limb_type (&data)[limbs], limb_type div, limb_type (&quotient)[limbs]) noexcept
     {
         // SFINAE provides a dedicated implementation for single-limb integers,
         // avoiding multi-limb code that would trigger -Warray-bounds warnings.
@@ -2048,7 +2048,7 @@ struct limb_division
 
     template <size_t L = limbs>
     static GINT_SMALL_DIV_INLINE typename std::enable_if<(L > 1), limb_type>::type
-    div_mod_small(const limb_type * data, limb_type div, limb_type * quotient) noexcept
+    div_mod_small(const limb_type (&data)[limbs], limb_type div, limb_type (&quotient)[limbs]) noexcept
     {
         using u128 = unsigned __int128;
         // This overload is only instantiated for multi-limb integers, preventing
