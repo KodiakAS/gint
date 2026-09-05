@@ -2,6 +2,8 @@
 
 #include "prelude.hpp"
 
+// Private feature policies, compiler attributes, and the configuration namespace.
+
 #define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
 #define GINT_FORCE_INLINE inline __attribute__((always_inline))

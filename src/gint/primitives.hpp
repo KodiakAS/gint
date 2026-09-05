@@ -2,6 +2,8 @@
 
 #include "configuration.hpp"
 
+// Integer forward declarations, type traits, and fixed-size limb operations.
+
 namespace gint
 {
 inline namespace GINT_DETAIL_CONFIG_NAMESPACE

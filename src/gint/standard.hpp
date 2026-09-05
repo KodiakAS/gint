@@ -2,6 +2,8 @@
 
 #include "integer.hpp"
 
+// std::numeric_limits and std::hash specializations for gint integers.
+
 #if defined(__clang__)
 #    pragma clang diagnostic push
 #    pragma clang diagnostic ignored "-Wdeprecated-declarations"

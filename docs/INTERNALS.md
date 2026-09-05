@@ -3,10 +3,7 @@
 本文解释当前内部实现，帮助维护者评估 correctness、代码生成和性能影响。
 这些细节不是独立的公共兼容承诺；公共行为以[技术规格](TECH_SPEC.md)为准。
 
-## 数据布局
-
-`integer<Bits, Signed>` 使用 `Bits / 64` 个 `std::uint64_t` limb，低位 limb 位于
-较小索引。对象保持 `Bits / 8` 字节大小，有符号值直接使用同一补码位模式。
+## 源码组织
 
 人工维护的实现是以 `src/gint/gint.hpp` 为入口的普通 C++ `.hpp` 依赖图。
 `scripts/generate-amalgamation.py` 递归展开仓库内 include，确定性生成并核对已提交的
@@ -30,18 +27,32 @@ context；clangd 仍会以 heuristic 选择 header command，因此这里不承�
 生成器 manifest 将每个内部头归入角色并强制依赖方向；新增、删除或漏分类的
 `.hpp` 都会生成失败。角色约束不复制源码中的精确 include edge 清单：
 
-| 角色 | 成员（同角色按顺序递增） | 可依赖角色 |
+| 文件 | 职责 | 直接内部依赖 |
 | --- | --- | --- |
-| core | `prelude.hpp`、`configuration.hpp`、`primitives.hpp`、`integer.hpp`、`standard.hpp` | 较早的 core |
-| IO | `string_stream.hpp`、`fmt.hpp` | core、较早的 IO |
-| cleanup | `cleanup.hpp` | 无 |
-| distribution | `gint.hpp` | IO、cleanup |
+| [`gint.hpp`](../src/gint/gint.hpp) | 显式组合完整接口，最后清理私有宏 | integer、standard、string_stream、fmt、cleanup |
+| [`prelude.hpp`](../src/gint/prelude.hpp) | 编译器要求、版本和公共标准库头 | 无 |
+| [`configuration.hpp`](../src/gint/configuration.hpp) | 功能策略、编译器属性和配置 namespace | prelude |
+| [`primitives.hpp`](../src/gint/primitives.hpp) | 类型前置声明、traits 和 limb 运算 | configuration |
+| [`integer.hpp`](../src/gint/integer.hpp) | 整数类、运算符、转换和私有算术内核 | primitives |
+| [`standard.hpp`](../src/gint/standard.hpp) | `std::numeric_limits`、`std::hash` 特化 | integer |
+| [`string_stream.hpp`](../src/gint/string_stream.hpp) | 字符串解析、进制转换和 stream 输出 | integer |
+| [`fmt.hpp`](../src/gint/fmt.hpp) | 可选 fmt 适配，复用文本转换函数 | string_stream |
+| [`cleanup.hpp`](../src/gint/cleanup.hpp) | 清理私有实现宏 | 无 |
 
-所有内部头都使用普通的 `#pragma once`，每个文件只展开一次。`configuration.hpp`
-建立私有实现宏，依赖链依次定义算术、标准库适配、字符串/stream 和 fmt。
-`gint.hpp` 在完整依赖链之后包含 `cleanup.hpp`，统一清理实现宏。内部模块不是
-公共入口；单独解析中间模块时会保留后续定义需要的实现宏，只有完整入口承诺清理。
-内部图测试同时覆盖直接包含完整入口和先包含中间模块再包含完整入口的顺序。
+生成器将 prelude、configuration、primitives、integer、standard 依次归入 core 角色，
+string_stream、fmt 依次归入 IO 角色；同角色只能依赖较早模块，IO 可依赖 core。
+完整入口属于 distribution，可直接依赖 core、IO 和 cleanup；cleanup 不依赖其他模块。
+标准库适配和字符串/stream 是整数实现之上的并列模块，fmt 的外部头由 `fmt.hpp`
+在 `GINT_ENABLE_FMT` 条件内包含。
+
+所有内部头都使用普通的 `#pragma once`，每个文件只展开一次。`gint.hpp` 显式列出
+主要功能模块，各模块仍直接包含自身需要的依赖。`configuration.hpp` 建立私有实现宏，
+完整入口在全部定义之后包含 `cleanup.hpp`，统一清理这些宏。入口的 include 按职责
+分组，保留可读顺序并避免格式化工具把清理头提前。
+
+内部模块不是公共入口；单独解析中间模块时会保留后续定义需要的实现宏，只有完整
+入口承诺清理。内部图测试覆盖直接包含完整入口，以及先使用字符串/stream、fmt
+模块再包含完整入口的顺序，并检查标准库适配和宏清理仍然完整。
 
 ### 生成器输入与处理契约
 
@@ -86,6 +97,11 @@ hardlink alias 与非精确大小写。所有模块按物理文件身份去重�
 CMake targets，使用当前配置的编译器、target、sysroot 和 flags，对照声明、条件分支、
 宏清理与运行结果。flat target 没有内部源码 include 路径。Python 测试覆盖拒绝矩阵
 和生产 manifest 下的源码图变体，consumer 测试覆盖单头文件独立及重复包含、私有宏清理和完整 IO 接口。
+
+## 数据布局
+
+`integer<Bits, Signed>` 使用 `Bits / 64` 个 `std::uint64_t` limb，低位 limb 位于
+较小索引。对象保持 `Bits / 8` 字节大小，有符号值直接使用同一补码位模式。
 
 ## 算法结构
 

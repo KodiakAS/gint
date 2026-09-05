@@ -43,7 +43,7 @@ PROJECT_ROLE_DEPENDENCIES = {
     "core": frozenset(("core",)),
     "io": frozenset(("core", "io")),
     "cleanup": frozenset(),
-    "distribution": frozenset(("io", "cleanup")),
+    "distribution": frozenset(("core", "io", "cleanup")),
 }
 HEADER_POLICY_FIELDS = frozenset(("order", "role"))
 

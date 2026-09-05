@@ -1,5 +1,8 @@
 #pragma once
 
+// Fixed-width integer arithmetic.
+// Compiler requirements, version macros, and shared standard-library headers.
+
 #if defined(_MSC_VER)
 #    error "gint does not support MSVC or clang-cl; use GCC or Clang with the GNU ABI"
 #elif !defined(__GNUC__) && !defined(__clang__)
@@ -47,10 +50,7 @@
 #    include <x86intrin.h>
 #endif
 
-#ifdef GINT_ENABLE_FMT
-#    include <locale>
-#    include <fmt/format.h>
-#endif
+// Private feature policies, compiler attributes, and the configuration namespace.
 
 #define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
@@ -249,6 +249,8 @@
         GINT_DETAIL_CLANG_TUNED_POLICY, \
         GINT_DETAIL_AARCH64_ASM_POLICY, \
         GINT_DETAIL_EXCEPTIONS_ENABLED)
+
+// Integer forward declarations, type traits, and fixed-size limb operations.
 
 namespace gint
 {
@@ -1265,6 +1267,8 @@ GINT_FORCE_INLINE void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
 
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
+
+// The integer class: storage, operators, conversions, and private arithmetic kernels.
 
 namespace gint
 {
@@ -5320,6 +5324,10 @@ struct integer_test_access
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
+// Standard-library integration.
+
+// std::numeric_limits and std::hash specializations for gint integers.
+
 #if defined(__clang__)
 #    pragma clang diagnostic push
 #    pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -5440,6 +5448,10 @@ struct hash<gint::integer<Bits, Signed>>
 #elif defined(__GNUC__)
 #    pragma GCC diagnostic pop
 #endif
+
+// String conversion and stream output.
+
+// Decimal/base conversion, string parsing, and stream output for integers.
 
 namespace gint
 {
@@ -5894,7 +5906,14 @@ inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed>
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
+// Optional fmt integration.
+
+// Optional fmt formatter, built on the shared integer-to-text conversion helpers.
+
 #ifdef GINT_ENABLE_FMT
+#    include <locale>
+#    include <fmt/format.h>
+
 namespace fmt
 {
 template <size_t Bits, typename Signed>
@@ -6266,7 +6285,7 @@ struct formatter<gint::integer<Bits, Signed>>
 } // namespace fmt
 #endif
 
-// Cleanup must follow all definitions; keep this include in its own block.
+// Clean up private macros after all definitions.
 // Keep private implementation macros inside the complete gint header.
 #undef GINT_UNLIKELY
 #undef GINT_LIKELY

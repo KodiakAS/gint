@@ -2,6 +2,8 @@
 
 #include "primitives.hpp"
 
+// The integer class: storage, operators, conversions, and private arithmetic kernels.
+
 namespace gint
 {
 inline namespace GINT_DETAIL_CONFIG_NAMESPACE

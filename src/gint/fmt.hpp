@@ -2,7 +2,12 @@
 
 #include "string_stream.hpp"
 
+// Optional fmt formatter, built on the shared integer-to-text conversion helpers.
+
 #ifdef GINT_ENABLE_FMT
+#    include <locale>
+#    include <fmt/format.h>
+
 namespace fmt
 {
 template <size_t Bits, typename Signed>

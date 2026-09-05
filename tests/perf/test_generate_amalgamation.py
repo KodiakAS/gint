@@ -617,14 +617,14 @@ class GenerateAmalgamationTest(unittest.TestCase):
         with open(module_path, "rb") as source:
             original = source.read()
         for replacement in (
-            b'#if(0)\n#include "standard.hpp"\n#endif// end\n#include "standard.hpp"',
-            b'#include "standard.hpp"\n%\\\n:include "standard.hpp"',
-            b'#include "standard.hpp"\n#pragma once// extra',
-            b'#include "standard.hpp"\ninline int location() { return __builtin_LINE(); }',
+            b'#if(0)\n#include "integer.hpp"\n#endif// end\n#include "integer.hpp"',
+            b'#include "integer.hpp"\n%\\\n:include "integer.hpp"',
+            b'#include "integer.hpp"\n#pragma once// extra',
+            b'#include "integer.hpp"\ninline int location() { return __builtin_LINE(); }',
         ):
             with self.subTest(replacement=replacement):
                 self.write_bytes(
-                    "src/gint/string_stream.hpp", original.replace(b'#include "standard.hpp"', replacement)
+                    "src/gint/string_stream.hpp", original.replace(b'#include "integer.hpp"', replacement)
                 )
                 with self.assertRaises(AMALGAMATION.AmalgamationError):
                     AMALGAMATION.build_project_amalgamation(self.root)

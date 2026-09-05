@@ -1,5 +1,7 @@
 #pragma once
 
+// Compiler requirements, version macros, and shared standard-library headers.
+
 #if defined(_MSC_VER)
 #    error "gint does not support MSVC or clang-cl; use GCC or Clang with the GNU ABI"
 #elif !defined(__GNUC__) && !defined(__clang__)
@@ -45,9 +47,4 @@
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 #    include <x86intrin.h>
-#endif
-
-#ifdef GINT_ENABLE_FMT
-#    include <locale>
-#    include <fmt/format.h>
 #endif

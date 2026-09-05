@@ -1,6 +1,8 @@
 #pragma once
 
-#include "standard.hpp"
+#include "integer.hpp"
+
+// Decimal/base conversion, string parsing, and stream output for integers.
 
 namespace gint
 {
