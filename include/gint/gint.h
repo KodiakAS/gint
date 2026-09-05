@@ -31,7 +31,6 @@
 #define GINT_VERSION (GINT_VERSION_MAJOR * 10000 + GINT_VERSION_MINOR * 100 + GINT_VERSION_PATCH)
 
 #include <array>
-#include <cassert>
 #include <cfenv>
 #include <cmath>
 #include <cstddef>
@@ -216,6 +215,14 @@
 #    define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
 #endif
 
+// Keep small division inline on AArch64 GCC after sharing the raw-limb kernel
+// across signed and unsigned objects. Other targets retain their call boundary.
+#if GINT_DETAIL_AARCH64_GCC
+#    define GINT_SMALL_DIV_INLINE GINT_FORCE_INLINE
+#else
+#    define GINT_SMALL_DIV_INLINE
+#endif
+
 #if GINT_GCC_TUNED_PATHS
 #    define GINT_DETAIL_GCC_TUNED_POLICY 1
 #else
@@ -250,144 +257,39 @@
         GINT_DETAIL_AARCH64_ASM_POLICY, \
         GINT_DETAIL_EXCEPTIONS_ENABLED)
 
-// Integer forward declarations, type traits, and fixed-size limb operations.
+// Fixed-width arithmetic on native words and limb arrays, including target fast paths.
+// No integer objects, private-storage access, or signed-object policies belong here.
 
 namespace gint
 {
 inline namespace GINT_DETAIL_CONFIG_NAMESPACE
 {
 
-//=== Forward declarations & type aliases ====================================
-template <size_t Bits, typename Signed>
-class integer;
-
-using Int128 = integer<128, signed>;
-using UInt128 = integer<128, unsigned>;
-using Int256 = integer<256, signed>;
-using UInt256 = integer<256, unsigned>;
-
-//=== Internal helper utilities ==============================================
 namespace detail
 {
-#ifdef GINT_TEST_ACCESS
-template <size_t Bits, typename Signed>
-struct integer_test_access;
-#endif
 
-template <size_t Bits, typename Signed>
-integer<Bits, Signed> parse_string_range(const char * begin, const char * end, unsigned base);
-
-template <unsigned BitsPerDigit, size_t Bits, typename Signed>
-integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end);
-
-template <size_t Bits>
-struct storage_count
-{
-    static_assert(Bits >= 64, "Bits must be at least 64");
-    static_assert(Bits <= 1024, "Bits must be at most 1024");
-    static_assert((Bits & (Bits - 1)) == 0, "Bits must be a power of two");
-    static constexpr size_t value = Bits / 64;
-};
-
-template <size_t Bits, bool NeedsLimit = (Bits < 256)>
-struct signed_promotion_limit;
-
-template <size_t Bits>
-struct signed_promotion_limit<Bits, true>
-{
-    static constexpr unsigned __int128 value() noexcept { return static_cast<unsigned __int128>(1) << (Bits - 1); }
-};
-
-template <size_t Bits>
-struct signed_promotion_limit<Bits, false>
-{
-    static constexpr unsigned __int128 value() noexcept { return 0; }
-};
-
-template <size_t... I>
-struct index_sequence
-{
-};
-
-template <size_t N, size_t... I>
-struct make_index_sequence : make_index_sequence<N - 1, N - 1, I...>
-{
-};
-
-template <size_t... I>
-struct make_index_sequence<0, I...>
-{
-    using type = index_sequence<I...>;
-};
-
-// These custom type traits extend std::is_integral / std::is_signed / std::is_unsigned
-// to support the GCC-specific built-in types __int128 and unsigned __int128 in
-// strict -std=c++11 mode.
-template <typename T>
-struct is_integral : std::is_integral<T>
-{
-};
-
-template <>
-struct is_integral<__int128> : std::true_type
-{
-};
-
-template <>
-struct is_integral<unsigned __int128> : std::true_type
-{
-};
-
-template <typename T>
-struct is_signed : std::is_signed<T>
-{
-};
-
-template <>
-struct is_signed<__int128> : std::true_type
-{
-};
-
-template <>
-struct is_signed<unsigned __int128> : std::false_type
-{
-};
-
-template <typename T>
-struct is_unsigned : std::is_unsigned<T>
-{
-};
-
-template <>
-struct is_unsigned<__int128> : std::false_type
-{
-};
-
-template <>
-struct is_unsigned<unsigned __int128> : std::true_type
-{
-};
-
+// Array references preserve C++11 constant evaluation on GCC 4.8.
 template <size_t I>
 struct limbs_equal
 {
-    template <typename Int>
-    static constexpr bool eval(const Int & lhs, const Int & rhs) noexcept
+    template <size_t L>
+    static constexpr bool eval(const uint64_t (&lhs)[L], const uint64_t (&rhs)[L]) noexcept
     {
-        return lhs.data_[I] == rhs.data_[I] && limbs_equal<I - 1>::eval(lhs, rhs);
+        return lhs[I] == rhs[I] && limbs_equal<I - 1>::eval(lhs, rhs);
     }
 };
 
 template <>
 struct limbs_equal<0>
 {
-    template <typename Int>
-    static constexpr bool eval(const Int & lhs, const Int & rhs) noexcept
+    template <size_t L>
+    static constexpr bool eval(const uint64_t (&lhs)[L], const uint64_t (&rhs)[L]) noexcept
     {
-        return lhs.data_[0] == rhs.data_[0];
+        return lhs[0] == rhs[0];
     }
 };
 
+//=== Equality on raw limbs ===================================================
 GINT_FORCE_INLINE bool limbs_equal_runtime_1024(const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
     if (lhs[15] != rhs[15])
@@ -398,6 +300,18 @@ GINT_FORCE_INLINE bool limbs_equal_runtime_1024(const uint64_t * lhs, const uint
         difference |= lhs[i] ^ rhs[i];
     return difference == 0;
 }
+
+template <size_t Limbs>
+constexpr bool equal_limbs(const uint64_t (&lhs)[Limbs], const uint64_t (&rhs)[Limbs]) noexcept
+{
+#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L && !GINT_GCC_TUNED_PATHS
+    if (!__builtin_is_constant_evaluated() && Limbs == 16)
+        return limbs_equal_runtime_1024(lhs, rhs);
+#endif
+    return limbs_equal<Limbs - 1>::eval(lhs, rhs);
+}
+
+//=== Native-word arithmetic ==================================================
 // Compute the high 128 bits of a 128x128->256 multiplication using
 // 64x64 partial products. Inlines well on GCC/Clang and maps to umulh
 // on AArch64 and efficient MUL+SHRD sequences on x86_64.
@@ -440,6 +354,7 @@ inline uint64_t addc64(uint64_t a, uint64_t b, uint64_t & c) noexcept
     return s;
 }
 
+//=== Limb addition and subtraction ===========================================
 template <size_t L>
 GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept;
 
@@ -708,6 +623,7 @@ GINT_CONSTEXPR14 inline void sub_limbs(uint64_t * lhs, const uint64_t * rhs) noe
     sub_limbs_copy<L>(lhs, lhs, rhs);
 }
 
+//=== Limb bitwise operations =================================================
 template <size_t L>
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 bit_and_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
@@ -816,6 +732,7 @@ bit_xor_limbs<16>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT l
 }
 #endif
 
+//=== Small-operand helpers and limb multiplication ===========================
 GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
 {
     using u128 = unsigned __int128;
@@ -1263,17 +1180,2178 @@ GINT_FORCE_INLINE void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
     lhs[3] = static_cast<uint64_t>(cur);
 }
 
+//=== Elementary limb operations ===========================================
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void bit_and_assign(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        lhs[i] &= rhs[i];
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void bit_or_assign(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        lhs[i] |= rhs[i];
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void bit_xor_assign(uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        lhs[i] ^= rhs[i];
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void increment_limbs(uint64_t * data) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        if (++data[i])
+            break;
+    }
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void decrement_limbs(uint64_t * data) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        uint64_t old = data[i];
+        --data[i];
+        if (old)
+            break;
+    }
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void add_limb(uint64_t * lhs, uint64_t rhs) noexcept
+{
+    const uint64_t old = lhs[0];
+    lhs[0] += rhs;
+    uint64_t carry = lhs[0] < old;
+    for (size_t i = 1; i < limbs && carry; ++i)
+        carry = ++lhs[i] == 0;
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void sub_limb(uint64_t * lhs, uint64_t rhs) noexcept
+{
+    const uint64_t old = lhs[0];
+    lhs[0] -= rhs;
+    uint64_t borrow = old < rhs;
+    for (size_t i = 1; i < limbs && borrow; ++i)
+    {
+        const uint64_t current = lhs[i];
+        --lhs[i];
+        borrow = current == 0;
+    }
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline bool less_limbs(const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    for (size_t i = limbs; i-- > 0;)
+    {
+        if (lhs[i] != rhs[i])
+            return lhs[i] < rhs[i];
+    }
+    return false;
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void complement_limbs(uint64_t * value) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        value[i] = ~value[i];
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void negate_limbs_copy(uint64_t * GINT_RESTRICT res, const uint64_t * value) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        res[i] = ~value[i];
+    uint64_t carry = 1;
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        unsigned __int128 sum = static_cast<unsigned __int128>(res[i]) + carry;
+        res[i] = static_cast<uint64_t>(sum);
+        carry = sum >> 64;
+        if (!carry)
+            break;
+    }
+}
+
+template <size_t limbs>
+GINT_FORCE_INLINE void mul_add_limb(uint64_t * data, uint64_t multiplier, uint64_t addend) noexcept
+{
+    unsigned __int128 carry = addend;
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        const unsigned __int128 product = static_cast<unsigned __int128>(data[i]) * multiplier + carry;
+        data[i] = static_cast<uint64_t>(product);
+        carry = product >> 64;
+    }
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline bool is_zero_limbs(const uint64_t * data) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        if (data[i] != 0)
+            return false;
+    return true;
+}
+
+template <size_t limbs>
+inline int highest_bit_limbs(const uint64_t * data) noexcept
+{
+    for (int i = static_cast<int>(limbs) - 1; i >= 0; --i)
+    {
+        if (data[i])
+            return i * 64 + 63 - __builtin_clzll(data[i]);
+    }
+    return -1;
+}
+
+template <size_t limbs>
+inline size_t used_limbs(const uint64_t * value) noexcept
+{
+    size_t n = limbs;
+    while (n > 0 && value[n - 1] == 0)
+        --n;
+    return n;
+}
+
+template <size_t limbs>
+GINT_FORCE_INLINE void negate_limbs(uint64_t * value) noexcept
+{
+    uint64_t carry = 1;
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        const uint64_t inv = ~value[i];
+        const uint64_t sum = inv + carry;
+        value[i] = sum;
+        carry = carry && (sum == 0);
+    }
+}
+
+template <size_t limbs>
+inline bool power_of_two_limbs(const uint64_t * value, int & bit_index) noexcept
+{
+    bit_index = -1;
+    bool found = false;
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        uint64_t limb = value[i];
+        if (limb)
+        {
+            if (limb & (limb - 1))
+                return false;
+            if (found)
+                return false;
+            bit_index = static_cast<int>(i * 64 + __builtin_ctzll(limb));
+            found = true;
+        }
+    }
+    return found;
+}
+
+template <size_t limbs>
+GINT_CONSTEXPR14 inline void fill_limbs(uint64_t * data, uint64_t fill) noexcept
+{
+    for (size_t i = 0; i < limbs; ++i)
+        data[i] = fill;
+}
+
+//=== Native-word fast paths and magnitude copying ===========================
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void shift_right_arithmetic_128(uint64_t * GINT_RESTRICT result, const uint64_t * lhs, size_t n) noexcept
+{
+    using s128 = __int128;
+    using u128 = unsigned __int128;
+    const u128 raw = (static_cast<u128>(lhs[1]) << 64) | lhs[0];
+    const s128 shifted = static_cast<s128>(raw) >> n;
+    const u128 shifted_raw = static_cast<u128>(shifted);
+    result[0] = static_cast<uint64_t>(shifted_raw);
+    result[1] = static_cast<uint64_t>(shifted_raw >> 64);
+}
+
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void shift_left_128(uint64_t * GINT_RESTRICT result, const uint64_t * lhs, unsigned n) noexcept
+{
+    using u128 = unsigned __int128;
+    const u128 raw = (static_cast<u128>(lhs[1]) << 64) | lhs[0];
+    const u128 shifted = raw << n;
+    result[0] = static_cast<uint64_t>(shifted);
+    result[1] = static_cast<uint64_t>(shifted >> 64);
+}
+
+GINT_FORCE_INLINE void
+div_unsigned_int128_by_positive_limb(uint64_t * GINT_RESTRICT result, const uint64_t * lhs, uint64_t divisor) noexcept
+{
+    using u128 = unsigned __int128;
+    const u128 lhs_raw = (static_cast<u128>(lhs[1]) << 64) | lhs[0];
+    const u128 quotient = lhs_raw / divisor;
+    result[0] = static_cast<uint64_t>(quotient);
+    result[1] = static_cast<uint64_t>(quotient >> 64);
+}
+
+GINT_FORCE_INLINE void div_signed_int128_by_positive_limb(uint64_t * GINT_RESTRICT result, const uint64_t * lhs, uint64_t divisor) noexcept
+{
+    using u128 = unsigned __int128;
+    using s128 = __int128;
+    const u128 lhs_raw = (static_cast<u128>(lhs[1]) << 64) | lhs[0];
+    const s128 quotient = static_cast<s128>(lhs_raw) / static_cast<s128>(divisor);
+    const u128 quotient_raw = static_cast<u128>(quotient);
+    result[0] = static_cast<uint64_t>(quotient_raw);
+    result[1] = static_cast<uint64_t>(quotient_raw >> 64);
+}
+
+template <size_t limbs>
+inline void copy_magnitude_limbs(uint64_t * dst, const uint64_t * src, bool neg) noexcept
+{
+    if (!neg)
+    {
+        for (size_t i = 0; i < limbs; ++i)
+            dst[i] = src[i];
+        return;
+    }
+
+    uint64_t carry = 1;
+    for (size_t i = 0; i < limbs; ++i)
+    {
+        const uint64_t inv = ~src[i];
+        const uint64_t sum = inv + carry;
+        dst[i] = sum;
+        carry = carry && (sum == 0);
+    }
+}
+
+//=== Limb shifts ============================================================
+// In-place shifts require limb_shift < limbs and bit_shift < 64. Out-of-place outputs must
+// not overlap inputs. The integer layer chooses zero or sign-extension fill.
+template <size_t Limbs>
+struct limb_shift
+{
+    using limb_type = uint64_t;
+    static constexpr size_t limbs = Limbs;
+
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void shift_left_assign(limb_type (&data)[limbs], size_t limb_shift, int bit_shift) noexcept
+    {
+        if (limbs == 4)
+        {
+            const uint64_t src0 = static_cast<uint64_t>(data[0]);
+            const uint64_t src1 = static_cast<uint64_t>(data[1]);
+            const uint64_t src2 = static_cast<uint64_t>(data[2]);
+            const uint64_t src3 = static_cast<uint64_t>(data[3]);
+            uint64_t out0 = 0;
+            uint64_t out1 = 0;
+            uint64_t out2 = 0;
+            uint64_t out3 = 0;
+            if (bit_shift)
+            {
+                const unsigned inv_shift = 64U - static_cast<unsigned>(bit_shift);
+                switch (limb_shift)
+                {
+                    case 0:
+                        out0 = src0 << bit_shift;
+                        out1 = (src1 << bit_shift) | (src0 >> inv_shift);
+                        out2 = (src2 << bit_shift) | (src1 >> inv_shift);
+                        out3 = (src3 << bit_shift) | (src2 >> inv_shift);
+                        break;
+                    case 1:
+                        out1 = src0 << bit_shift;
+                        out2 = (src1 << bit_shift) | (src0 >> inv_shift);
+                        out3 = (src2 << bit_shift) | (src1 >> inv_shift);
+                        break;
+                    case 2:
+                        out2 = src0 << bit_shift;
+                        out3 = (src1 << bit_shift) | (src0 >> inv_shift);
+                        break;
+                    default:
+                        out3 = src0 << bit_shift;
+                        break;
+                }
+            }
+            else
+            {
+                switch (limb_shift)
+                {
+                    case 1:
+                        out1 = src0;
+                        out2 = src1;
+                        out3 = src2;
+                        break;
+                    case 2:
+                        out2 = src0;
+                        out3 = src1;
+                        break;
+                    default:
+                        out3 = src0;
+                        break;
+                }
+            }
+            data[0] = static_cast<limb_type>(out0);
+            data[1] = static_cast<limb_type>(out1);
+            data[2] = static_cast<limb_type>(out2);
+            data[3] = static_cast<limb_type>(out3);
+            return;
+        }
+        if (limbs < 4)
+        {
+            if (limb_shift)
+            {
+                for (size_t i = limbs; i-- > limb_shift;)
+                    data[i] = data[i - limb_shift];
+                for (size_t i = 0; i < limb_shift; ++i)
+                    data[i] = 0;
+            }
+            if (bit_shift)
+            {
+                for (size_t i = limbs; i-- > 0;)
+                {
+                    unsigned __int128 part = static_cast<unsigned __int128>(data[i]) << bit_shift;
+                    if (i)
+                        part |= data[i - 1] >> (64 - bit_shift);
+                    data[i] = static_cast<limb_type>(part);
+                }
+            }
+            return;
+        }
+        return shift_left_assign_wide(data, limb_shift, static_cast<unsigned>(bit_shift));
+    }
+
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+    shift_right_assign(limb_type (&data)[limbs], size_t limb_shift, unsigned bit_shift, limb_type fill) noexcept
+    {
+        // Keep two-limb temporaries scalar across the object-to-array boundary.
+        if (limbs == 2)
+        {
+            const limb_type low = limb_shift ? data[1] : data[0];
+            const limb_type high = limb_shift ? fill : data[1];
+            if (bit_shift)
+            {
+                data[0] = (low >> bit_shift) | (high << (64 - bit_shift));
+                data[1] = (high >> bit_shift) | (fill << (64 - bit_shift));
+            }
+            else
+            {
+                data[0] = low;
+                data[1] = high;
+            }
+            return;
+        }
+        if (limbs == 4)
+        {
+            const uint64_t src0 = static_cast<uint64_t>(data[0]);
+            const uint64_t src1 = static_cast<uint64_t>(data[1]);
+            const uint64_t src2 = static_cast<uint64_t>(data[2]);
+            const uint64_t src3 = static_cast<uint64_t>(data[3]);
+            const uint64_t fill_word = static_cast<uint64_t>(fill);
+            uint64_t out0 = 0;
+            uint64_t out1 = 0;
+            uint64_t out2 = 0;
+            uint64_t out3 = 0;
+            if (bit_shift)
+            {
+                const unsigned inv_shift = 64U - bit_shift;
+                switch (limb_shift)
+                {
+                    case 0:
+                        out0 = (src0 >> bit_shift) | (src1 << inv_shift);
+                        out1 = (src1 >> bit_shift) | (src2 << inv_shift);
+                        out2 = (src2 >> bit_shift) | (src3 << inv_shift);
+                        out3 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        break;
+                    case 1:
+                        out0 = (src1 >> bit_shift) | (src2 << inv_shift);
+                        out1 = (src2 >> bit_shift) | (src3 << inv_shift);
+                        out2 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        out3 = fill_word;
+                        break;
+                    case 2:
+                        out0 = (src2 >> bit_shift) | (src3 << inv_shift);
+                        out1 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                    default:
+                        out0 = (src3 >> bit_shift) | (fill_word << inv_shift);
+                        out1 = fill_word;
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                }
+            }
+            else
+            {
+                switch (limb_shift)
+                {
+                    case 1:
+                        out0 = src1;
+                        out1 = src2;
+                        out2 = src3;
+                        out3 = fill_word;
+                        break;
+                    case 2:
+                        out0 = src2;
+                        out1 = src3;
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                    default:
+                        out0 = src3;
+                        out1 = fill_word;
+                        out2 = fill_word;
+                        out3 = fill_word;
+                        break;
+                }
+            }
+            data[0] = static_cast<limb_type>(out0);
+            data[1] = static_cast<limb_type>(out1);
+            data[2] = static_cast<limb_type>(out2);
+            data[3] = static_cast<limb_type>(out3);
+            return;
+        }
+        if (limbs < 4)
+        {
+            if (limb_shift)
+            {
+                for (size_t i = 0; i < limbs - limb_shift; ++i)
+                    data[i] = data[i + limb_shift];
+                for (size_t i = limbs - limb_shift; i < limbs; ++i)
+                    data[i] = fill;
+            }
+            if (bit_shift)
+            {
+                const unsigned inv_shift = 64U - bit_shift;
+                const limb_type top = data[limbs - 1];
+                limb_type prev = top;
+                for (size_t i = limbs - 1; i > 0; --i)
+                {
+                    limb_type cur = data[i - 1];
+                    data[i - 1] = (cur >> bit_shift) | (prev << inv_shift);
+                    prev = cur;
+                }
+                data[limbs - 1] = (top >> bit_shift) | (fill << inv_shift);
+            }
+            return;
+        }
+        return shift_right_assign_wide(data, limb_shift, bit_shift, fill);
+    }
+
+    static GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE void
+    shift_left_assign_wide(limb_type (&data)[limbs], size_t limb_shift, unsigned bit_shift) noexcept
+    {
+        if (bit_shift)
+        {
+            const unsigned shift_bits = static_cast<unsigned>(bit_shift);
+            const unsigned inv_shift = 64U - shift_bits;
+            for (size_t i = limbs; i-- > 0;)
+            {
+                if (i < limb_shift)
+                {
+                    data[i] = 0;
+                    continue;
+                }
+
+                const size_t src = i - limb_shift;
+                limb_type part = data[src] << shift_bits;
+                if (src)
+                    part |= data[src - 1] >> inv_shift;
+                data[i] = part;
+            }
+        }
+        else if (limb_shift)
+        {
+            for (size_t i = limbs; i-- > limb_shift;)
+                data[i] = data[i - limb_shift];
+            for (size_t i = 0; i < limb_shift; ++i)
+                data[i] = 0;
+        }
+        return;
+    }
+
+    static GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE void
+    shift_right_assign_wide(limb_type (&data)[limbs], size_t limb_shift, unsigned bit_shift, limb_type fill) noexcept
+    {
+        if (bit_shift)
+        {
+            const unsigned inv_shift = 64U - bit_shift;
+            const size_t count = limbs - limb_shift;
+            for (size_t i = 0; i < count; ++i)
+            {
+                const size_t src = i + limb_shift;
+                limb_type part = data[src] >> bit_shift;
+                if (src + 1 < limbs)
+                    part |= data[src + 1] << inv_shift;
+                else
+                    part |= fill << inv_shift;
+                data[i] = part;
+            }
+            for (size_t i = count; i < limbs; ++i)
+                data[i] = fill;
+        }
+        else if (limb_shift)
+        {
+            const size_t count = limbs - limb_shift;
+            for (size_t i = 0; i < count; ++i)
+                data[i] = data[i + limb_shift];
+            for (size_t i = count; i < limbs; ++i)
+                data[i] = fill;
+        }
+        return;
+    }
+
+#if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+    shift_left_into(limb_type * GINT_RESTRICT result, const limb_type * value, size_t shift) noexcept
+    {
+        const size_t limb_shift = shift / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        if (bit_shift)
+        {
+            const unsigned inv_shift = 64U - bit_shift;
+            for (size_t i = 0; i < limb_shift; ++i)
+                result[i] = 0;
+
+            const size_t count = limbs - limb_shift;
+            limb_type carry = 0;
+            for (size_t i = 0; i < count; ++i)
+            {
+                const limb_type cur = value[i];
+                result[i + limb_shift] = (cur << bit_shift) | carry;
+                carry = cur >> inv_shift;
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < limb_shift; ++i)
+                result[i] = 0;
+            for (size_t i = limb_shift; i < limbs; ++i)
+                result[i] = value[i - limb_shift];
+        }
+        return;
+    }
+
+#endif
+
+#if !GINT_GCC_TUNED_PATHS
+    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+    shift_right_into(limb_type * GINT_RESTRICT result, const limb_type * value, size_t shift, limb_type fill) noexcept
+    {
+        if (shift >= limbs * 64)
+        {
+            for (size_t i = 0; i < limbs; ++i)
+                result[i] = fill;
+            return;
+        }
+
+        const size_t limb_shift = shift / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        const size_t count = limbs - limb_shift;
+        if (bit_shift)
+        {
+            const unsigned inv_shift = 64U - bit_shift;
+            result[0] = value[limb_shift] >> bit_shift;
+            for (size_t i = 1; i < count; ++i)
+            {
+                const limb_type cur = value[limb_shift + i];
+                result[i - 1] |= cur << inv_shift;
+                result[i] = cur >> bit_shift;
+            }
+            result[count - 1] |= fill << inv_shift;
+        }
+        else
+        {
+            for (size_t i = 0; i < count; ++i)
+                result[i] = value[i + limb_shift];
+        }
+        for (size_t i = count; i < limbs; ++i)
+            result[i] = fill;
+    }
+
+#endif
+};
+
+//=== Floating-point magnitude kernels =======================================
+// Conversion policies stay in integer; kernels receive raw magnitudes and the
+// sign/fill selected by that layer. Rounding retains guard/sticky-bit logic.
+template <size_t Limbs>
+struct limb_float
+{
+    using limb_type = uint64_t;
+    static constexpr size_t limbs = Limbs;
+
+    static bool test_bit(const limb_type * value, int bit) noexcept
+    {
+        return bit >= 0 && bit < static_cast<int>(limbs * 64) && ((value[static_cast<size_t>(bit) / 64] >> (bit % 64)) & 1);
+    }
+
+    static bool has_any_bit_below(const limb_type * value, int bit) noexcept
+    {
+        if (bit <= 0)
+            return false;
+        size_t full_limbs = static_cast<size_t>(bit) / 64;
+        const unsigned rem = static_cast<unsigned>(bit % 64);
+        if (full_limbs > limbs)
+            full_limbs = limbs;
+        for (size_t i = 0; i < full_limbs; ++i)
+            if (value[i])
+                return true;
+        if (full_limbs < limbs && rem != 0)
+        {
+            const limb_type mask = (limb_type(1) << rem) - 1;
+            return (value[full_limbs] & mask) != 0;
+        }
+        return false;
+    }
+
+    static limb_type low_limb_after_logical_right_shift(const limb_type * value, unsigned shift) noexcept
+    {
+        const size_t limb_shift = static_cast<size_t>(shift) / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        if (limb_shift >= limbs)
+            return 0;
+
+        limb_type result = value[limb_shift] >> bit_shift;
+        if (bit_shift != 0 && limb_shift + 1 < limbs)
+            result |= value[limb_shift + 1] << (64 - bit_shift);
+        return result;
+    }
+
+    static unsigned __int128 low_u128_after_logical_right_shift(const limb_type * value, unsigned shift) noexcept
+    {
+        using u128 = unsigned __int128;
+        const size_t limb_shift = static_cast<size_t>(shift) / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        if (limb_shift >= limbs)
+            return 0;
+
+        u128 result = static_cast<u128>(value[limb_shift]) >> bit_shift;
+        if (limb_shift + 1 < limbs)
+            result |= static_cast<u128>(value[limb_shift + 1]) << (64 - bit_shift);
+        if (bit_shift != 0 && limb_shift + 2 < limbs)
+            result |= static_cast<u128>(value[limb_shift + 2]) << (128 - bit_shift);
+        return result;
+    }
+
+    template <typename Float>
+    static typename std::enable_if<(std::numeric_limits<Float>::digits < 64), limb_type>::type
+    binary_float_significand(const limb_type * value, unsigned shift) noexcept
+    {
+        return low_limb_after_logical_right_shift(value, shift);
+    }
+
+    template <typename Float>
+    static typename std::enable_if<(std::numeric_limits<Float>::digits >= 64), unsigned __int128>::type
+    binary_float_significand(const limb_type * value, unsigned shift) noexcept
+    {
+        return low_u128_after_logical_right_shift(value, shift);
+    }
+
+    template <typename Float>
+    static GINT_FORCE_INLINE Float to_binary_float(const limb_type * mag, bool neg) noexcept
+    {
+        const int hb = highest_bit_limbs<limbs>(mag);
+        const int digits = std::numeric_limits<Float>::digits;
+        if (hb < digits)
+        {
+            Float res = 0;
+            for (size_t i = limbs; i-- > 0;)
+            {
+                res = std::ldexp(res, 64);
+                res += static_cast<Float>(mag[i]);
+            }
+            return neg ? -res : res;
+        }
+
+        int scale = hb - (digits - 1);
+        typedef typename std::conditional<(std::numeric_limits<Float>::digits < 64), limb_type, unsigned __int128>::type significand_type;
+        significand_type significand = binary_float_significand<Float>(mag, static_cast<unsigned>(scale));
+        const bool guard = test_bit(mag, scale - 1);
+        const bool sticky = has_any_bit_below(mag, scale - 1);
+        const bool discarded = guard || sticky;
+        bool increment = false;
+        switch (std::fegetround())
+        {
+            case FE_TONEAREST:
+                increment = guard && (sticky || (significand & 1));
+                break;
+            case FE_UPWARD:
+                increment = !neg && discarded;
+                break;
+            case FE_DOWNWARD:
+                increment = neg && discarded;
+                break;
+            case FE_TOWARDZERO:
+                increment = false;
+                break;
+            default:
+                increment = guard && (sticky || (significand & 1));
+                break;
+        }
+        if (increment)
+        {
+            ++significand;
+            if (significand == (significand_type(1) << digits))
+            {
+                significand >>= 1;
+                ++scale;
+            }
+        }
+
+        // Apply the sign before ldexp so directed overflow is rounded in the
+        // direction of the signed result and still raises the usual fenv flags.
+        const Float signed_significand = neg ? -static_cast<Float>(significand) : static_cast<Float>(significand);
+        return std::ldexp(signed_significand, scale);
+    }
+
+    // The caller selects high-bit extension at compile time, avoiding a live
+    // fill argument across the significand comparison and its library calls.
+    template <bool ExtendHighBit, typename T>
+    static int compare_with_float_abs(const limb_type (&lhs_abs)[limbs], T rhs_abs) noexcept
+    {
+        // Both are non-negative.
+        if (is_zero_limbs<limbs>(lhs_abs))
+            return rhs_abs == T(0) ? 0 : -1;
+        int e = 0;
+        T m = std::frexp(rhs_abs, &e); // rhs_abs = m * 2^e, 0.5<=m<1
+        if (m == T(0))
+            return 1; // lhs_abs > 0 > rhs_abs
+        int hb = highest_bit_limbs<limbs>(lhs_abs);
+        int k = e - 1; // index of highest set bit of rhs_abs
+        if (hb != k)
+            return hb < k ? -1 : 1;
+        const int p = std::numeric_limits<T>::digits;
+        int shift = hb - (p - 1);
+        // Preserve aggregate-copy temporaries without depending on integer.
+        struct magnitude_buffer
+        {
+            limb_type words[limbs];
+        };
+        magnitude_buffer scaled;
+        for (size_t i = 0; i < limbs; ++i)
+            scaled.words[i] = lhs_abs[i];
+        unsigned __int128 sigA = 0;
+        if (limbs >= 2)
+            sigA = (static_cast<unsigned __int128>(lhs_abs[1]) << 64) | lhs_abs[0];
+        else
+            sigA = lhs_abs[0];
+        if (shift > 0)
+        {
+            const limb_type fill = ExtendHighBit && (lhs_abs[limbs - 1] >> 63) ? ~limb_type(0) : 0;
+            limb_shift<limbs>::shift_right_assign(scaled.words, static_cast<size_t>(shift) / 64, static_cast<unsigned>(shift % 64), fill);
+            if (limbs >= 2)
+                sigA = (static_cast<unsigned __int128>(scaled.words[1]) << 64) | scaled.words[0];
+            else
+                sigA = scaled.words[0];
+        }
+        else if (shift < 0)
+        {
+            sigA <<= -shift;
+        }
+        if (p < 128)
+            sigA &= ((static_cast<unsigned __int128>(1) << p) - 1);
+        T scaled_rhs = std::ldexp(m, p);
+        unsigned __int128 sigB = static_cast<unsigned __int128>(scaled_rhs);
+        if (sigA < sigB)
+            return -1;
+        if (sigA > sigB)
+            return 1;
+        if (shift <= 0)
+        {
+            // If rhs has any fractional beyond p bits, then rhs > lhs.
+            T frac = scaled_rhs - std::floor(scaled_rhs);
+            return (frac > T(0)) ? -1 : 0;
+        }
+        else
+        {
+            magnitude_buffer rec = scaled;
+            limb_shift<limbs>::shift_left_assign(rec.words, static_cast<size_t>(shift) / 64, shift % 64);
+            return equal_limbs(rec.words, lhs_abs) ? 0 : 1; // lhs has extra low bits -> larger
+        }
+    }
+
+    // The caller clears data and supplies a finite, non-negative magnitude.
+    static void assign_float_digits(limb_type * data, long double val) noexcept
+    {
+        long double intpart;
+        std::modf(val, &intpart);
+        val = intpart;
+        long double base = std::ldexp(1.0L, 64);
+        for (size_t i = 0; i < limbs && val > 0; ++i)
+        {
+            long double rem = std::fmod(val, base);
+            data[i] = static_cast<limb_type>(rem);
+            val = std::floor(val / base);
+        }
+    }
+};
+
+//=== Unsigned magnitude division ============================================
+// Kernels accept little-endian arrays of exactly Limbs words. Outputs must not
+// overlap inputs. The caller supplies magnitudes and handles signs/zero policy.
+// Every quotient/remainder kernel initializes its complete output array.
+template <size_t Limbs>
+struct limb_division
+{
+    using limb_type = uint64_t;
+    static constexpr size_t limbs = Limbs;
+
+    static GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR bool greater_limbs_128(const uint64_t * lhs, const uint64_t * rhs) noexcept
+    {
+#if GINT_ARCH_AARCH64
+        unsigned result;
+        __asm__("cmp %[lhs_hi], %[rhs_hi]\n"
+                "ccmp %[lhs_lo], %[rhs_lo], #0, eq\n"
+                "cset %w[result], hi"
+                : [result] "=r"(result)
+                : [lhs_hi] "r"(lhs[1]), [rhs_hi] "r"(rhs[1]), [lhs_lo] "r"(lhs[0]), [rhs_lo] "r"(rhs[0])
+                : "cc");
+        return result != 0;
+#else
+        return lhs[1] > rhs[1] || (lhs[1] == rhs[1] && lhs[0] > rhs[0]);
+#endif
+    }
+
+    static GINT_FORCE_INLINE void clear(limb_type * value) noexcept
+    {
+        for (size_t i = 0; i < limbs; ++i)
+            value[i] = 0;
+    }
+
+    static GINT_FORCE_INLINE void copy(limb_type * dst, const limb_type * src) noexcept
+    {
+        for (size_t i = 0; i < limbs; ++i)
+            dst[i] = src[i];
+    }
+
+    template <size_t L = limbs>
+    static GINT_SMALL_DIV_INLINE typename std::enable_if<(L == 1), limb_type>::type
+    div_mod_small(const limb_type * data, limb_type div, limb_type * quotient) noexcept
+    {
+        // SFINAE provides a dedicated implementation for single-limb integers,
+        // avoiding multi-limb code that would trigger -Warray-bounds warnings.
+        clear(quotient);
+        if (data[0] == 0)
+            return 0;
+        quotient[0] = static_cast<limb_type>(data[0] / div);
+        return static_cast<limb_type>(data[0] % div);
+    }
+
+    template <size_t L = limbs>
+    static GINT_SMALL_DIV_INLINE typename std::enable_if<(L == 1), limb_type>::type
+    mod_small(const limb_type * data, limb_type div) noexcept
+    {
+        return static_cast<limb_type>(data[0] % div);
+    }
+
+    template <size_t L = limbs>
+    static GINT_SMALL_DIV_INLINE typename std::enable_if<(L > 1), limb_type>::type
+    div_mod_small(const limb_type * data, limb_type div, limb_type * quotient) noexcept
+    {
+        using u128 = unsigned __int128;
+        // This overload is only instantiated for multi-limb integers, preventing
+        // compilers from inspecting out-of-bounds accesses in single-limb cases.
+        size_t n = limbs;
+        // Initialize only the unused high limbs; every active limb is written
+        // by the division path below. Keep this in the scan so an unused
+        // quotient does not retain a separate bulk clear after inlining.
+        while (n > 0 && data[n - 1] == 0)
+            quotient[--n] = 0;
+        if (n == 0)
+            return 0;
+        // Power-of-two divisor becomes a simple shift/modulo by mask.
+        if ((div & (div - 1)) == 0)
+        {
+            const unsigned s = static_cast<unsigned>(__builtin_ctzll(div));
+            if (s == 0)
+            {
+                copy(quotient, data);
+            }
+            else
+            {
+                const limb_type mask = (limb_type(1) << s) - 1;
+                limb_type carry = 0;
+                for (size_t i = limbs; i-- > 0;)
+                {
+                    const limb_type cur = data[i];
+                    quotient[i] = (cur >> s) | (carry << (64 - s));
+                    carry = cur & mask;
+                }
+            }
+            return static_cast<limb_type>(data[0] & (div - 1));
+        }
+#if GINT_DETAIL_AARCH64_CLANG
+        if (limbs == 2 && div > 0xFFFFFFFFULL)
+        {
+            const u128 num = (static_cast<u128>(data[1]) << 64) | data[0];
+            const u128 q = num / div;
+            quotient[0] = static_cast<limb_type>(q);
+            quotient[1] = static_cast<limb_type>(q >> 64);
+            return static_cast<limb_type>(num % div);
+        }
+#endif
+#if GINT_ARCH_X86_64
+#    if GINT_CLANG_TUNED_PATHS
+        if (div != 10000000000000000000ULL)
+#    endif
+        {
+            u128 rem = 0;
+            for (size_t i = n; i-- > 0;)
+            {
+                u128 num = (rem << 64) | data[i];
+                quotient[i] = static_cast<limb_type>(num / div);
+                rem = num % div;
+            }
+            return static_cast<limb_type>(rem);
+        }
+#endif
+        // Fast path: 32-bit divisor using reciprocal-multiply in base 2^32.
+        // Compute rinv = floor((2^64-1)/d32). For each 64-bit chunk T
+        // (formed by (rem<<32)|word32), q_est = high64(T * rinv); correct by
+        // at most +1 via a single branch. This avoids hardware division in
+        // the loop and performs well across GCC/Clang.
+        if (div <= 0xFFFFFFFFULL)
+        {
+            using u128x = unsigned __int128;
+            const uint32_t d32 = static_cast<uint32_t>(div);
+            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
+            uint64_t rem = 0; // always < d32
+            for (size_t i = n; i-- > 0;)
+            {
+                const uint64_t cur = data[i];
+                const uint32_t hi = static_cast<uint32_t>(cur >> 32);
+                const uint32_t lo = static_cast<uint32_t>(cur);
+
+                // High 32 bits
+                uint64_t t = (rem << 32) | hi;
+                uint64_t qhi = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
+                uint64_t r = t - qhi * d32;
+                if (r >= d32)
+                {
+                    ++qhi;
+                    r -= d32;
+                }
+
+                // Low 32 bits
+                t = (r << 32) | lo;
+                uint64_t qlo = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
+                r = t - qlo * d32;
+                if (r >= d32)
+                {
+                    ++qlo;
+                    r -= d32;
+                }
+
+                rem = r;
+                quotient[i] = (static_cast<uint64_t>(qhi) << 32) | static_cast<uint32_t>(qlo);
+            }
+            return static_cast<limb_type>(rem);
+        }
+        // 64-bit divisors: two viable strategies exist.
+        // We observed broadly good cross-compiler results by using the
+        // reciprocal-multiply estimate with one correction on modern GCC/Clang.
+        // However, Clang on some older Linux toolchains may favor 128/64
+        // divisions. After experimentation, we combine both ideas by using the
+        // reciprocal path but keep the code structure tight and inlined.
+        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
+        // Single branch correction was the most stable variant in local compiler tests.
+        auto corr = [&](u128 & q, u128 & rem)
+        {
+            if (rem >= div)
+            {
+                ++q;
+                rem -= div;
+            }
+        };
+        // Unroll for common 256-bit case (4 limbs) to reduce loop overhead
+        if (limbs == 4)
+        {
+            switch (n)
+            {
+                case 1: {
+                    u128 num = data[0];
+                    u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    u128 rem = num - q * div;
+                    corr(q, rem);
+                    quotient[0] = static_cast<limb_type>(q);
+                    return static_cast<limb_type>(rem);
+                }
+                case 2: {
+                    u128 num = (static_cast<u128>(data[1]) << 64) | data[0];
+                    u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    u128 rem = num - q * div;
+                    corr(q, rem);
+                    quotient[0] = static_cast<limb_type>(q);
+                    quotient[1] = static_cast<limb_type>(q >> 64);
+                    return static_cast<limb_type>(rem);
+                }
+                case 3: {
+                    u128 rem = 0;
+                    u128 num = (rem << 64) | data[2];
+                    u128 q2 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q2 * div;
+                    corr(q2, rem);
+                    quotient[2] = static_cast<limb_type>(q2);
+                    num = (rem << 64) | data[1];
+                    u128 q1 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q1 * div;
+                    corr(q1, rem);
+                    quotient[1] = static_cast<limb_type>(q1);
+                    num = (rem << 64) | data[0];
+                    u128 q0 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q0 * div;
+                    corr(q0, rem);
+                    quotient[0] = static_cast<limb_type>(q0);
+                    return static_cast<limb_type>(rem);
+                }
+                case 4:
+                default: {
+                    u128 rem = 0;
+                    u128 num = (rem << 64) | data[3];
+                    u128 q3 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q3 * div;
+                    corr(q3, rem);
+                    quotient[3] = static_cast<limb_type>(q3);
+                    num = (rem << 64) | data[2];
+                    u128 q2 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q2 * div;
+                    corr(q2, rem);
+                    quotient[2] = static_cast<limb_type>(q2);
+                    num = (rem << 64) | data[1];
+                    u128 q1 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q1 * div;
+                    corr(q1, rem);
+                    quotient[1] = static_cast<limb_type>(q1);
+                    num = (rem << 64) | data[0];
+                    u128 q0 = detail::mulhi_u128_no_middle_wrap(num, inv);
+                    rem = num - q0 * div;
+                    corr(q0, rem);
+                    quotient[0] = static_cast<limb_type>(q0);
+                    return static_cast<limb_type>(rem);
+                }
+            }
+        }
+        // Generic path for other limb counts
+        u128 rem = 0;
+        for (size_t i = n; i-- > 0;)
+        {
+            u128 num = (rem << 64) | data[i];
+            u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
+            rem = num - q * div;
+            corr(q, rem);
+            quotient[i] = static_cast<limb_type>(q);
+        }
+        return static_cast<limb_type>(rem);
+    }
+
+    template <size_t L = limbs>
+    static GINT_SMALL_DIV_INLINE typename std::enable_if<(L > 1), limb_type>::type mod_small(const limb_type * data, limb_type div) noexcept
+    {
+        using u128 = unsigned __int128;
+        size_t n = limbs;
+        while (n > 0 && data[n - 1] == 0)
+            --n;
+        if (n == 0)
+            return 0;
+
+        if ((div & (div - 1)) == 0)
+            return static_cast<limb_type>(data[0] & (div - 1));
+
+#if GINT_DETAIL_AARCH64_CLANG || GINT_DETAIL_AARCH64_GCC
+        if (limbs == 2 && div > 0xFFFFFFFFULL)
+        {
+            const u128 num = (static_cast<u128>(data[1]) << 64) | data[0];
+            return static_cast<limb_type>(num % div);
+        }
+#endif
+
+#if GINT_ARCH_X86_64
+        {
+            u128 rem = 0;
+            for (size_t i = n; i-- > 0;)
+                rem = ((rem << 64) | data[i]) % div;
+            return static_cast<limb_type>(rem);
+        }
+#endif
+
+        if (div <= 0xFFFFFFFFULL)
+        {
+            using u128x = unsigned __int128;
+            const uint32_t d32 = static_cast<uint32_t>(div);
+            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
+            uint64_t rem = 0;
+            for (size_t i = n; i-- > 0;)
+            {
+                const uint64_t cur = data[i];
+                const uint32_t hi = static_cast<uint32_t>(cur >> 32);
+                const uint32_t lo = static_cast<uint32_t>(cur);
+
+                uint64_t t = (rem << 32) | hi;
+                uint64_t q = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
+                uint64_t r = t - q * d32;
+                if (r >= d32)
+                    r -= d32;
+
+                t = (r << 32) | lo;
+                q = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
+                r = t - q * d32;
+                if (r >= d32)
+                    r -= d32;
+                rem = r;
+            }
+            return static_cast<limb_type>(rem);
+        }
+
+        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
+        auto corr = [&](u128 & q, u128 & rem)
+        {
+            if (rem >= div)
+            {
+                ++q;
+                rem -= div;
+            }
+        };
+
+        u128 rem = 0;
+        for (size_t i = n; i-- > 0;)
+        {
+            u128 num = (rem << 64) | data[i];
+            u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
+            rem = num - q * div;
+            corr(q, rem);
+        }
+        return static_cast<limb_type>(rem);
+    }
+
+
+    //=== Multi-limb division and remainder kernels ==========================
+    // Left-shift an array of limbs by 'shift' bits (0..63) into dst, returning the carry-out limb.
+    // The source and destination may alias; the operation proceeds from low to high.
+    GINT_FORCE_INLINE static limb_type lshift_limbs_to(const limb_type * src, size_t n, limb_type * dst, int shift) noexcept
+    {
+        limb_type carry = 0;
+        if (shift)
+        {
+            for (size_t i = 0; i < n; ++i)
+            {
+                limb_type cur = src[i];
+                dst[i] = (cur << shift) | carry;
+                carry = static_cast<limb_type>(cur >> (64 - shift));
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < n; ++i)
+                dst[i] = src[i];
+            carry = 0;
+        }
+        return carry;
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), void>::type
+    div_128(const limb_type * lhs, const limb_type * rhs, limb_type * GINT_RESTRICT result) noexcept
+    {
+#if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
+        clear(result);
+        if (GINT_UNLIKELY((rhs[1] | rhs[0]) == 0))
+            return;
+        if (rhs[1] >= (limb_type(1) << 62))
+        {
+            limb_type rem_hi = lhs[1];
+            limb_type rem_lo = lhs[0];
+            limb_type q = 0;
+            for (limb_type i = 0; i < 3; ++i)
+            {
+                if (rem_hi < rhs[1] || (rem_hi == rhs[1] && rem_lo < rhs[0]))
+                    break;
+                limb_type next_lo = rem_lo - rhs[0];
+                limb_type borrow = rem_lo < rhs[0];
+                rem_hi = rem_hi - rhs[1] - borrow;
+                rem_lo = next_lo;
+                ++q;
+            }
+            result[0] = q;
+            result[1] = 0;
+            return;
+        }
+#endif
+        return div_128_native(lhs, rhs, result);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), void>::type
+    div_128_native(const limb_type * lhs, const limb_type * rhs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        unsigned __int128 a = (static_cast<unsigned __int128>(lhs[1]) << 64) | lhs[0];
+        unsigned __int128 b = (static_cast<unsigned __int128>(rhs[1]) << 64) | rhs[0];
+        clear(result);
+        if (GINT_UNLIKELY(b == 0))
+            return;
+        unsigned __int128 q = a / b;
+        result[0] = static_cast<limb_type>(q);
+        result[1] = static_cast<limb_type>(q >> 64);
+        return;
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), void>::type
+    div_128(const limb_type * lhs, const limb_type * rhs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        return div_128_native(lhs, rhs, result);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L < 2), void>::type
+    div_128_native(const limb_type * lhs, const limb_type * rhs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        clear(result);
+        if (GINT_UNLIKELY(rhs[0] == 0))
+            return;
+        result[0] = lhs[0] / rhs[0];
+        return;
+    }
+
+#if GINT_GCC_TUNED_PATHS
+    GINT_FORCE_INLINE static limb_type left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
+    {
+        limb_type cur = src[i];
+        if (shift == 0)
+            return cur;
+        limb_type prev = i == 0 ? 0 : src[i - 1];
+        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
+    }
+
+    static bool mul_by_limb_greater_than(const limb_type * lhs, const limb_type * divisor, size_t div_limbs, limb_type q) noexcept
+    {
+        if (q == 0)
+            return false;
+
+        std::array<limb_type, limbs + 1> product;
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor[i]) * q + carry;
+            product[i] = static_cast<limb_type>(p);
+            carry = p >> 64;
+        }
+        if (carry != 0)
+            return true;
+
+        for (size_t i = div_limbs; i-- > 0;)
+        {
+            if (product[i] != lhs[i])
+                return product[i] > lhs[i];
+        }
+        return false;
+    }
+
+    static void div_large_single_limb_quotient(
+        const limb_type * lhs, const limb_type * divisor, size_t div_limbs, limb_type * GINT_RESTRICT quotient) noexcept
+    {
+        clear(quotient);
+        if (div_limbs < 2)
+            return;
+
+        using u128 = unsigned __int128;
+        const int shift = __builtin_clzll(divisor[div_limbs - 1]);
+        const limb_type vtop = left_shifted_limb_at(divisor, div_limbs - 1, shift);
+        const limb_type vnext = left_shifted_limb_at(divisor, div_limbs - 2, shift);
+        const limb_type utop = shift ? static_cast<limb_type>(lhs[div_limbs - 1] >> (64 - shift)) : 0;
+        const limb_type unext = left_shifted_limb_at(lhs, div_limbs - 1, shift);
+        const limb_type uthird = left_shifted_limb_at(lhs, div_limbs - 2, shift);
+
+        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
+        u128 qhat = numerator / vtop;
+        u128 rhat = numerator - qhat * vtop;
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
+        {
+            --qhat;
+            rhat += vtop;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        limb_type q = static_cast<limb_type>(qhat);
+        while (mul_by_limb_greater_than(lhs, divisor, div_limbs, q))
+            --q;
+        quotient[0] = q;
+        return;
+    }
+#endif
+
+    template <bool WantRemainder>
+    static GINT_NOINLINE void div_or_rem_large_core(
+        const limb_type * lhs, const limb_type * divisor, size_t v_limbs, size_t u_limbs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        clear(result);
+        if (GINT_UNLIKELY(v_limbs == 0) || u_limbs < v_limbs)
+        {
+            if (WantRemainder)
+                copy(result, lhs);
+            return;
+        }
+
+        std::array<limb_type, limbs + 1> u;
+        std::array<limb_type, limbs + 1> v;
+
+        int shift = __builtin_clzll(divisor[v_limbs - 1]);
+        limb_type carry = lshift_limbs_to(lhs, u_limbs, u.data(), shift);
+        u[u_limbs] = carry;
+
+        carry = lshift_limbs_to(divisor, v_limbs, v.data(), shift);
+
+        for (int j = static_cast<int>(u_limbs - v_limbs); j >= 0; --j)
+        {
+            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + v_limbs]) << 64) | u[j + v_limbs - 1];
+            // Single 128/64 division: compute quotient, derive remainder by multiply-back
+            unsigned __int128 qhat = numerator / v[v_limbs - 1];
+            unsigned __int128 rhat = numerator - qhat * v[v_limbs - 1];
+
+            if (v_limbs > 1)
+            {
+                while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[v_limbs - 2] > ((rhat << 64) | u[j + v_limbs - 2]))
+                {
+                    --qhat;
+                    rhat += v[v_limbs - 1];
+                    if (rhat >= (static_cast<unsigned __int128>(1) << 64))
+                        break;
+                }
+            }
+
+            unsigned __int128 borrow = 0;
+            for (size_t i = 0; i < v_limbs; ++i)
+            {
+                unsigned __int128 p = qhat * v[i] + borrow;
+                if (u[j + i] < static_cast<limb_type>(p))
+                {
+                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            if (static_cast<unsigned __int128>(u[j + v_limbs]) < borrow)
+            {
+                unsigned __int128 carry2 = 0;
+                for (size_t i = 0; i < v_limbs; ++i)
+                {
+                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
+                    u[j + i] = static_cast<limb_type>(t2);
+                    carry2 = t2 >> 64;
+                }
+                u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) + carry2);
+                --qhat;
+            }
+            else
+            {
+                u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) - borrow);
+            }
+            if (!WantRemainder)
+                result[j] = static_cast<limb_type>(qhat);
+        }
+
+        if (WantRemainder)
+        {
+            if (shift == 0)
+            {
+                for (size_t i = 0; i < v_limbs; ++i)
+                    result[i] = u[i];
+            }
+            else
+            {
+                const int inv_shift = 64 - shift;
+                for (size_t i = 0; i < v_limbs; ++i)
+                {
+                    const limb_type next = (i + 1 < v_limbs) ? u[i + 1] : 0;
+                    result[i] = (u[i] >> shift) | (next << inv_shift);
+                }
+            }
+        }
+        return;
+    }
+
+    static void div_large(const limb_type * lhs, const limb_type * divisor, size_t div_limbs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        const size_t dividend_limbs = detail::used_limbs<limbs>(lhs);
+#if GINT_GCC_TUNED_PATHS
+        if (dividend_limbs == div_limbs && div_limbs >= 2)
+            return div_large_single_limb_quotient(lhs, divisor, div_limbs, result);
+#endif
+        return div_or_rem_large_core<false>(lhs, divisor, div_limbs, dividend_limbs, result);
+    }
+
+#if GINT_DETAIL_AARCH64_GCC
+    static limb_type rem_estimate_single_limb_quotient(const limb_type * lhs, const limb_type * divisor, size_t div_limbs) noexcept
+    {
+        using u128 = unsigned __int128;
+        const int shift = __builtin_clzll(divisor[div_limbs - 1]);
+        const limb_type vtop = left_shifted_limb_at(divisor, div_limbs - 1, shift);
+        const limb_type vnext = left_shifted_limb_at(divisor, div_limbs - 2, shift);
+        const limb_type utop = shift ? static_cast<limb_type>(lhs[div_limbs - 1] >> (64 - shift)) : 0;
+        const limb_type unext = left_shifted_limb_at(lhs, div_limbs - 1, shift);
+        const limb_type uthird = left_shifted_limb_at(lhs, div_limbs - 2, shift);
+
+        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
+        u128 qhat = numerator / vtop;
+        u128 rhat = numerator - qhat * vtop;
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
+        {
+            --qhat;
+            rhat += vtop;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        return static_cast<limb_type>(qhat);
+    }
+
+    static bool rem_sub_mul_limb(limb_type * lhs, const limb_type * divisor, size_t div_limbs, limb_type q) noexcept
+    {
+        unsigned __int128 carry = 0;
+        limb_type borrow = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor[i]) * q + carry;
+            carry = p >> 64;
+
+            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
+            limb_type next_borrow = static_cast<unsigned __int128>(lhs[i]) < subtrahend;
+            lhs[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs[i]) - subtrahend);
+            borrow = next_borrow;
+        }
+        return carry != 0 || borrow != 0;
+    }
+
+    static bool rem_sub_mul_limb_full_width(limb_type * lhs, const limb_type * divisor, limb_type q) noexcept
+    {
+        unsigned __int128 carry = 0;
+        limb_type borrow = 0;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            unsigned __int128 p = static_cast<unsigned __int128>(divisor[i]) * q + carry;
+            carry = p >> 64;
+
+            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
+            limb_type next_borrow = static_cast<unsigned __int128>(lhs[i]) < subtrahend;
+            lhs[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs[i]) - subtrahend);
+            borrow = next_borrow;
+        }
+        return carry != 0 || borrow != 0;
+    }
+
+    static void rem_add_divisor(limb_type * lhs, const limb_type * divisor, size_t div_limbs) noexcept
+    {
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < div_limbs; ++i)
+        {
+            unsigned __int128 sum = static_cast<unsigned __int128>(lhs[i]) + divisor[i] + carry;
+            lhs[i] = static_cast<limb_type>(sum);
+            carry = sum >> 64;
+        }
+    }
+
+    static void rem_add_divisor_full_width(limb_type * lhs, const limb_type * divisor) noexcept
+    {
+        unsigned __int128 carry = 0;
+        for (size_t i = 0; i < limbs; ++i)
+        {
+            unsigned __int128 sum = static_cast<unsigned __int128>(lhs[i]) + divisor[i] + carry;
+            lhs[i] = static_cast<limb_type>(sum);
+            carry = sum >> 64;
+        }
+    }
+
+    static void rem_large_single_limb_quotient(
+        const limb_type * lhs, const limb_type * divisor, size_t div_limbs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        copy(result, lhs);
+        if (div_limbs < 2)
+            return;
+
+        const limb_type q = rem_estimate_single_limb_quotient(result, divisor, div_limbs);
+        if (div_limbs == limbs)
+        {
+            if (rem_sub_mul_limb_full_width(result, divisor, q))
+                rem_add_divisor_full_width(result, divisor);
+        }
+        else if (rem_sub_mul_limb(result, divisor, div_limbs, q))
+        {
+            rem_add_divisor(result, divisor, div_limbs);
+        }
+        return;
+    }
+#endif
+
+    static void rem_large(const limb_type * lhs, const limb_type * divisor, size_t div_limbs, limb_type * GINT_RESTRICT result) noexcept
+    {
+        const size_t dividend_limbs = detail::used_limbs<limbs>(lhs);
+#if GINT_DETAIL_AARCH64_GCC
+        if (dividend_limbs == div_limbs && div_limbs >= 2)
+            return rem_large_single_limb_quotient(lhs, divisor, div_limbs, result);
+#endif
+        return div_or_rem_large_core<true>(lhs, divisor, div_limbs, dividend_limbs, result);
+    }
+
+    // Optimized specialization: full-width 256-bit divisor (divisor_limbs == 4)
+    template <size_t L = limbs>
+    static GINT_NOINLINE typename std::enable_if<(L == 4), void>::type
+    div_large_4(const limb_type * lhs, const limb_type * divisor, limb_type * GINT_RESTRICT quotient) noexcept
+    {
+        clear(quotient);
+        if (lhs[3] == 0)
+            return;
+
+        using u128 = unsigned __int128;
+
+        const int shift = __builtin_clzll(divisor[3]);
+        limb_type u0;
+        limb_type u1;
+        limb_type u2;
+        limb_type u3;
+        limb_type u4;
+        limb_type v0;
+        limb_type v1;
+        limb_type v2;
+        limb_type v3;
+
+        if (shift == 0)
+        {
+            u0 = lhs[0];
+            u1 = lhs[1];
+            u2 = lhs[2];
+            u3 = lhs[3];
+            u4 = 0;
+            v0 = divisor[0];
+            v1 = divisor[1];
+            v2 = divisor[2];
+            v3 = divisor[3];
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            u0 = lhs[0] << shift;
+            u1 = (lhs[1] << shift) | (lhs[0] >> inv_shift);
+            u2 = (lhs[2] << shift) | (lhs[1] >> inv_shift);
+            u3 = (lhs[3] << shift) | (lhs[2] >> inv_shift);
+            u4 = lhs[3] >> inv_shift;
+            v0 = divisor[0] << shift;
+            v1 = (divisor[1] << shift) | (divisor[0] >> inv_shift);
+            v2 = (divisor[2] << shift) | (divisor[1] >> inv_shift);
+            v3 = (divisor[3] << shift) | (divisor[2] >> inv_shift);
+        }
+
+        const u128 numerator = (static_cast<u128>(u4) << 64) | u3;
+        u128 qhat = numerator / v3;
+        u128 rhat = numerator - qhat * v3;
+
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * v2 > ((rhat << 64) | u2))
+        {
+            --qhat;
+            rhat += v3;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        u128 borrow = 0;
+        {
+            u128 p = qhat * v0 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u0 = static_cast<limb_type>(static_cast<u128>(u0) - p);
+            borrow = (p >> 64) + (u0 > ~p_low);
+        }
+        {
+            u128 p = qhat * v1 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u1 = static_cast<limb_type>(static_cast<u128>(u1) - p);
+            borrow = (p >> 64) + (u1 > ~p_low);
+        }
+        {
+            u128 p = qhat * v2 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u2 = static_cast<limb_type>(static_cast<u128>(u2) - p);
+            borrow = (p >> 64) + (u2 > ~p_low);
+        }
+        {
+            u128 p = qhat * v3 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u3 = static_cast<limb_type>(static_cast<u128>(u3) - p);
+            borrow = (p >> 64) + (u3 > ~p_low);
+        }
+
+        if (static_cast<u128>(u4) < borrow)
+            --qhat;
+
+        quotient[0] = static_cast<limb_type>(qhat);
+        return;
+    }
+
+    static GINT_NOINLINE void rem_large_4_impl(const limb_type * lhs, const limb_type * divisor, limb_type * GINT_RESTRICT result) noexcept
+    {
+        clear(result);
+        if (lhs[3] == 0)
+            return copy(result, lhs);
+
+        using u128 = unsigned __int128;
+
+        const int shift = __builtin_clzll(divisor[3]);
+        limb_type u0;
+        limb_type u1;
+        limb_type u2;
+        limb_type u3;
+        limb_type u4;
+        limb_type v0;
+        limb_type v1;
+        limb_type v2;
+        limb_type v3;
+
+        if (shift == 0)
+        {
+            u0 = lhs[0];
+            u1 = lhs[1];
+            u2 = lhs[2];
+            u3 = lhs[3];
+            u4 = 0;
+            v0 = divisor[0];
+            v1 = divisor[1];
+            v2 = divisor[2];
+            v3 = divisor[3];
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            u0 = lhs[0] << shift;
+            u1 = (lhs[1] << shift) | (lhs[0] >> inv_shift);
+            u2 = (lhs[2] << shift) | (lhs[1] >> inv_shift);
+            u3 = (lhs[3] << shift) | (lhs[2] >> inv_shift);
+            u4 = lhs[3] >> inv_shift;
+            v0 = divisor[0] << shift;
+            v1 = (divisor[1] << shift) | (divisor[0] >> inv_shift);
+            v2 = (divisor[2] << shift) | (divisor[1] >> inv_shift);
+            v3 = (divisor[3] << shift) | (divisor[2] >> inv_shift);
+        }
+
+        const u128 numerator = (static_cast<u128>(u4) << 64) | u3;
+        u128 qhat = numerator / v3;
+        u128 rhat = numerator - qhat * v3;
+
+        while (qhat == (static_cast<u128>(1) << 64) || qhat * v2 > ((rhat << 64) | u2))
+        {
+            --qhat;
+            rhat += v3;
+            if (rhat >= (static_cast<u128>(1) << 64))
+                break;
+        }
+
+        u128 borrow = 0;
+        {
+            u128 p = qhat * v0 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u0 = static_cast<limb_type>(static_cast<u128>(u0) - p);
+            borrow = (p >> 64) + (u0 > ~p_low);
+        }
+        {
+            u128 p = qhat * v1 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u1 = static_cast<limb_type>(static_cast<u128>(u1) - p);
+            borrow = (p >> 64) + (u1 > ~p_low);
+        }
+        {
+            u128 p = qhat * v2 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u2 = static_cast<limb_type>(static_cast<u128>(u2) - p);
+            borrow = (p >> 64) + (u2 > ~p_low);
+        }
+        {
+            u128 p = qhat * v3 + borrow;
+            const limb_type p_low = static_cast<limb_type>(p);
+            u3 = static_cast<limb_type>(static_cast<u128>(u3) - p);
+            borrow = (p >> 64) + (u3 > ~p_low);
+        }
+
+        if (static_cast<u128>(u4) < borrow)
+        {
+            u128 carry = 0;
+            u128 t = static_cast<u128>(u0) + v0 + carry;
+            u0 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            t = static_cast<u128>(u1) + v1 + carry;
+            u1 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            t = static_cast<u128>(u2) + v2 + carry;
+            u2 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            t = static_cast<u128>(u3) + v3 + carry;
+            u3 = static_cast<limb_type>(t);
+            carry = t >> 64;
+            // The subtract phase has not yet applied this borrow to u4.
+            u4 = static_cast<limb_type>(static_cast<u128>(u4) + carry - borrow);
+        }
+        else
+        {
+            u4 = static_cast<limb_type>(static_cast<u128>(u4) - borrow);
+        }
+
+        if (shift == 0)
+        {
+            result[0] = u0;
+            result[1] = u1;
+            result[2] = u2;
+            result[3] = u3;
+        }
+        else
+        {
+            const int inv_shift = 64 - shift;
+            result[0] = (u0 >> shift) | (u1 << inv_shift);
+            result[1] = (u1 >> shift) | (u2 << inv_shift);
+            result[2] = (u2 >> shift) | (u3 << inv_shift);
+            result[3] = (u3 >> shift) | (u4 << inv_shift);
+        }
+        return;
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L == 4), void>::type
+    rem_large_4(const limb_type * lhs, const limb_type * divisor, limb_type * GINT_RESTRICT result) noexcept
+    {
+        return rem_large_4_impl(lhs, divisor, result);
+    }
+
+    // Stub for non-256-bit instantiations to keep dependent calls well-formed.
+    template <size_t L = limbs>
+    static typename std::enable_if<(L != 4), void>::type
+    div_large_4(const limb_type * lhs, const limb_type * divisor, limb_type * GINT_RESTRICT result) noexcept
+    {
+        return div_large(lhs, divisor, 4, result);
+    }
+
+    template <size_t L = limbs>
+    static typename std::enable_if<(L != 4), void>::type
+    rem_large_4(const limb_type * lhs, const limb_type *, limb_type * GINT_RESTRICT result) noexcept
+    {
+        return copy(result, lhs);
+    }
+
+    // Optimized specialization: two-limb divisor (divisor_limbs == 2)
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 2), void>::type
+    div_large_2(const limb_type * lhs, const limb_type * divisor, limb_type * GINT_RESTRICT quotient) noexcept GINT_CLANG_NOINLINE
+    {
+        clear(quotient);
+        size_t n = limbs;
+        while (n > 0 && lhs[n - 1] == 0)
+            --n;
+        if (n < 2)
+            return;
+
+        std::array<limb_type, limbs + 1> u = {{}};
+
+        // Normalize divisor so that the top limb has its MSB set.
+        const limb_type d0 = divisor[0];
+        const limb_type d1 = divisor[1];
+        int shift = __builtin_clzll(d1);
+
+        limb_type carry = lshift_limbs_to(lhs, n, u.data(), shift);
+        u[n] = carry;
+
+        limb_type v0 = (d0 << shift);
+        limb_type v1 = (d1 << shift) | (shift ? static_cast<limb_type>(d0 >> (64 - shift)) : 0);
+        using u128 = unsigned __int128;
+        // Precompute 128-bit reciprocal for v1 and use it to form an exact qhat
+        const u128 inv128 = v1 ? (static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(v1)) : 0;
+        const bool v1_is_half_base = v1 == (limb_type(1) << 63);
+
+        if (n == 4)
+        {
+            auto step = [&](int j)
+            {
+                limb_type & uj0 = u[j + 0];
+                limb_type & uj1 = u[j + 1];
+                limb_type & uj2 = u[j + 2];
+                u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
+                // 1) Initial estimate via reciprocal multiply
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
+                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
+                // The reciprocal estimate cannot overshoot; correct only the
+                // possible one-step underestimate.
+                if ((numerator - qhat_v1) >= v1)
+                {
+                    ++qhat;
+                    qhat_v1 += v1;
+                }
+                // Second test (Knuth): at most one adjust in practice for two-limb divisor
+                u128 rhat = numerator - qhat_v1;
+                if (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | uj0))
+                {
+                    --qhat;
+                    rhat += v1;
+                }
+                // Reuse high-limb product
+                qhat_v1 = numerator - rhat;
+
+                unsigned __int128 borrow = 0;
+                {
+                    unsigned __int128 p = qhat * v0 + borrow;
+                    if (uj0 < static_cast<limb_type>(p))
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                {
+                    unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
+                    if (uj1 < static_cast<limb_type>(p))
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                if (static_cast<unsigned __int128>(uj2) < borrow)
+                {
+                    unsigned __int128 carry2 = 0;
+                    unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
+                    uj0 = static_cast<limb_type>(t0);
+                    carry2 = t0 >> 64;
+                    unsigned __int128 t1 = static_cast<unsigned __int128>(uj1) + v1 + carry2;
+                    uj1 = static_cast<limb_type>(t1);
+                    carry2 = t1 >> 64;
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) + carry2);
+                    --qhat;
+                }
+                else
+                {
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
+                }
+                quotient[j] = static_cast<limb_type>(qhat);
+            };
+            step(2);
+            step(1);
+            step(0);
+        }
+        else
+        {
+            for (int j = static_cast<int>(n - 2); j >= 0; --j)
+            {
+                limb_type & uj0 = u[j + 0];
+                limb_type & uj1 = u[j + 1];
+                limb_type & uj2 = u[j + 2];
+                u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
+                // 1) Initial estimate via reciprocal multiply
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
+                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
+                if ((numerator - qhat_v1) >= v1)
+                {
+                    ++qhat;
+                    qhat_v1 += v1;
+                }
+                // Second test
+                u128 rhat = numerator - qhat_v1;
+                if (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | uj0))
+                {
+                    --qhat;
+                    rhat += v1;
+                }
+                qhat_v1 = numerator - rhat;
+
+                unsigned __int128 borrow = 0;
+                {
+                    unsigned __int128 p = qhat * v0 + borrow;
+                    if (uj0 < static_cast<limb_type>(p))
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                {
+                    unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
+                    if (uj1 < static_cast<limb_type>(p))
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                if (static_cast<unsigned __int128>(uj2) < borrow)
+                {
+                    unsigned __int128 carry2 = 0;
+                    unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
+                    uj0 = static_cast<limb_type>(t0);
+                    carry2 = t0 >> 64;
+                    unsigned __int128 t1 = static_cast<unsigned __int128>(uj1) + v1 + carry2;
+                    uj1 = static_cast<limb_type>(t1);
+                    carry2 = t1 >> 64;
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) + carry2);
+                    --qhat;
+                }
+                else
+                {
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
+                }
+                quotient[j] = static_cast<limb_type>(qhat);
+            }
+        }
+        return;
+    }
+
+
+    // Optimized specialization: three-limb divisor (divisor_limbs == 3)
+    template <size_t L = limbs>
+    static typename std::enable_if<(L >= 3), void>::type
+    div_large_3(const limb_type * lhs, const limb_type * divisor, limb_type * GINT_RESTRICT quotient) noexcept
+    {
+        clear(quotient);
+        size_t n = limbs;
+        while (n > 0 && lhs[n - 1] == 0)
+            --n;
+        if (n < 3)
+            return;
+
+        std::array<limb_type, limbs + 1> u = {{}};
+        std::array<limb_type, 3> v = {{}};
+
+        // Normalize divisor: ensure MSB of v[2] is set
+        int shift = __builtin_clzll(divisor[2]);
+        limb_type carry = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            limb_type cur = lhs[i];
+            u[i] = (cur << shift) | carry;
+            carry = shift ? static_cast<limb_type>(cur >> (64 - shift)) : 0;
+        }
+        u[n] = carry;
+
+        carry = lshift_limbs_to(divisor, 3, v.data(), shift);
+
+        for (int j = static_cast<int>(n - 3); j >= 0; --j)
+        {
+            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + 3]) << 64) | u[j + 2];
+            // Single 128/64 division: compute quotient and derive remainder
+            unsigned __int128 qhat = numerator / v[2];
+            unsigned __int128 rhat = numerator - qhat * v[2];
+
+            while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[1] > ((rhat << 64) | u[j + 1]))
+            {
+                --qhat;
+                rhat += v[2];
+                if (rhat >= (static_cast<unsigned __int128>(1) << 64))
+                    break;
+            }
+
+            // Reuse high-limb product: qhat*v[2] = numerator - rhat
+            const unsigned __int128 qhat_v2 = numerator - rhat;
+
+            unsigned __int128 borrow = 0;
+            {
+                unsigned __int128 p = qhat * v[0] + borrow;
+                if (u[j + 0] < static_cast<limb_type>(p))
+                {
+                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            {
+                unsigned __int128 p = qhat * v[1] + borrow;
+                if (u[j + 1] < static_cast<limb_type>(p))
+                {
+                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
+                    borrow = p >> 64;
+                }
+            }
+            {
+                unsigned __int128 p = qhat_v2 + borrow;
+                if (u[j + 2] < static_cast<limb_type>(p))
+                {
+                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - p);
+                    borrow = (p >> 64) + 1;
+                }
+                else
+                {
+                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - p);
+                    borrow = p >> 64;
+                }
+            }
+
+            if (static_cast<unsigned __int128>(u[j + 3]) < borrow)
+            {
+                unsigned __int128 carry2 = 0;
+                for (size_t i = 0; i < 3; ++i)
+                {
+                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
+                    u[j + i] = static_cast<limb_type>(t2);
+                    carry2 = t2 >> 64;
+                }
+                u[j + 3] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 3]) + carry2);
+                --qhat;
+            }
+            else
+            {
+                u[j + 3] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 3]) - borrow);
+            }
+            quotient[j] = static_cast<limb_type>(qhat);
+        }
+        return;
+    }
+};
+
 } // namespace detail
 
 } // namespace GINT_DETAIL_CONFIG_NAMESPACE
 } // namespace gint
 
-// The integer class: storage, operators, conversions, and private arithmetic kernels.
+// Integer declarations, type constraints, storage, operators, and conversions.
+// This layer owns type/sign policies; raw calculations are delegated to limb_ops.hpp.
 
 namespace gint
 {
 inline namespace GINT_DETAIL_CONFIG_NAMESPACE
 {
+
+//=== Forward declarations & type aliases ====================================
+template <size_t Bits, typename Signed>
+class integer;
+
+using Int128 = integer<128, signed>;
+using UInt128 = integer<128, unsigned>;
+using Int256 = integer<256, signed>;
+using UInt256 = integer<256, unsigned>;
+
+//=== Internal declarations and integer type support =============================
+namespace detail
+{
+#ifdef GINT_TEST_ACCESS
+template <size_t Bits, typename Signed>
+struct integer_test_access;
+#endif
+
+template <size_t Bits, typename Signed>
+integer<Bits, Signed> parse_string_range(const char * begin, const char * end, unsigned base);
+
+template <unsigned BitsPerDigit, size_t Bits, typename Signed>
+integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end);
+
+template <size_t Bits>
+struct storage_count
+{
+    static_assert(Bits >= 64, "Bits must be at least 64");
+    static_assert(Bits <= 1024, "Bits must be at most 1024");
+    static_assert((Bits & (Bits - 1)) == 0, "Bits must be a power of two");
+    static constexpr size_t value = Bits / 64;
+};
+
+template <size_t Bits, bool NeedsLimit = (Bits < 256)>
+struct signed_promotion_limit;
+
+template <size_t Bits>
+struct signed_promotion_limit<Bits, true>
+{
+    static constexpr unsigned __int128 value() noexcept { return static_cast<unsigned __int128>(1) << (Bits - 1); }
+};
+
+template <size_t Bits>
+struct signed_promotion_limit<Bits, false>
+{
+    static constexpr unsigned __int128 value() noexcept { return 0; }
+};
+
+template <size_t... I>
+struct index_sequence
+{
+};
+
+template <size_t N, size_t... I>
+struct make_index_sequence : make_index_sequence<N - 1, N - 1, I...>
+{
+};
+
+template <size_t... I>
+struct make_index_sequence<0, I...>
+{
+    using type = index_sequence<I...>;
+};
+
+// These custom type traits extend std::is_integral / std::is_signed / std::is_unsigned
+// to support the GCC-specific built-in types __int128 and unsigned __int128 in
+// strict -std=c++11 mode.
+template <typename T>
+struct is_integral : std::is_integral<T>
+{
+};
+
+template <>
+struct is_integral<__int128> : std::true_type
+{
+};
+
+template <>
+struct is_integral<unsigned __int128> : std::true_type
+{
+};
+
+template <typename T>
+struct is_signed : std::is_signed<T>
+{
+};
+
+template <>
+struct is_signed<__int128> : std::true_type
+{
+};
+
+template <>
+struct is_signed<unsigned __int128> : std::false_type
+{
+};
+
+template <typename T>
+struct is_unsigned : std::is_unsigned<T>
+{
+};
+
+template <>
+struct is_unsigned<__int128> : std::false_type
+{
+};
+
+template <>
+struct is_unsigned<unsigned __int128> : std::true_type
+{
+};
+
+} // namespace detail
 
 //=== String and stream declarations =========================================
 template <size_t Bits, typename Signed>
@@ -1312,8 +3390,6 @@ public:
     using signed_tag = Signed;
     // Constrain Signed to be exactly 'signed' or 'unsigned' tag types.
     static_assert(std::is_same<Signed, signed>::value || std::is_same<Signed, unsigned>::value, "Signed must be 'signed' or 'unsigned'.");
-    template <size_t>
-    friend struct detail::limbs_equal;
     template <size_t, typename>
     friend class integer;
     friend class std::numeric_limits<integer<Bits, Signed>>;
@@ -1323,6 +3399,7 @@ public:
 #endif
 
 private:
+    //=== Object construction and cross-width storage ========================
     struct uninitialized_tag
     {
     };
@@ -1618,22 +3695,19 @@ public:
     // Bitwise assignment operators
     GINT_CONSTEXPR14 integer & operator&=(const integer & rhs) noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] &= rhs.data_[i];
+        detail::bit_and_assign<limbs>(data_, rhs.data_);
         return *this;
     }
 
     GINT_CONSTEXPR14 integer & operator|=(const integer & rhs) noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] |= rhs.data_[i];
+        detail::bit_or_assign<limbs>(data_, rhs.data_);
         return *this;
     }
 
     GINT_CONSTEXPR14 integer & operator^=(const integer & rhs) noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] ^= rhs.data_[i];
+        detail::bit_xor_assign<limbs>(data_, rhs.data_);
         return *this;
     }
 
@@ -1650,93 +3724,13 @@ public:
         size_t shift = static_cast<size_t>(n);
         if (shift >= total_bits)
         {
-            for (size_t i = 0; i < limbs; ++i)
-                data_[i] = 0;
+            detail::fill_limbs<limbs>(data_, 0);
             return *this;
         }
-        size_t limb_shift = shift / 64;
-        int bit_shift = shift % 64;
-        if (limbs == 4)
-        {
-            const uint64_t src0 = static_cast<uint64_t>(data_[0]);
-            const uint64_t src1 = static_cast<uint64_t>(data_[1]);
-            const uint64_t src2 = static_cast<uint64_t>(data_[2]);
-            const uint64_t src3 = static_cast<uint64_t>(data_[3]);
-            uint64_t out0 = 0;
-            uint64_t out1 = 0;
-            uint64_t out2 = 0;
-            uint64_t out3 = 0;
-            if (bit_shift)
-            {
-                const unsigned inv_shift = 64U - static_cast<unsigned>(bit_shift);
-                switch (limb_shift)
-                {
-                    case 0:
-                        out0 = src0 << bit_shift;
-                        out1 = (src1 << bit_shift) | (src0 >> inv_shift);
-                        out2 = (src2 << bit_shift) | (src1 >> inv_shift);
-                        out3 = (src3 << bit_shift) | (src2 >> inv_shift);
-                        break;
-                    case 1:
-                        out1 = src0 << bit_shift;
-                        out2 = (src1 << bit_shift) | (src0 >> inv_shift);
-                        out3 = (src2 << bit_shift) | (src1 >> inv_shift);
-                        break;
-                    case 2:
-                        out2 = src0 << bit_shift;
-                        out3 = (src1 << bit_shift) | (src0 >> inv_shift);
-                        break;
-                    default:
-                        out3 = src0 << bit_shift;
-                        break;
-                }
-            }
-            else
-            {
-                switch (limb_shift)
-                {
-                    case 1:
-                        out1 = src0;
-                        out2 = src1;
-                        out3 = src2;
-                        break;
-                    case 2:
-                        out2 = src0;
-                        out3 = src1;
-                        break;
-                    default:
-                        out3 = src0;
-                        break;
-                }
-            }
-            data_[0] = static_cast<limb_type>(out0);
-            data_[1] = static_cast<limb_type>(out1);
-            data_[2] = static_cast<limb_type>(out2);
-            data_[3] = static_cast<limb_type>(out3);
-            return *this;
-        }
-        if (limbs < 4)
-        {
-            if (limb_shift)
-            {
-                for (size_t i = limbs; i-- > limb_shift;)
-                    data_[i] = data_[i - limb_shift];
-                for (size_t i = 0; i < limb_shift; ++i)
-                    data_[i] = 0;
-            }
-            if (bit_shift)
-            {
-                for (size_t i = limbs; i-- > 0;)
-                {
-                    unsigned __int128 part = static_cast<unsigned __int128>(data_[i]) << bit_shift;
-                    if (i)
-                        part |= data_[i - 1] >> (64 - bit_shift);
-                    data_[i] = static_cast<limb_type>(part);
-                }
-            }
-            return *this;
-        }
-        return shift_left_assign_wide(limb_shift, static_cast<unsigned>(bit_shift));
+        const size_t limb_shift = shift / 64;
+        const int bit_shift = static_cast<int>(shift % 64);
+        detail::limb_shift<limbs>::shift_left_assign(data_, limb_shift, bit_shift);
+        return *this;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
@@ -1746,8 +3740,7 @@ public:
             return *this;
         if (shift_amount_reaches_width(n))
         {
-            for (size_t i = 0; i < limbs; ++i)
-                data_[i] = 0;
+            detail::fill_limbs<limbs>(data_, 0);
             return *this;
         }
         return *this <<= static_cast<int>(n);
@@ -1765,110 +3758,14 @@ public:
         {
             // Shifting out all bits: 0 for unsigned, -1 for signed negatives.
             const limb_type fill = (neg ? ~limb_type(0) : limb_type(0));
-            for (size_t i = 0; i < limbs; ++i)
-                data_[i] = fill;
+            detail::fill_limbs<limbs>(data_, fill);
             return *this;
         }
-        size_t limb_shift = shift / 64;
-        unsigned bit_shift = static_cast<unsigned>(shift % 64);
+        const size_t limb_shift = shift / 64;
+        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
         const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
-        if (limbs == 4)
-        {
-            const uint64_t src0 = static_cast<uint64_t>(data_[0]);
-            const uint64_t src1 = static_cast<uint64_t>(data_[1]);
-            const uint64_t src2 = static_cast<uint64_t>(data_[2]);
-            const uint64_t src3 = static_cast<uint64_t>(data_[3]);
-            const uint64_t fill_word = static_cast<uint64_t>(fill);
-            uint64_t out0 = 0;
-            uint64_t out1 = 0;
-            uint64_t out2 = 0;
-            uint64_t out3 = 0;
-            if (bit_shift)
-            {
-                const unsigned inv_shift = 64U - bit_shift;
-                switch (limb_shift)
-                {
-                    case 0:
-                        out0 = (src0 >> bit_shift) | (src1 << inv_shift);
-                        out1 = (src1 >> bit_shift) | (src2 << inv_shift);
-                        out2 = (src2 >> bit_shift) | (src3 << inv_shift);
-                        out3 = (src3 >> bit_shift) | (fill_word << inv_shift);
-                        break;
-                    case 1:
-                        out0 = (src1 >> bit_shift) | (src2 << inv_shift);
-                        out1 = (src2 >> bit_shift) | (src3 << inv_shift);
-                        out2 = (src3 >> bit_shift) | (fill_word << inv_shift);
-                        out3 = fill_word;
-                        break;
-                    case 2:
-                        out0 = (src2 >> bit_shift) | (src3 << inv_shift);
-                        out1 = (src3 >> bit_shift) | (fill_word << inv_shift);
-                        out2 = fill_word;
-                        out3 = fill_word;
-                        break;
-                    default:
-                        out0 = (src3 >> bit_shift) | (fill_word << inv_shift);
-                        out1 = fill_word;
-                        out2 = fill_word;
-                        out3 = fill_word;
-                        break;
-                }
-            }
-            else
-            {
-                switch (limb_shift)
-                {
-                    case 1:
-                        out0 = src1;
-                        out1 = src2;
-                        out2 = src3;
-                        out3 = fill_word;
-                        break;
-                    case 2:
-                        out0 = src2;
-                        out1 = src3;
-                        out2 = fill_word;
-                        out3 = fill_word;
-                        break;
-                    default:
-                        out0 = src3;
-                        out1 = fill_word;
-                        out2 = fill_word;
-                        out3 = fill_word;
-                        break;
-                }
-            }
-            data_[0] = static_cast<limb_type>(out0);
-            data_[1] = static_cast<limb_type>(out1);
-            data_[2] = static_cast<limb_type>(out2);
-            data_[3] = static_cast<limb_type>(out3);
-            return *this;
-        }
-        if (limbs < 4)
-        {
-            if (limb_shift)
-            {
-                for (size_t i = 0; i < limbs - limb_shift; ++i)
-                    data_[i] = data_[i + limb_shift];
-                for (size_t i = limbs - limb_shift; i < limbs; ++i)
-                    data_[i] = fill;
-            }
-            if (bit_shift)
-            {
-                const unsigned inv_shift = 64U - bit_shift;
-                const limb_type top = data_[limbs - 1];
-                limb_type prev = top;
-                for (size_t i = limbs - 1; i > 0; --i)
-                {
-                    limb_type cur = data_[i - 1];
-                    data_[i - 1] = (cur >> bit_shift) | (prev << inv_shift);
-                    prev = cur;
-                }
-                data_[limbs - 1] = (top >> bit_shift) | (fill << inv_shift);
-            }
-            return *this;
-        }
-        return shift_right_assign_wide(limb_shift, bit_shift, fill);
+        detail::limb_shift<limbs>::shift_right_assign(data_, limb_shift, bit_shift, fill);
+        return *this;
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value && !std::is_same<T, int>::value, int>::type = 0>
@@ -1881,14 +3778,14 @@ public:
             const bool is_signed_t = std::is_same<Signed, signed>::value;
             const bool neg = is_signed_t && (data_[limbs - 1] >> 63);
             const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
-            for (size_t i = 0; i < limbs; ++i)
-                data_[i] = fill;
+            detail::fill_limbs<limbs>(data_, fill);
             return *this;
         }
         return *this >>= static_cast<int>(n);
     }
 
 private:
+    //=== Shift policies and object fast paths ================================
     template <typename T>
     static GINT_CONSTEXPR14 typename std::enable_if<detail::is_signed<T>::value, bool>::type shift_amount_non_positive(T n) noexcept
     {
@@ -1919,8 +3816,7 @@ private:
         const bool neg = is_signed_t && (value.data_[limbs - 1] >> 63);
         const limb_type fill = neg ? ~limb_type(0) : limb_type(0);
         integer result;
-        for (size_t i = 0; i < limbs; ++i)
-            result.data_[i] = fill;
+        detail::fill_limbs<limbs>(result.data_, fill);
         return result;
     }
 
@@ -1930,14 +3826,8 @@ private:
     {
         if (GINT_LIKELY(n < 128U))
         {
-            using s128 = __int128;
-            using u128 = unsigned __int128;
-            const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
-            const s128 shifted = static_cast<s128>(raw) >> n;
-            const u128 shifted_raw = static_cast<u128>(shifted);
             integer result(uninitialized_tag{});
-            result.data_[0] = static_cast<limb_type>(shifted_raw);
-            result.data_[1] = static_cast<limb_type>(shifted_raw >> 64);
+            detail::shift_right_arithmetic_128(result.data_, lhs.data_, n);
             return result;
         }
 
@@ -1950,12 +3840,8 @@ private:
     {
         if (GINT_LIKELY(n < 128U))
         {
-            using u128 = unsigned __int128;
-            const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
-            const u128 shifted = raw << n;
             integer result(uninitialized_tag{});
-            result.data_[0] = static_cast<limb_type>(shifted);
-            result.data_[1] = static_cast<limb_type>(shifted >> 64);
+            detail::shift_left_128(result.data_, lhs.data_, n);
             return result;
         }
         return integer();
@@ -2047,68 +3933,6 @@ private:
 #endif
     }
 
-    GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE integer & shift_left_assign_wide(size_t limb_shift, unsigned bit_shift) noexcept
-    {
-        if (bit_shift)
-        {
-            const unsigned shift_bits = static_cast<unsigned>(bit_shift);
-            const unsigned inv_shift = 64U - shift_bits;
-            for (size_t i = limbs; i-- > 0;)
-            {
-                if (i < limb_shift)
-                {
-                    data_[i] = 0;
-                    continue;
-                }
-
-                const size_t src = i - limb_shift;
-                limb_type part = data_[src] << shift_bits;
-                if (src)
-                    part |= data_[src - 1] >> inv_shift;
-                data_[i] = part;
-            }
-        }
-        else if (limb_shift)
-        {
-            for (size_t i = limbs; i-- > limb_shift;)
-                data_[i] = data_[i - limb_shift];
-            for (size_t i = 0; i < limb_shift; ++i)
-                data_[i] = 0;
-        }
-        return *this;
-    }
-
-    GINT_CONSTEXPR14 GINT_WIDE_SHIFT_INLINE integer &
-    shift_right_assign_wide(size_t limb_shift, unsigned bit_shift, limb_type fill) noexcept
-    {
-        if (bit_shift)
-        {
-            const unsigned inv_shift = 64U - bit_shift;
-            const size_t count = limbs - limb_shift;
-            for (size_t i = 0; i < count; ++i)
-            {
-                const size_t src = i + limb_shift;
-                limb_type part = data_[src] >> bit_shift;
-                if (src + 1 < limbs)
-                    part |= data_[src + 1] << inv_shift;
-                else
-                    part |= fill << inv_shift;
-                data_[i] = part;
-            }
-            for (size_t i = count; i < limbs; ++i)
-                data_[i] = fill;
-        }
-        else if (limb_shift)
-        {
-            const size_t count = limbs - limb_shift;
-            for (size_t i = 0; i < count; ++i)
-                data_[i] = data_[i + limb_shift];
-            for (size_t i = count; i < limbs; ++i)
-                data_[i] = fill;
-        }
-        return *this;
-    }
-
 #if !GINT_GCC_TUNED_PATHS || GINT_DETAIL_AARCH64_GCC
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_left_value_by_size_in_range(const integer & value, size_t shift) noexcept
     {
@@ -2117,30 +3941,7 @@ private:
 #    else
         integer result(uninitialized_tag{});
 #    endif
-        const size_t limb_shift = shift / 64;
-        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
-        if (bit_shift)
-        {
-            const unsigned inv_shift = 64U - bit_shift;
-            for (size_t i = 0; i < limb_shift; ++i)
-                result.data_[i] = 0;
-
-            const size_t count = limbs - limb_shift;
-            limb_type carry = 0;
-            for (size_t i = 0; i < count; ++i)
-            {
-                const limb_type cur = value.data_[i];
-                result.data_[i + limb_shift] = (cur << bit_shift) | carry;
-                carry = cur >> inv_shift;
-            }
-        }
-        else
-        {
-            for (size_t i = 0; i < limb_shift; ++i)
-                result.data_[i] = 0;
-            for (size_t i = limb_shift; i < limbs; ++i)
-                result.data_[i] = value.data_[i - limb_shift];
-        }
+        detail::limb_shift<limbs>::shift_left_into(result.data_, value.data_, shift);
         return result;
     }
 
@@ -2169,40 +3970,6 @@ private:
 #endif
 
 #if !GINT_GCC_TUNED_PATHS
-    static GINT_CONSTEXPR14 GINT_FORCE_INLINE void
-    shift_right_value_into(integer & result, const integer & value, size_t shift, limb_type fill) noexcept
-    {
-        if (shift >= Bits)
-        {
-            for (size_t i = 0; i < limbs; ++i)
-                result.data_[i] = fill;
-            return;
-        }
-
-        const size_t limb_shift = shift / 64;
-        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
-        const size_t count = limbs - limb_shift;
-        if (bit_shift)
-        {
-            const unsigned inv_shift = 64U - bit_shift;
-            result.data_[0] = value.data_[limb_shift] >> bit_shift;
-            for (size_t i = 1; i < count; ++i)
-            {
-                const limb_type cur = value.data_[limb_shift + i];
-                result.data_[i - 1] |= cur << inv_shift;
-                result.data_[i] = cur >> bit_shift;
-            }
-            result.data_[count - 1] |= fill << inv_shift;
-        }
-        else
-        {
-            for (size_t i = 0; i < count; ++i)
-                result.data_[i] = value.data_[i + limb_shift];
-        }
-        for (size_t i = count; i < limbs; ++i)
-            result.data_[i] = fill;
-    }
-
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer shift_right_value(const integer & value, int n) noexcept
     {
         if (limbs == 4)
@@ -2222,7 +3989,7 @@ private:
         if (!__builtin_is_constant_evaluated())
         {
             integer result(uninitialized_tag{});
-            shift_right_value_into(result, value, shift, fill);
+            detail::limb_shift<limbs>::shift_right_into(result.data_, value.data_, shift, fill);
             return result;
         }
         integer result;
@@ -2231,7 +3998,7 @@ private:
 #    else
         integer result(uninitialized_tag{});
 #    endif
-        shift_right_value_into(result, value, shift, fill);
+        detail::limb_shift<limbs>::shift_right_into(result.data_, value.data_, shift, fill);
         return result;
     }
 #endif
@@ -2240,11 +4007,7 @@ public:
     // Increment and decrement
     GINT_CONSTEXPR14 integer & operator++() noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            if (++data_[i])
-                break;
-        }
+        detail::increment_limbs<limbs>(data_);
         return *this;
     }
 
@@ -2257,13 +4020,7 @@ public:
 
     GINT_CONSTEXPR14 integer & operator--() noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            limb_type old = data_[i];
-            --data_[i];
-            if (old)
-                break;
-        }
+        detail::decrement_limbs<limbs>(data_);
         return *this;
     }
 
@@ -2284,11 +4041,7 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator+(integer lhs, limb_type rhs) noexcept
     {
-        const limb_type old = lhs.data_[0];
-        lhs.data_[0] += rhs;
-        limb_type carry = lhs.data_[0] < old;
-        for (size_t i = 1; i < limbs && carry; ++i)
-            carry = ++lhs.data_[i] == 0;
+        detail::add_limb<limbs>(lhs.data_, rhs);
         return lhs;
     }
 
@@ -2346,15 +4099,7 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator-(integer lhs, limb_type rhs) noexcept
     {
-        const limb_type old = lhs.data_[0];
-        lhs.data_[0] -= rhs;
-        limb_type borrow = old < rhs;
-        for (size_t i = 1; i < limbs && borrow; ++i)
-        {
-            const limb_type current = lhs.data_[i];
-            --lhs.data_[i];
-            borrow = current == 0;
-        }
+        detail::sub_limb<limbs>(lhs.data_, rhs);
         return lhs;
     }
 
@@ -2569,6 +4314,7 @@ public:
         return shift_right_integral_value(lhs, n);
     }
 
+    //=== Multiplication operators ===========================================
     // Multiplication is left non-constexpr due to helper internals
     friend integer operator*(const integer & lhs, const integer & rhs) noexcept
     {
@@ -2618,6 +4364,7 @@ public:
         return rhs;
     }
 
+    //=== Division/remainder policies and kernel dispatch =====================
     friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, const integer & rhs)
     {
 #if GINT_GCC_TUNED_PATHS
@@ -2966,13 +4713,10 @@ public:
         return integer(lhs) % rhs;
     } // LCOV_EXCL_LINE
 
+    //=== Comparisons: sign/type handling and magnitude kernels ===============
     friend constexpr bool operator==(const integer & lhs, const integer & rhs) noexcept
     {
-#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L && !GINT_GCC_TUNED_PATHS
-        if (!__builtin_is_constant_evaluated() && limbs == 16)
-            return detail::limbs_equal_runtime_1024(lhs.data_, rhs.data_);
-#endif
-        return detail::limbs_equal<limbs - 1>::eval(lhs, rhs);
+        return detail::equal_limbs(lhs.data_, rhs.data_);
     }
 
     friend constexpr bool operator!=(const integer & lhs, const integer & rhs) noexcept { return !(lhs == rhs); }
@@ -3014,57 +4758,7 @@ public:
     template <typename T>
     static int compare_with_float_abs(const integer & lhs_abs, T rhs_abs) noexcept
     {
-        // Both are non-negative.
-        if (lhs_abs.is_zero())
-            return rhs_abs == T(0) ? 0 : -1;
-        int e = 0;
-        T m = std::frexp(rhs_abs, &e); // rhs_abs = m * 2^e, 0.5<=m<1
-        if (m == T(0))
-            return 1; // lhs_abs > 0 > rhs_abs
-        int hb = lhs_abs.highest_bit();
-        int k = e - 1; // index of highest set bit of rhs_abs
-        if (hb != k)
-            return hb < k ? -1 : 1;
-        const int p = std::numeric_limits<T>::digits;
-        int shift = hb - (p - 1);
-        integer scaled = lhs_abs;
-        unsigned __int128 sigA = 0;
-        if (limbs >= 2)
-            sigA = (static_cast<unsigned __int128>(lhs_abs.data_[1]) << 64) | lhs_abs.data_[0];
-        else
-            sigA = lhs_abs.data_[0];
-        if (shift > 0)
-        {
-            scaled >>= shift;
-            if (limbs >= 2)
-                sigA = (static_cast<unsigned __int128>(scaled.data_[1]) << 64) | scaled.data_[0];
-            else
-                sigA = scaled.data_[0];
-        }
-        else if (shift < 0)
-        {
-            sigA <<= -shift;
-        }
-        if (p < 128)
-            sigA &= ((static_cast<unsigned __int128>(1) << p) - 1);
-        T scaled_rhs = std::ldexp(m, p);
-        unsigned __int128 sigB = static_cast<unsigned __int128>(scaled_rhs);
-        if (sigA < sigB)
-            return -1;
-        if (sigA > sigB)
-            return 1;
-        if (shift <= 0)
-        {
-            // If rhs has any fractional beyond p bits, then rhs > lhs.
-            T frac = scaled_rhs - std::floor(scaled_rhs);
-            return (frac > T(0)) ? -1 : 0;
-        }
-        else
-        {
-            integer rec = scaled;
-            rec <<= shift;
-            return (rec == lhs_abs) ? 0 : 1; // lhs has extra low bits -> larger
-        }
+        return detail::limb_float<limbs>::template compare_with_float_abs<std::is_same<Signed, signed>::value>(lhs_abs.data_, rhs_abs);
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
@@ -3112,12 +4806,7 @@ public:
             if (lhs_neg != rhs_neg)
                 return lhs_neg;
         }
-        for (size_t i = limbs; i-- > 0;)
-        {
-            if (lhs.data_[i] != rhs.data_[i])
-                return lhs.data_[i] < rhs.data_[i];
-        }
-        return false;
+        return detail::less_limbs<limbs>(lhs.data_, rhs.data_);
     }
 
     GINT_CONSTEXPR14 friend bool operator>(const integer & lhs, const integer & rhs) noexcept { return rhs < lhs; }
@@ -3268,28 +4957,20 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator~(integer v) noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-            v.data_[i] = ~v.data_[i];
+        detail::complement_limbs<limbs>(v.data_);
         return v;
     }
 
     GINT_CONSTEXPR14 friend integer operator-(const integer & v) noexcept
     {
-        integer res = ~v;
-        limb_type carry = 1;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            unsigned __int128 sum = static_cast<unsigned __int128>(res.data_[i]) + carry;
-            res.data_[i] = static_cast<limb_type>(sum);
-            carry = sum >> 64;
-            if (!carry)
-                break;
-        }
+        integer res;
+        detail::negate_limbs_copy<limbs>(res.data_, v.data_);
         return res;
     }
 
     GINT_CONSTEXPR14 friend integer operator+(const integer & v) noexcept { return v; }
 
+    //=== Text adapters with private-storage access ==========================
     friend std::string to_string<>(const integer & v);
     friend std::string detail::to_base_string<>(const integer & v, unsigned base, bool uppercase);
     template <size_t OtherBits, typename OtherSigned>
@@ -3300,17 +4981,13 @@ public:
     friend integer<OtherBits, OtherSigned> detail::parse_power_of_two_range(const char * begin, const char * end);
 
 private:
+    //=== Parsing support: multiply-add into this object =====================
     GINT_FORCE_INLINE void mul_add_limb(limb_type multiplier, limb_type addend) noexcept
     {
-        unsigned __int128 carry = addend;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            const unsigned __int128 product = static_cast<unsigned __int128>(data_[i]) * multiplier + carry;
-            data_[i] = static_cast<limb_type>(product);
-            carry = product >> 64;
-        }
+        detail::mul_add_limb<limbs>(data_, multiplier, addend);
     }
 
+    //=== Native assignment and floating-point conversion =====================
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     GINT_CONSTEXPR14 void assign(T v) noexcept
     {
@@ -3331,8 +5008,7 @@ private:
     template <typename T>
     void assign_float(T v) noexcept
     {
-        for (size_t i = 0; i < limbs; ++i)
-            data_[i] = 0;
+        detail::fill_limbs<limbs>(data_, 0);
         if (v == 0 || std::isnan(v))
             return;
         if (std::isinf(v))
@@ -3366,104 +5042,14 @@ private:
         if (neg)
             v = -v;
         long double val = static_cast<long double>(v);
-        long double intpart;
-        std::modf(val, &intpart);
-        val = intpart;
-        long double base = std::ldexp(1.0L, 64);
-        for (size_t i = 0; i < limbs && val > 0; ++i)
-        {
-            long double rem = std::fmod(val, base);
-            data_[i] = static_cast<limb_type>(rem);
-            val = std::floor(val / base);
-        }
+        detail::limb_float<limbs>::assign_float_digits(data_, val);
         if (neg)
             *this = -*this;
     }
 
-    GINT_CONSTEXPR14 bool is_zero() const noexcept
-    {
-        for (size_t i = 0; i < limbs; ++i)
-            if (data_[i] != 0)
-                return false;
-        return true;
-    }
+    GINT_CONSTEXPR14 bool is_zero() const noexcept { return detail::is_zero_limbs<limbs>(data_); }
 
-    int highest_bit() const noexcept
-    {
-        for (int i = static_cast<int>(limbs) - 1; i >= 0; --i)
-        {
-            if (data_[i])
-                return i * 64 + 63 - __builtin_clzll(data_[i]);
-        }
-        return -1;
-    }
-
-    static bool test_bit(const integer & value, int bit) noexcept
-    {
-        return bit >= 0 && bit < static_cast<int>(Bits) && ((value.data_[static_cast<size_t>(bit) / 64] >> (bit % 64)) & 1);
-    }
-
-    static bool has_any_bit_below(const integer & value, int bit) noexcept
-    {
-        if (bit <= 0)
-            return false;
-        size_t full_limbs = static_cast<size_t>(bit) / 64;
-        const unsigned rem = static_cast<unsigned>(bit % 64);
-        if (full_limbs > limbs)
-            full_limbs = limbs;
-        for (size_t i = 0; i < full_limbs; ++i)
-            if (value.data_[i])
-                return true;
-        if (full_limbs < limbs && rem != 0)
-        {
-            const limb_type mask = (limb_type(1) << rem) - 1;
-            return (value.data_[full_limbs] & mask) != 0;
-        }
-        return false;
-    }
-
-    static limb_type low_limb_after_logical_right_shift(const integer & value, int shift) noexcept
-    {
-        const size_t limb_shift = static_cast<size_t>(shift) / 64;
-        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
-        if (limb_shift >= limbs)
-            return 0;
-
-        limb_type result = value.data_[limb_shift] >> bit_shift;
-        if (bit_shift != 0 && limb_shift + 1 < limbs)
-            result |= value.data_[limb_shift + 1] << (64 - bit_shift);
-        return result;
-    }
-
-    static unsigned __int128 low_u128_after_logical_right_shift(const integer & value, int shift) noexcept
-    {
-        using u128 = unsigned __int128;
-        const size_t limb_shift = static_cast<size_t>(shift) / 64;
-        const unsigned bit_shift = static_cast<unsigned>(shift % 64);
-        if (limb_shift >= limbs)
-            return 0;
-
-        u128 result = static_cast<u128>(value.data_[limb_shift]) >> bit_shift;
-        if (limb_shift + 1 < limbs)
-            result |= static_cast<u128>(value.data_[limb_shift + 1]) << (64 - bit_shift);
-        if (bit_shift != 0 && limb_shift + 2 < limbs)
-            result |= static_cast<u128>(value.data_[limb_shift + 2]) << (128 - bit_shift);
-        return result;
-    }
-
-    template <typename Float>
-    static typename std::enable_if<(std::numeric_limits<Float>::digits < 64), limb_type>::type
-    binary_float_significand(const integer & value, int shift) noexcept
-    {
-        return low_limb_after_logical_right_shift(value, shift);
-    }
-
-    template <typename Float>
-    static typename std::enable_if<(std::numeric_limits<Float>::digits >= 64), unsigned __int128>::type
-    binary_float_significand(const integer & value, int shift) noexcept
-    {
-        return low_u128_after_logical_right_shift(value, shift);
-    }
+    int highest_bit() const noexcept { return detail::highest_bit_limbs<limbs>(data_); }
 
     template <typename Float>
     Float to_binary_float() const noexcept
@@ -3475,357 +5061,18 @@ private:
 
         const bool neg = std::is_same<Signed, signed>::value && (data_[limbs - 1] >> 63);
         integer mag = neg ? -*this : *this;
-        const int hb = mag.highest_bit();
-        const int digits = std::numeric_limits<Float>::digits;
-        if (hb < digits)
-        {
-            Float res = 0;
-            for (size_t i = limbs; i-- > 0;)
-            {
-                res = std::ldexp(res, 64);
-                res += static_cast<Float>(mag.data_[i]);
-            }
-            return neg ? -res : res;
-        }
-
-        int scale = hb - (digits - 1);
-        typedef typename std::conditional<(std::numeric_limits<Float>::digits < 64), limb_type, unsigned __int128>::type significand_type;
-        significand_type significand = binary_float_significand<Float>(mag, scale);
-        const bool guard = test_bit(mag, scale - 1);
-        const bool sticky = has_any_bit_below(mag, scale - 1);
-        const bool discarded = guard || sticky;
-        bool increment = false;
-        switch (std::fegetround())
-        {
-            case FE_TONEAREST:
-                increment = guard && (sticky || (significand & 1));
-                break;
-            case FE_UPWARD:
-                increment = !neg && discarded;
-                break;
-            case FE_DOWNWARD:
-                increment = neg && discarded;
-                break;
-            case FE_TOWARDZERO:
-                increment = false;
-                break;
-            default:
-                increment = guard && (sticky || (significand & 1));
-                break;
-        }
-        if (increment)
-        {
-            ++significand;
-            if (significand == (significand_type(1) << digits))
-            {
-                significand >>= 1;
-                ++scale;
-            }
-        }
-
-        // Apply the sign before ldexp so directed overflow is rounded in the
-        // direction of the signed result and still raises the usual fenv flags.
-        const Float signed_significand = neg ? -static_cast<Float>(significand) : static_cast<Float>(significand);
-        return std::ldexp(signed_significand, scale);
+        return detail::limb_float<limbs>::template to_binary_float<Float>(mag.data_, neg);
     }
 
-    template <size_t L = limbs>
-    typename std::enable_if<(L == 1), limb_type>::type div_mod_small(limb_type div, integer & quotient) const noexcept
+    // Unsigned kernels write into distinct integer storage; signs stay above.
+    GINT_FORCE_INLINE limb_type div_mod_small(limb_type div, integer & quotient) const noexcept
     {
-        // SFINAE provides a dedicated implementation for single-limb integers,
-        // avoiding multi-limb code that would trigger -Warray-bounds warnings.
-        quotient = integer();
-        if (data_[0] == 0)
-            return 0;
-        quotient.data_[0] = static_cast<limb_type>(data_[0] / div);
-        return static_cast<limb_type>(data_[0] % div);
+        return detail::limb_division<limbs>::div_mod_small(data_, div, quotient.data_);
     }
 
-    template <size_t L = limbs>
-    typename std::enable_if<(L == 1), limb_type>::type mod_small(limb_type div) const noexcept
-    {
-        return static_cast<limb_type>(data_[0] % div);
-    }
+    GINT_FORCE_INLINE limb_type mod_small(limb_type div) const noexcept { return detail::limb_division<limbs>::mod_small(data_, div); }
 
-    template <size_t L = limbs>
-    typename std::enable_if<(L > 1), limb_type>::type div_mod_small(limb_type div, integer & quotient) const noexcept
-    {
-        using u128 = unsigned __int128;
-        // This overload is only instantiated for multi-limb integers, preventing
-        // compilers from inspecting out-of-bounds accesses in single-limb cases.
-        quotient = integer();
-        size_t n = limbs;
-        while (n > 0 && data_[n - 1] == 0)
-            --n;
-        if (n == 0)
-            return 0;
-        // Power-of-two divisor becomes a simple shift/modulo by mask.
-        if ((div & (div - 1)) == 0)
-        {
-            const unsigned s = static_cast<unsigned>(__builtin_ctzll(div));
-            if (s == 0)
-            {
-                quotient = *this;
-            }
-            else
-            {
-                quotient = integer();
-                const limb_type mask = (limb_type(1) << s) - 1;
-                limb_type carry = 0;
-                for (size_t i = limbs; i-- > 0;)
-                {
-                    const limb_type cur = data_[i];
-                    quotient.data_[i] = (cur >> s) | (carry << (64 - s));
-                    carry = cur & mask;
-                }
-            }
-            return static_cast<limb_type>(data_[0] & (div - 1));
-        }
-#if GINT_DETAIL_AARCH64_CLANG
-        if (limbs == 2 && div > 0xFFFFFFFFULL)
-        {
-            const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
-            const u128 q = num / div;
-            quotient.data_[0] = static_cast<limb_type>(q);
-            quotient.data_[1] = static_cast<limb_type>(q >> 64);
-            return static_cast<limb_type>(num % div);
-        }
-#endif
-#if GINT_ARCH_X86_64
-#    if GINT_CLANG_TUNED_PATHS
-        if (div != 10000000000000000000ULL)
-#    endif
-        {
-            u128 rem = 0;
-            for (size_t i = n; i-- > 0;)
-            {
-                u128 num = (rem << 64) | data_[i];
-                quotient.data_[i] = static_cast<limb_type>(num / div);
-                rem = num % div;
-            }
-            return static_cast<limb_type>(rem);
-        }
-#endif
-        // Fast path: 32-bit divisor using reciprocal-multiply in base 2^32.
-        // Compute rinv = floor((2^64-1)/d32). For each 64-bit chunk T
-        // (formed by (rem<<32)|word32), q_est = high64(T * rinv); correct by
-        // at most +1 via a single branch. This avoids hardware division in
-        // the loop and performs well across GCC/Clang.
-        if (div <= 0xFFFFFFFFULL)
-        {
-            using u128x = unsigned __int128;
-            const uint32_t d32 = static_cast<uint32_t>(div);
-            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
-            uint64_t rem = 0; // always < d32
-            for (size_t i = n; i-- > 0;)
-            {
-                const uint64_t cur = data_[i];
-                const uint32_t hi = static_cast<uint32_t>(cur >> 32);
-                const uint32_t lo = static_cast<uint32_t>(cur);
-
-                // High 32 bits
-                uint64_t t = (rem << 32) | hi;
-                uint64_t qhi = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
-                uint64_t r = t - qhi * d32;
-                if (r >= d32)
-                {
-                    ++qhi;
-                    r -= d32;
-                }
-
-                // Low 32 bits
-                t = (r << 32) | lo;
-                uint64_t qlo = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
-                r = t - qlo * d32;
-                if (r >= d32)
-                {
-                    ++qlo;
-                    r -= d32;
-                }
-
-                rem = r;
-                quotient.data_[i] = (static_cast<uint64_t>(qhi) << 32) | static_cast<uint32_t>(qlo);
-            }
-            return static_cast<limb_type>(rem);
-        }
-        // 64-bit divisors: two viable strategies exist.
-        // We observed broadly good cross-compiler results by using the
-        // reciprocal-multiply estimate with one correction on modern GCC/Clang.
-        // However, Clang on some older Linux toolchains may favor 128/64
-        // divisions. After experimentation, we combine both ideas by using the
-        // reciprocal path but keep the code structure tight and inlined.
-        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
-        // Single branch correction was the most stable variant in local compiler tests.
-        auto corr = [&](u128 & q, u128 & rem)
-        {
-            if (rem >= div)
-            {
-                ++q;
-                rem -= div;
-            }
-        };
-        // Unroll for common 256-bit case (4 limbs) to reduce loop overhead
-        if (limbs == 4)
-        {
-            switch (n)
-            {
-                case 1: {
-                    u128 num = data_[0];
-                    u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    u128 rem = num - q * div;
-                    corr(q, rem);
-                    quotient.data_[0] = static_cast<limb_type>(q);
-                    return static_cast<limb_type>(rem);
-                }
-                case 2: {
-                    u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
-                    u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    u128 rem = num - q * div;
-                    corr(q, rem);
-                    quotient.data_[0] = static_cast<limb_type>(q);
-                    quotient.data_[1] = static_cast<limb_type>(q >> 64);
-                    return static_cast<limb_type>(rem);
-                }
-                case 3: {
-                    u128 rem = 0;
-                    u128 num = (rem << 64) | data_[2];
-                    u128 q2 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q2 * div;
-                    corr(q2, rem);
-                    quotient.data_[2] = static_cast<limb_type>(q2);
-                    num = (rem << 64) | data_[1];
-                    u128 q1 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q1 * div;
-                    corr(q1, rem);
-                    quotient.data_[1] = static_cast<limb_type>(q1);
-                    num = (rem << 64) | data_[0];
-                    u128 q0 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q0 * div;
-                    corr(q0, rem);
-                    quotient.data_[0] = static_cast<limb_type>(q0);
-                    return static_cast<limb_type>(rem);
-                }
-                case 4:
-                default: {
-                    u128 rem = 0;
-                    u128 num = (rem << 64) | data_[3];
-                    u128 q3 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q3 * div;
-                    corr(q3, rem);
-                    quotient.data_[3] = static_cast<limb_type>(q3);
-                    num = (rem << 64) | data_[2];
-                    u128 q2 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q2 * div;
-                    corr(q2, rem);
-                    quotient.data_[2] = static_cast<limb_type>(q2);
-                    num = (rem << 64) | data_[1];
-                    u128 q1 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q1 * div;
-                    corr(q1, rem);
-                    quotient.data_[1] = static_cast<limb_type>(q1);
-                    num = (rem << 64) | data_[0];
-                    u128 q0 = detail::mulhi_u128_no_middle_wrap(num, inv);
-                    rem = num - q0 * div;
-                    corr(q0, rem);
-                    quotient.data_[0] = static_cast<limb_type>(q0);
-                    return static_cast<limb_type>(rem);
-                }
-            }
-        }
-        // Generic path for other limb counts
-        u128 rem = 0;
-        for (size_t i = n; i-- > 0;)
-        {
-            u128 num = (rem << 64) | data_[i];
-            u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
-            rem = num - q * div;
-            corr(q, rem);
-            quotient.data_[i] = static_cast<limb_type>(q);
-        }
-        return static_cast<limb_type>(rem);
-    }
-
-    template <size_t L = limbs>
-    typename std::enable_if<(L > 1), limb_type>::type mod_small(limb_type div) const noexcept
-    {
-        using u128 = unsigned __int128;
-        size_t n = limbs;
-        while (n > 0 && data_[n - 1] == 0)
-            --n;
-        if (n == 0)
-            return 0;
-
-        if ((div & (div - 1)) == 0)
-            return static_cast<limb_type>(data_[0] & (div - 1));
-
-#if GINT_DETAIL_AARCH64_CLANG || GINT_DETAIL_AARCH64_GCC
-        if (limbs == 2 && div > 0xFFFFFFFFULL)
-        {
-            const u128 num = (static_cast<u128>(data_[1]) << 64) | data_[0];
-            return static_cast<limb_type>(num % div);
-        }
-#endif
-
-#if GINT_ARCH_X86_64
-        {
-            u128 rem = 0;
-            for (size_t i = n; i-- > 0;)
-                rem = ((rem << 64) | data_[i]) % div;
-            return static_cast<limb_type>(rem);
-        }
-#endif
-
-        if (div <= 0xFFFFFFFFULL)
-        {
-            using u128x = unsigned __int128;
-            const uint32_t d32 = static_cast<uint32_t>(div);
-            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
-            uint64_t rem = 0;
-            for (size_t i = n; i-- > 0;)
-            {
-                const uint64_t cur = data_[i];
-                const uint32_t hi = static_cast<uint32_t>(cur >> 32);
-                const uint32_t lo = static_cast<uint32_t>(cur);
-
-                uint64_t t = (rem << 32) | hi;
-                uint64_t q = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
-                uint64_t r = t - q * d32;
-                if (r >= d32)
-                    r -= d32;
-
-                t = (r << 32) | lo;
-                q = static_cast<uint64_t>((u128x(t) * rinv) >> 64);
-                r = t - q * d32;
-                if (r >= d32)
-                    r -= d32;
-                rem = r;
-            }
-            return static_cast<limb_type>(rem);
-        }
-
-        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
-        auto corr = [&](u128 & q, u128 & rem)
-        {
-            if (rem >= div)
-            {
-                ++q;
-                rem -= div;
-            }
-        };
-
-        u128 rem = 0;
-        for (size_t i = n; i-- > 0;)
-        {
-            u128 num = (rem << 64) | data_[i];
-            u128 q = detail::mulhi_u128_no_middle_wrap(num, inv);
-            rem = num - q * div;
-            corr(q, rem);
-        }
-        return static_cast<limb_type>(rem);
-    }
-
-
-    signed_limb_type div_mod_small(signed_limb_type div, integer & quotient) const noexcept
+    GINT_SMALL_DIV_INLINE signed_limb_type div_mod_small(signed_limb_type div, integer & quotient) const noexcept
     {
         integer tmp = *this;
         bool lhs_neg = false;
@@ -3920,13 +5167,8 @@ private:
         return result;
     } // LCOV_EXCL_LINE
 
-    static size_t used_limbs(const integer & v) noexcept
-    {
-        size_t n = limbs;
-        while (n > 0 && v.data_[n - 1] == 0)
-            --n;
-        return n;
-    }
+    //=== Magnitude inspection, promotion, and signed division policies ======
+    static size_t used_limbs(const integer & v) noexcept { return detail::used_limbs<limbs>(v.data_); }
 
     static bool positive_single_limb_value(const integer & v, limb_type & value) noexcept
     {
@@ -3981,19 +5223,7 @@ private:
         return result;
     }
 
-    static GINT_FORCE_INLINE void negate_in_place(integer & v) noexcept
-    {
-        limb_type carry = 1;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            const limb_type inv = ~v.data_[i];
-            const limb_type sum = inv + carry;
-            v.data_[i] = sum;
-            carry = carry && (sum == 0);
-        }
-    }
-
-    static GINT_FORCE_INLINE void negate_for_division(integer & v) noexcept { negate_in_place(v); }
+    static GINT_FORCE_INLINE void negate_for_division(integer & v) noexcept { detail::negate_limbs<limbs>(v.data_); }
 
     static bool positive_power_of_two_value(const integer & v, int & bit_index) noexcept
     {
@@ -4045,22 +5275,10 @@ private:
     }
 
     template <size_t L = limbs>
-    static GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR typename std::enable_if<(L == 2), bool>::type
+    static GINT_FORCE_INLINE typename std::enable_if<(L == 2), bool>::type
     negative_negative_div_quotient_is_zero(const integer & lhs, const integer & rhs) noexcept
     {
-#if GINT_ARCH_AARCH64
-        // For two negative two's-complement values, larger raw bits mean smaller magnitude.
-        unsigned result;
-        __asm__("cmp %[lhs_hi], %[rhs_hi]\n"
-                "ccmp %[lhs_lo], %[rhs_lo], #0, eq\n"
-                "cset %w[result], hi"
-                : [result] "=r"(result)
-                : [lhs_hi] "r"(lhs.data_[1]), [rhs_hi] "r"(rhs.data_[1]), [lhs_lo] "r"(lhs.data_[0]), [rhs_lo] "r"(rhs.data_[0])
-                : "cc");
-        return result != 0;
-#else
-        return lhs.data_[1] > rhs.data_[1] || (lhs.data_[1] == rhs.data_[1] && lhs.data_[0] > rhs.data_[0]);
-#endif
+        return detail::limb_division<limbs>::greater_limbs_128(lhs.data_, rhs.data_);
     }
 
     template <size_t L = limbs>
@@ -4118,25 +5336,15 @@ private:
     template <size_t L = limbs, typename std::enable_if<(L == 2), int>::type = 0>
     static GINT_FORCE_INLINE integer div_unsigned_int128_by_positive_limb(const integer & lhs, limb_type divisor) noexcept
     {
-        using u128 = unsigned __int128;
-        const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
-        const u128 quotient = lhs_raw / divisor;
         integer result;
-        result.data_[0] = static_cast<limb_type>(quotient);
-        result.data_[1] = static_cast<limb_type>(quotient >> 64);
+        detail::div_unsigned_int128_by_positive_limb(result.data_, lhs.data_, divisor);
         return result;
     }
 
     template <size_t L = limbs, typename std::enable_if<(L == 2 && std::is_same<Signed, signed>::value), int>::type = 0>
     static GINT_FORCE_INLINE bool div_signed_int128_by_positive_limb(const integer & lhs, limb_type divisor, integer & result) noexcept
     {
-        using u128 = unsigned __int128;
-        using s128 = __int128;
-        const u128 lhs_raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
-        const s128 quotient = static_cast<s128>(lhs_raw) / static_cast<s128>(divisor);
-        const u128 quotient_raw = static_cast<u128>(quotient);
-        result.data_[0] = static_cast<limb_type>(quotient_raw);
-        result.data_[1] = static_cast<limb_type>(quotient_raw >> 64);
+        detail::div_signed_int128_by_positive_limb(result.data_, lhs.data_, divisor);
         return true;
     }
 
@@ -4184,21 +5392,7 @@ private:
     template <typename SrcInt>
     static void copy_abs_magnitude(integer<Bits, unsigned> & dst, const SrcInt & src, bool neg) noexcept
     {
-        if (!neg)
-        {
-            for (size_t i = 0; i < limbs; ++i)
-                dst.data_[i] = src.data_[i];
-            return;
-        }
-
-        limb_type carry = 1;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            const limb_type inv = ~src.data_[i];
-            const limb_type sum = inv + carry;
-            dst.data_[i] = sum;
-            carry = carry && (sum == 0);
-        }
+        detail::copy_magnitude_limbs<limbs>(dst.data_, src.data_, neg);
     }
 
     static GINT_FORCE_INLINE integer rem_signed_magnitude(const integer & lhs, const integer & rhs, bool rhs_neg) noexcept
@@ -4332,795 +5526,59 @@ private:
 
     static bool is_power_of_two(const integer & v, int & bit_index) noexcept
     {
-        bit_index = -1;
-        bool found = false;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            limb_type limb = v.data_[i];
-            if (limb)
-            {
-                if (limb & (limb - 1))
-                    return false;
-                if (found)
-                    return false;
-                bit_index = static_cast<int>(i * 64 + __builtin_ctzll(limb));
-                found = true;
-            }
-        }
-        return found;
+        return detail::power_of_two_limbs<limbs>(v.data_, bit_index);
     }
 
-    // Left-shift an array of limbs by 'shift' bits (0..63) into dst, returning the carry-out limb.
-    // The source and destination may alias; the operation proceeds from low to high.
-    GINT_FORCE_INLINE static limb_type lshift_limbs_to(const limb_type * src, size_t n, limb_type * dst, int shift) noexcept
+    //=== Unsigned division adapters =========================================
+    static GINT_FORCE_INLINE integer div_128_native(const integer & lhs, const integer & rhs) noexcept
     {
-        limb_type carry = 0;
-        if (shift)
-        {
-            for (size_t i = 0; i < n; ++i)
-            {
-                limb_type cur = src[i];
-                dst[i] = (cur << shift) | carry;
-                carry = static_cast<limb_type>(cur >> (64 - shift));
-            }
-        }
-        else
-        {
-            for (size_t i = 0; i < n; ++i)
-                dst[i] = src[i];
-            carry = 0;
-        }
-        return carry;
-    }
-
-    template <size_t L = limbs>
-    static typename std::enable_if<(L >= 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
-    {
-#if GINT_DETAIL_AARCH64_GCC || GINT_DETAIL_AARCH64_CLANG
-        integer result;
-        if (GINT_UNLIKELY((rhs.data_[1] | rhs.data_[0]) == 0))
-            return result;
-        if (rhs.data_[1] >= (limb_type(1) << 62))
-        {
-            limb_type rem_hi = lhs.data_[1];
-            limb_type rem_lo = lhs.data_[0];
-            limb_type q = 0;
-            for (limb_type i = 0; i < 3; ++i)
-            {
-                if (rem_hi < rhs.data_[1] || (rem_hi == rhs.data_[1] && rem_lo < rhs.data_[0]))
-                    break;
-                limb_type next_lo = rem_lo - rhs.data_[0];
-                limb_type borrow = rem_lo < rhs.data_[0];
-                rem_hi = rem_hi - rhs.data_[1] - borrow;
-                rem_lo = next_lo;
-                ++q;
-            }
-            result.data_[0] = q;
-            result.data_[1] = 0;
-            return result;
-        }
-#endif
-        return div_128_native(lhs, rhs);
-    }
-
-    template <size_t L = limbs>
-    static typename std::enable_if<(L >= 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
-    {
-        unsigned __int128 a = (static_cast<unsigned __int128>(lhs.data_[1]) << 64) | lhs.data_[0];
-        unsigned __int128 b = (static_cast<unsigned __int128>(rhs.data_[1]) << 64) | rhs.data_[0];
-        integer result;
-        if (GINT_UNLIKELY(b == 0))
-            return result;
-        unsigned __int128 q = a / b;
-        result.data_[0] = static_cast<limb_type>(q);
-        result.data_[1] = static_cast<limb_type>(q >> 64);
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::div_128_native(lhs.data_, rhs.data_, result.data_);
         return result;
     }
 
-    template <size_t L = limbs>
-    static typename std::enable_if<(L < 2), integer>::type div_128(const integer & lhs, const integer & rhs) noexcept
+    static GINT_FORCE_INLINE integer div_128(const integer & lhs, const integer & rhs) noexcept
     {
-        return div_128_native(lhs, rhs);
-    }
-
-    template <size_t L = limbs>
-    static typename std::enable_if<(L < 2), integer>::type div_128_native(const integer & lhs, const integer & rhs) noexcept
-    {
-        integer result;
-        if (GINT_UNLIKELY(rhs.data_[0] == 0))
-            return result;
-        result.data_[0] = lhs.data_[0] / rhs.data_[0];
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::div_128(lhs.data_, rhs.data_, result.data_);
         return result;
     }
 
-#if GINT_GCC_TUNED_PATHS
-    GINT_FORCE_INLINE static limb_type left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
+    static GINT_FORCE_INLINE integer div_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
-        limb_type cur = src[i];
-        if (shift == 0)
-            return cur;
-        limb_type prev = i == 0 ? 0 : src[i - 1];
-        return static_cast<limb_type>((cur << shift) | (prev >> (64 - shift)));
-    }
-
-    static bool mul_by_limb_greater_than(const integer & lhs, const integer & divisor, size_t div_limbs, limb_type q) noexcept
-    {
-        if (q == 0)
-            return false;
-
-        std::array<limb_type, limbs + 1> product;
-        unsigned __int128 carry = 0;
-        for (size_t i = 0; i < div_limbs; ++i)
-        {
-            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
-            product[i] = static_cast<limb_type>(p);
-            carry = p >> 64;
-        }
-        if (carry != 0)
-            return true;
-
-        for (size_t i = div_limbs; i-- > 0;)
-        {
-            if (product[i] != lhs.data_[i])
-                return product[i] > lhs.data_[i];
-        }
-        return false;
-    }
-
-    static integer div_large_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
-    {
-        integer quotient;
-        if (div_limbs < 2)
-            return quotient;
-
-        using u128 = unsigned __int128;
-        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
-        const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
-        const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
-        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
-        const limb_type unext = left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
-        const limb_type uthird = left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
-
-        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
-        u128 qhat = numerator / vtop;
-        u128 rhat = numerator - qhat * vtop;
-        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
-        {
-            --qhat;
-            rhat += vtop;
-            if (rhat >= (static_cast<u128>(1) << 64))
-                break;
-        }
-
-        limb_type q = static_cast<limb_type>(qhat);
-        while (mul_by_limb_greater_than(lhs, divisor, div_limbs, q))
-            --q;
-        quotient.data_[0] = q;
-        return quotient;
-    }
-#endif
-
-    template <bool WantRemainder>
-    static GINT_NOINLINE integer div_or_rem_large_core(integer lhs, const integer & divisor, size_t v_limbs, size_t u_limbs) noexcept
-    {
-        integer result;
-        if (GINT_UNLIKELY(v_limbs == 0) || u_limbs < v_limbs)
-            return WantRemainder ? lhs : result;
-
-        std::array<limb_type, limbs + 1> u;
-        std::array<limb_type, limbs + 1> v;
-
-        int shift = __builtin_clzll(divisor.data_[v_limbs - 1]);
-        limb_type carry = lshift_limbs_to(lhs.data_, u_limbs, u.data(), shift);
-        u[u_limbs] = carry;
-
-        carry = lshift_limbs_to(divisor.data_, v_limbs, v.data(), shift);
-
-        for (int j = static_cast<int>(u_limbs - v_limbs); j >= 0; --j)
-        {
-            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + v_limbs]) << 64) | u[j + v_limbs - 1];
-            // Single 128/64 division: compute quotient, derive remainder by multiply-back
-            unsigned __int128 qhat = numerator / v[v_limbs - 1];
-            unsigned __int128 rhat = numerator - qhat * v[v_limbs - 1];
-
-            if (v_limbs > 1)
-            {
-                while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[v_limbs - 2] > ((rhat << 64) | u[j + v_limbs - 2]))
-                {
-                    --qhat;
-                    rhat += v[v_limbs - 1];
-                    if (rhat >= (static_cast<unsigned __int128>(1) << 64))
-                        break;
-                }
-            }
-
-            unsigned __int128 borrow = 0;
-            for (size_t i = 0; i < v_limbs; ++i)
-            {
-                unsigned __int128 p = qhat * v[i] + borrow;
-                if (u[j + i] < static_cast<limb_type>(p))
-                {
-                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
-                    borrow = (p >> 64) + 1;
-                }
-                else
-                {
-                    u[j + i] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + i]) - p);
-                    borrow = p >> 64;
-                }
-            }
-            if (static_cast<unsigned __int128>(u[j + v_limbs]) < borrow)
-            {
-                unsigned __int128 carry2 = 0;
-                for (size_t i = 0; i < v_limbs; ++i)
-                {
-                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
-                    u[j + i] = static_cast<limb_type>(t2);
-                    carry2 = t2 >> 64;
-                }
-                u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) + carry2);
-                --qhat;
-            }
-            else
-            {
-                u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) - borrow);
-            }
-            if (!WantRemainder)
-                result.data_[j] = static_cast<limb_type>(qhat);
-        }
-
-        if (WantRemainder)
-        {
-            if (shift == 0)
-            {
-                for (size_t i = 0; i < v_limbs; ++i)
-                    result.data_[i] = u[i];
-            }
-            else
-            {
-                const int inv_shift = 64 - shift;
-                for (size_t i = 0; i < v_limbs; ++i)
-                {
-                    const limb_type next = (i + 1 < v_limbs) ? u[i + 1] : 0;
-                    result.data_[i] = (u[i] >> shift) | (next << inv_shift);
-                }
-            }
-        }
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::div_large(lhs.data_, divisor.data_, div_limbs, result.data_);
         return result;
     }
 
-    static integer div_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
+    static GINT_FORCE_INLINE integer rem_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
     {
-        const size_t dividend_limbs = used_limbs(lhs);
-#if GINT_GCC_TUNED_PATHS
-        if (dividend_limbs == div_limbs && div_limbs >= 2)
-            return div_large_single_limb_quotient(lhs, divisor, div_limbs);
-#endif
-        return div_or_rem_large_core<false>(lhs, divisor, div_limbs, dividend_limbs);
-    }
-
-#if GINT_DETAIL_AARCH64_GCC
-    static limb_type rem_estimate_single_limb_quotient(const integer & lhs, const integer & divisor, size_t div_limbs) noexcept
-    {
-        using u128 = unsigned __int128;
-        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
-        const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
-        const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
-        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
-        const limb_type unext = left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
-        const limb_type uthird = left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
-
-        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
-        u128 qhat = numerator / vtop;
-        u128 rhat = numerator - qhat * vtop;
-        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
-        {
-            --qhat;
-            rhat += vtop;
-            if (rhat >= (static_cast<u128>(1) << 64))
-                break;
-        }
-
-        return static_cast<limb_type>(qhat);
-    }
-
-    static bool rem_sub_mul_limb(integer & lhs, const integer & divisor, size_t div_limbs, limb_type q) noexcept
-    {
-        unsigned __int128 carry = 0;
-        limb_type borrow = 0;
-        for (size_t i = 0; i < div_limbs; ++i)
-        {
-            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
-            carry = p >> 64;
-
-            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
-            limb_type next_borrow = static_cast<unsigned __int128>(lhs.data_[i]) < subtrahend;
-            lhs.data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs.data_[i]) - subtrahend);
-            borrow = next_borrow;
-        }
-        return carry != 0 || borrow != 0;
-    }
-
-    static bool rem_sub_mul_limb_full_width(integer & lhs, const integer & divisor, limb_type q) noexcept
-    {
-        unsigned __int128 carry = 0;
-        limb_type borrow = 0;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            unsigned __int128 p = static_cast<unsigned __int128>(divisor.data_[i]) * q + carry;
-            carry = p >> 64;
-
-            unsigned __int128 subtrahend = static_cast<unsigned __int128>(static_cast<limb_type>(p)) + borrow;
-            limb_type next_borrow = static_cast<unsigned __int128>(lhs.data_[i]) < subtrahend;
-            lhs.data_[i] = static_cast<limb_type>(static_cast<unsigned __int128>(lhs.data_[i]) - subtrahend);
-            borrow = next_borrow;
-        }
-        return carry != 0 || borrow != 0;
-    }
-
-    static void rem_add_divisor(integer & lhs, const integer & divisor, size_t div_limbs) noexcept
-    {
-        unsigned __int128 carry = 0;
-        for (size_t i = 0; i < div_limbs; ++i)
-        {
-            unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
-            lhs.data_[i] = static_cast<limb_type>(sum);
-            carry = sum >> 64;
-        }
-    }
-
-    static void rem_add_divisor_full_width(integer & lhs, const integer & divisor) noexcept
-    {
-        unsigned __int128 carry = 0;
-        for (size_t i = 0; i < limbs; ++i)
-        {
-            unsigned __int128 sum = static_cast<unsigned __int128>(lhs.data_[i]) + divisor.data_[i] + carry;
-            lhs.data_[i] = static_cast<limb_type>(sum);
-            carry = sum >> 64;
-        }
-    }
-
-    static integer rem_large_single_limb_quotient(integer lhs, const integer & divisor, size_t div_limbs) noexcept
-    {
-        if (div_limbs < 2)
-            return lhs;
-
-        const limb_type q = rem_estimate_single_limb_quotient(lhs, divisor, div_limbs);
-        if (div_limbs == limbs)
-        {
-            if (rem_sub_mul_limb_full_width(lhs, divisor, q))
-                rem_add_divisor_full_width(lhs, divisor);
-        }
-        else if (rem_sub_mul_limb(lhs, divisor, div_limbs, q))
-        {
-            rem_add_divisor(lhs, divisor, div_limbs);
-        }
-        return lhs;
-    }
-#endif
-
-    static integer rem_large(integer lhs, const integer & divisor, size_t div_limbs) noexcept
-    {
-        const size_t dividend_limbs = used_limbs(lhs);
-#if GINT_DETAIL_AARCH64_GCC
-        if (dividend_limbs == div_limbs && div_limbs >= 2)
-            return rem_large_single_limb_quotient(lhs, divisor, div_limbs);
-#endif
-        return div_or_rem_large_core<true>(lhs, divisor, div_limbs, dividend_limbs);
-    }
-
-    // Optimized specialization: full-width 256-bit divisor (divisor_limbs == 4)
-    template <size_t L = limbs>
-    static GINT_NOINLINE typename std::enable_if<(L == 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
-    {
-        integer quotient;
-        if (lhs.data_[3] == 0)
-            return quotient;
-
-        using u128 = unsigned __int128;
-
-        const int shift = __builtin_clzll(divisor.data_[3]);
-        limb_type u0;
-        limb_type u1;
-        limb_type u2;
-        limb_type u3;
-        limb_type u4;
-        limb_type v0;
-        limb_type v1;
-        limb_type v2;
-        limb_type v3;
-
-        if (shift == 0)
-        {
-            u0 = lhs.data_[0];
-            u1 = lhs.data_[1];
-            u2 = lhs.data_[2];
-            u3 = lhs.data_[3];
-            u4 = 0;
-            v0 = divisor.data_[0];
-            v1 = divisor.data_[1];
-            v2 = divisor.data_[2];
-            v3 = divisor.data_[3];
-        }
-        else
-        {
-            const int inv_shift = 64 - shift;
-            u0 = lhs.data_[0] << shift;
-            u1 = (lhs.data_[1] << shift) | (lhs.data_[0] >> inv_shift);
-            u2 = (lhs.data_[2] << shift) | (lhs.data_[1] >> inv_shift);
-            u3 = (lhs.data_[3] << shift) | (lhs.data_[2] >> inv_shift);
-            u4 = lhs.data_[3] >> inv_shift;
-            v0 = divisor.data_[0] << shift;
-            v1 = (divisor.data_[1] << shift) | (divisor.data_[0] >> inv_shift);
-            v2 = (divisor.data_[2] << shift) | (divisor.data_[1] >> inv_shift);
-            v3 = (divisor.data_[3] << shift) | (divisor.data_[2] >> inv_shift);
-        }
-
-        const u128 numerator = (static_cast<u128>(u4) << 64) | u3;
-        u128 qhat = numerator / v3;
-        u128 rhat = numerator - qhat * v3;
-
-        while (qhat == (static_cast<u128>(1) << 64) || qhat * v2 > ((rhat << 64) | u2))
-        {
-            --qhat;
-            rhat += v3;
-            if (rhat >= (static_cast<u128>(1) << 64))
-                break;
-        }
-
-        u128 borrow = 0;
-        {
-            u128 p = qhat * v0 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u0 = static_cast<limb_type>(static_cast<u128>(u0) - p);
-            borrow = (p >> 64) + (u0 > ~p_low);
-        }
-        {
-            u128 p = qhat * v1 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u1 = static_cast<limb_type>(static_cast<u128>(u1) - p);
-            borrow = (p >> 64) + (u1 > ~p_low);
-        }
-        {
-            u128 p = qhat * v2 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u2 = static_cast<limb_type>(static_cast<u128>(u2) - p);
-            borrow = (p >> 64) + (u2 > ~p_low);
-        }
-        {
-            u128 p = qhat * v3 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u3 = static_cast<limb_type>(static_cast<u128>(u3) - p);
-            borrow = (p >> 64) + (u3 > ~p_low);
-        }
-
-        if (static_cast<u128>(u4) < borrow)
-            --qhat;
-
-        quotient.data_[0] = static_cast<limb_type>(qhat);
-        return quotient;
-    }
-
-    static GINT_NOINLINE integer rem_large_4_impl(integer lhs, const integer & divisor) noexcept
-    {
-        integer result;
-        if (lhs.data_[3] == 0)
-            return lhs;
-
-        using u128 = unsigned __int128;
-
-        const int shift = __builtin_clzll(divisor.data_[3]);
-        limb_type u0;
-        limb_type u1;
-        limb_type u2;
-        limb_type u3;
-        limb_type u4;
-        limb_type v0;
-        limb_type v1;
-        limb_type v2;
-        limb_type v3;
-
-        if (shift == 0)
-        {
-            u0 = lhs.data_[0];
-            u1 = lhs.data_[1];
-            u2 = lhs.data_[2];
-            u3 = lhs.data_[3];
-            u4 = 0;
-            v0 = divisor.data_[0];
-            v1 = divisor.data_[1];
-            v2 = divisor.data_[2];
-            v3 = divisor.data_[3];
-        }
-        else
-        {
-            const int inv_shift = 64 - shift;
-            u0 = lhs.data_[0] << shift;
-            u1 = (lhs.data_[1] << shift) | (lhs.data_[0] >> inv_shift);
-            u2 = (lhs.data_[2] << shift) | (lhs.data_[1] >> inv_shift);
-            u3 = (lhs.data_[3] << shift) | (lhs.data_[2] >> inv_shift);
-            u4 = lhs.data_[3] >> inv_shift;
-            v0 = divisor.data_[0] << shift;
-            v1 = (divisor.data_[1] << shift) | (divisor.data_[0] >> inv_shift);
-            v2 = (divisor.data_[2] << shift) | (divisor.data_[1] >> inv_shift);
-            v3 = (divisor.data_[3] << shift) | (divisor.data_[2] >> inv_shift);
-        }
-
-        const u128 numerator = (static_cast<u128>(u4) << 64) | u3;
-        u128 qhat = numerator / v3;
-        u128 rhat = numerator - qhat * v3;
-
-        while (qhat == (static_cast<u128>(1) << 64) || qhat * v2 > ((rhat << 64) | u2))
-        {
-            --qhat;
-            rhat += v3;
-            if (rhat >= (static_cast<u128>(1) << 64))
-                break;
-        }
-
-        u128 borrow = 0;
-        {
-            u128 p = qhat * v0 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u0 = static_cast<limb_type>(static_cast<u128>(u0) - p);
-            borrow = (p >> 64) + (u0 > ~p_low);
-        }
-        {
-            u128 p = qhat * v1 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u1 = static_cast<limb_type>(static_cast<u128>(u1) - p);
-            borrow = (p >> 64) + (u1 > ~p_low);
-        }
-        {
-            u128 p = qhat * v2 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u2 = static_cast<limb_type>(static_cast<u128>(u2) - p);
-            borrow = (p >> 64) + (u2 > ~p_low);
-        }
-        {
-            u128 p = qhat * v3 + borrow;
-            const limb_type p_low = static_cast<limb_type>(p);
-            u3 = static_cast<limb_type>(static_cast<u128>(u3) - p);
-            borrow = (p >> 64) + (u3 > ~p_low);
-        }
-
-        if (static_cast<u128>(u4) < borrow)
-        {
-            u128 carry = 0;
-            u128 t = static_cast<u128>(u0) + v0 + carry;
-            u0 = static_cast<limb_type>(t);
-            carry = t >> 64;
-            t = static_cast<u128>(u1) + v1 + carry;
-            u1 = static_cast<limb_type>(t);
-            carry = t >> 64;
-            t = static_cast<u128>(u2) + v2 + carry;
-            u2 = static_cast<limb_type>(t);
-            carry = t >> 64;
-            t = static_cast<u128>(u3) + v3 + carry;
-            u3 = static_cast<limb_type>(t);
-            carry = t >> 64;
-            // The subtract phase has not yet applied this borrow to u4.
-            u4 = static_cast<limb_type>(static_cast<u128>(u4) + carry - borrow);
-        }
-        else
-        {
-            u4 = static_cast<limb_type>(static_cast<u128>(u4) - borrow);
-        }
-
-        if (shift == 0)
-        {
-            result.data_[0] = u0;
-            result.data_[1] = u1;
-            result.data_[2] = u2;
-            result.data_[3] = u3;
-        }
-        else
-        {
-            const int inv_shift = 64 - shift;
-            result.data_[0] = (u0 >> shift) | (u1 << inv_shift);
-            result.data_[1] = (u1 >> shift) | (u2 << inv_shift);
-            result.data_[2] = (u2 >> shift) | (u3 << inv_shift);
-            result.data_[3] = (u3 >> shift) | (u4 << inv_shift);
-        }
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::rem_large(lhs.data_, divisor.data_, div_limbs, result.data_);
         return result;
     }
 
-    template <size_t L = limbs>
-    static typename std::enable_if<(L == 4), integer>::type rem_large_4(integer lhs, const integer & divisor) noexcept
+    static GINT_FORCE_INLINE integer div_large_4(integer lhs, const integer & divisor) noexcept
     {
-        return rem_large_4_impl(lhs, divisor);
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::div_large_4(lhs.data_, divisor.data_, result.data_);
+        return result;
     }
 
-    // Stub for non-256-bit instantiations to keep dependent calls well-formed.
-    template <size_t L = limbs>
-    static typename std::enable_if<(L != 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
+    static GINT_FORCE_INLINE integer rem_large_4(integer lhs, const integer & divisor) noexcept
     {
-        return div_large(lhs, divisor, 4);
-    }
-
-    template <size_t L = limbs>
-    static typename std::enable_if<(L != 4), integer>::type rem_large_4(const integer & lhs, const integer &) noexcept
-    {
-        return lhs;
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::rem_large_4(lhs.data_, divisor.data_, result.data_);
+        return result;
     }
 
     // Optimized specialization: two-limb divisor (divisor_limbs == 2)
     template <size_t L = limbs>
-    static typename std::enable_if<(L >= 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept GINT_CLANG_NOINLINE
+    static GINT_FORCE_INLINE typename std::enable_if<(L >= 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept
     {
-        integer quotient;
-        size_t n = limbs;
-        while (n > 0 && lhs.data_[n - 1] == 0)
-            --n;
-        if (n < 2)
-            return quotient;
-
-        std::array<limb_type, limbs + 1> u = {{}};
-
-        // Normalize divisor so that the top limb has its MSB set.
-        const limb_type d0 = divisor.data_[0];
-        const limb_type d1 = divisor.data_[1];
-        int shift = __builtin_clzll(d1);
-
-        limb_type carry = lshift_limbs_to(lhs.data_, n, u.data(), shift);
-        u[n] = carry;
-
-        limb_type v0 = (d0 << shift);
-        limb_type v1 = (d1 << shift) | (shift ? static_cast<limb_type>(d0 >> (64 - shift)) : 0);
-        using u128 = unsigned __int128;
-        // Precompute 128-bit reciprocal for v1 and use it to form an exact qhat
-        const u128 inv128 = v1 ? (static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(v1)) : 0;
-        const bool v1_is_half_base = v1 == (limb_type(1) << 63);
-
-        if (n == 4)
-        {
-            auto step = [&](int j)
-            {
-                limb_type & uj0 = u[j + 0];
-                limb_type & uj1 = u[j + 1];
-                limb_type & uj2 = u[j + 2];
-                u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
-                // 1) Initial estimate via reciprocal multiply
-                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
-                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
-                // The reciprocal estimate cannot overshoot; correct only the
-                // possible one-step underestimate.
-                if ((numerator - qhat_v1) >= v1)
-                {
-                    ++qhat;
-                    qhat_v1 += v1;
-                }
-                // Second test (Knuth): at most one adjust in practice for two-limb divisor
-                u128 rhat = numerator - qhat_v1;
-                if (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | uj0))
-                {
-                    --qhat;
-                    rhat += v1;
-                }
-                // Reuse high-limb product
-                qhat_v1 = numerator - rhat;
-
-                unsigned __int128 borrow = 0;
-                {
-                    unsigned __int128 p = qhat * v0 + borrow;
-                    if (uj0 < static_cast<limb_type>(p))
-                    {
-                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
-                        borrow = (p >> 64) + 1;
-                    }
-                    else
-                    {
-                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
-                        borrow = p >> 64;
-                    }
-                }
-                {
-                    unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
-                    if (uj1 < static_cast<limb_type>(p))
-                    {
-                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
-                        borrow = (p >> 64) + 1;
-                    }
-                    else
-                    {
-                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
-                        borrow = p >> 64;
-                    }
-                }
-                if (static_cast<unsigned __int128>(uj2) < borrow)
-                {
-                    unsigned __int128 carry2 = 0;
-                    unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
-                    uj0 = static_cast<limb_type>(t0);
-                    carry2 = t0 >> 64;
-                    unsigned __int128 t1 = static_cast<unsigned __int128>(uj1) + v1 + carry2;
-                    uj1 = static_cast<limb_type>(t1);
-                    carry2 = t1 >> 64;
-                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) + carry2);
-                    --qhat;
-                }
-                else
-                {
-                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
-                }
-                quotient.data_[j] = static_cast<limb_type>(qhat);
-            };
-            step(2);
-            step(1);
-            step(0);
-        }
-        else
-        {
-            for (int j = static_cast<int>(n - 2); j >= 0; --j)
-            {
-                limb_type & uj0 = u[j + 0];
-                limb_type & uj1 = u[j + 1];
-                limb_type & uj2 = u[j + 2];
-                u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
-                // 1) Initial estimate via reciprocal multiply
-                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
-                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
-                if ((numerator - qhat_v1) >= v1)
-                {
-                    ++qhat;
-                    qhat_v1 += v1;
-                }
-                // Second test
-                u128 rhat = numerator - qhat_v1;
-                if (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | uj0))
-                {
-                    --qhat;
-                    rhat += v1;
-                }
-                qhat_v1 = numerator - rhat;
-
-                unsigned __int128 borrow = 0;
-                {
-                    unsigned __int128 p = qhat * v0 + borrow;
-                    if (uj0 < static_cast<limb_type>(p))
-                    {
-                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
-                        borrow = (p >> 64) + 1;
-                    }
-                    else
-                    {
-                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
-                        borrow = p >> 64;
-                    }
-                }
-                {
-                    unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
-                    if (uj1 < static_cast<limb_type>(p))
-                    {
-                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
-                        borrow = (p >> 64) + 1;
-                    }
-                    else
-                    {
-                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
-                        borrow = p >> 64;
-                    }
-                }
-                if (static_cast<unsigned __int128>(uj2) < borrow)
-                {
-                    unsigned __int128 carry2 = 0;
-                    unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
-                    uj0 = static_cast<limb_type>(t0);
-                    carry2 = t0 >> 64;
-                    unsigned __int128 t1 = static_cast<unsigned __int128>(uj1) + v1 + carry2;
-                    uj1 = static_cast<limb_type>(t1);
-                    carry2 = t1 >> 64;
-                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) + carry2);
-                    --qhat;
-                }
-                else
-                {
-                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
-                }
-                quotient.data_[j] = static_cast<limb_type>(qhat);
-            }
-        }
-        return quotient;
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::div_large_2(lhs.data_, divisor.data_, result.data_);
+        return result;
     }
 
     // Safe fallback for a direct test/internal call on a type that cannot have
@@ -5133,109 +5591,11 @@ private:
 
     // Optimized specialization: three-limb divisor (divisor_limbs == 3)
     template <size_t L = limbs>
-    static typename std::enable_if<(L >= 3), integer>::type div_large_3(integer lhs, const integer & divisor) noexcept
+    static GINT_FORCE_INLINE typename std::enable_if<(L >= 3), integer>::type div_large_3(integer lhs, const integer & divisor) noexcept
     {
-        integer quotient;
-        size_t n = limbs;
-        while (n > 0 && lhs.data_[n - 1] == 0)
-            --n;
-        if (n < 3)
-            return quotient;
-
-        std::array<limb_type, limbs + 1> u = {{}};
-        std::array<limb_type, 3> v = {{}};
-
-        // Normalize divisor: ensure MSB of v[2] is set
-        int shift = __builtin_clzll(divisor.data_[2]);
-        limb_type carry = 0;
-        for (size_t i = 0; i < n; ++i)
-        {
-            limb_type cur = lhs.data_[i];
-            u[i] = (cur << shift) | carry;
-            carry = shift ? static_cast<limb_type>(cur >> (64 - shift)) : 0;
-        }
-        u[n] = carry;
-
-        carry = lshift_limbs_to(divisor.data_, 3, v.data(), shift);
-
-        for (int j = static_cast<int>(n - 3); j >= 0; --j)
-        {
-            unsigned __int128 numerator = (static_cast<unsigned __int128>(u[j + 3]) << 64) | u[j + 2];
-            // Single 128/64 division: compute quotient and derive remainder
-            unsigned __int128 qhat = numerator / v[2];
-            unsigned __int128 rhat = numerator - qhat * v[2];
-
-            while (qhat == (static_cast<unsigned __int128>(1) << 64) || qhat * v[1] > ((rhat << 64) | u[j + 1]))
-            {
-                --qhat;
-                rhat += v[2];
-                if (rhat >= (static_cast<unsigned __int128>(1) << 64))
-                    break;
-            }
-
-            // Reuse high-limb product: qhat*v[2] = numerator - rhat
-            const unsigned __int128 qhat_v2 = numerator - rhat;
-
-            unsigned __int128 borrow = 0;
-            {
-                unsigned __int128 p = qhat * v[0] + borrow;
-                if (u[j + 0] < static_cast<limb_type>(p))
-                {
-                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
-                    borrow = (p >> 64) + 1;
-                }
-                else
-                {
-                    u[j + 0] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 0]) - p);
-                    borrow = p >> 64;
-                }
-            }
-            {
-                unsigned __int128 p = qhat * v[1] + borrow;
-                if (u[j + 1] < static_cast<limb_type>(p))
-                {
-                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
-                    borrow = (p >> 64) + 1;
-                }
-                else
-                {
-                    u[j + 1] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 1]) - p);
-                    borrow = p >> 64;
-                }
-            }
-            {
-                unsigned __int128 p = qhat_v2 + borrow;
-                if (u[j + 2] < static_cast<limb_type>(p))
-                {
-                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - p);
-                    borrow = (p >> 64) + 1;
-                }
-                else
-                {
-                    u[j + 2] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 2]) - p);
-                    borrow = p >> 64;
-                }
-            }
-
-            if (static_cast<unsigned __int128>(u[j + 3]) < borrow)
-            {
-                unsigned __int128 carry2 = 0;
-                for (size_t i = 0; i < 3; ++i)
-                {
-                    unsigned __int128 t2 = static_cast<unsigned __int128>(u[j + i]) + v[i] + carry2;
-                    u[j + i] = static_cast<limb_type>(t2);
-                    carry2 = t2 >> 64;
-                }
-                u[j + 3] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 3]) + carry2);
-                --qhat;
-            }
-            else
-            {
-                u[j + 3] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + 3]) - borrow);
-            }
-            quotient.data_[j] = static_cast<limb_type>(qhat);
-        }
-        return quotient;
+        integer result(uninitialized_tag{});
+        detail::limb_division<limbs>::div_large_3(lhs.data_, divisor.data_, result.data_);
+        return result;
     }
 
     // Safe fallback for a direct test/internal call on a type that cannot have
@@ -5246,9 +5606,11 @@ private:
         return lhs / divisor;
     }
 
+    //=== Object representation ==============================================
     alignas((GINT_ARCH_AARCH64 || Bits == 64) ? alignof(limb_type) : 16) limb_type data_[limbs];
 };
 
+//=== Public combined division ===============================================
 /// Quotient and remainder produced by a single public division operation.
 template <typename Integer>
 struct divmod_result
@@ -6315,6 +6677,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #undef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
 #undef GINT_WIDE_SHIFT_INLINE
 #undef GINT_WIDE_PARSE_INLINE
+#undef GINT_SMALL_DIV_INLINE
 #undef GINT_DETAIL_GCC_TUNED_POLICY
 #undef GINT_DETAIL_CLANG_TUNED_POLICY
 #undef GINT_DETAIL_AARCH64_ASM_POLICY

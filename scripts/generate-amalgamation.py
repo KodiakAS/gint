@@ -31,7 +31,7 @@ SOURCE_DIRECTORY = os.path.join("src", "gint")
 PROJECT_HEADER_MANIFEST = {
     "prelude.hpp": {"role": "core", "order": 0},
     "configuration.hpp": {"role": "core", "order": 10},
-    "primitives.hpp": {"role": "core", "order": 20},
+    "limb_ops.hpp": {"role": "core", "order": 20},
     "integer.hpp": {"role": "core", "order": 30},
     "standard.hpp": {"role": "core", "order": 40},
     "string_stream.hpp": {"role": "io", "order": 0},
