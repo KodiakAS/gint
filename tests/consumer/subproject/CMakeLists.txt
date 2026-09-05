@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 project(gint_subproject_consumer LANGUAGES CXX)
 
+if(GINT_COMPILER_CHECK)
+    include("${GINT_COMPILER_CHECK}")
+endif()
+
 if(NOT GINT_SOURCE_DIR)
     message(FATAL_ERROR "GINT_SOURCE_DIR is required")
 endif()

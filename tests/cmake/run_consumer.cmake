@@ -76,6 +76,11 @@ else()
     message(FATAL_ERROR "unknown consumer kind: ${GINT_CONSUMER_KIND}")
 endif()
 
+list(APPEND configure_args
+    -C "${GINT_BINARY_DIR}/consumer-toolchain.cmake"
+    "-DGINT_COMPILER_CHECK=${GINT_BINARY_DIR}/consumer-compiler-check.cmake"
+)
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${consumer_source}" -B "${consumer_build}" ${configure_args}
     RESULT_VARIABLE result

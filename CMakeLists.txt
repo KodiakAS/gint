@@ -152,6 +152,29 @@ if(GINT_BUILD_TESTS)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_cmake_compiler_contract.cmake
     )
 
+    # Snapshot the selected toolchain as a cache preload file. Bracket quoting
+    # preserves paths with spaces and list-valued architecture settings.
+    set(GINT_CONSUMER_TOOLCHAIN_VARIABLES
+        CMAKE_CXX_COMPILER CMAKE_CXX_COMPILER_ARG1 CMAKE_TOOLCHAIN_FILE
+        CMAKE_CXX_COMPILER_TARGET CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN
+        CMAKE_SYSROOT CMAKE_SYSROOT_COMPILE CMAKE_SYSROOT_LINK
+        CMAKE_OSX_SYSROOT CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
+    )
+    set(gint_consumer_toolchain "${CMAKE_CURRENT_BINARY_DIR}/consumer-toolchain.cmake")
+    file(WRITE "${gint_consumer_toolchain}" "# Generated consumer toolchain cache.\n")
+    foreach(variable IN LISTS GINT_CONSUMER_TOOLCHAIN_VARIABLES)
+        if(DEFINED ${variable})
+            file(APPEND "${gint_consumer_toolchain}"
+                "set(${variable} [==[${${variable}}]==] CACHE STRING \"Parent toolchain\" FORCE)\n")
+        endif()
+    endforeach()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/consumer-compiler-check.cmake"
+        "if(NOT CMAKE_CXX_COMPILER STREQUAL [==[${CMAKE_CXX_COMPILER}]==] OR\n"
+        "   NOT CMAKE_CXX_COMPILER_ID STREQUAL [==[${CMAKE_CXX_COMPILER_ID}]==] OR\n"
+        "   NOT CMAKE_CXX_COMPILER_VERSION STREQUAL [==[${CMAKE_CXX_COMPILER_VERSION}]==])\n"
+        "    message(FATAL_ERROR \"consumer compiler differs from parent toolchain\")\n"
+        "endif()\n")
+
     add_test(NAME consumer.subproject
         COMMAND ${CMAKE_COMMAND}
             -DGINT_CONSUMER_KIND=subproject
