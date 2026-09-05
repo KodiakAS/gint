@@ -69,7 +69,9 @@ paste 仅允许用于项目定义的配置 namespace 宏。会让源码图和扁
 `__BASE_FILE__`、`__FILE__`、`__FILE_NAME__`、`__INCLUDE_LEVEL__`、`__LINE__`、
 `__TIMESTAMP__` 同样不属于内部头方言。quoted include 必须是非空相对路径且不得
 包含空或 `.` 组件；`..` 只能在 `src/gint` 内沿真实存在且非符号链接的目录回退，不得逃出
-源树或穿越缺失/符号链接组件。路径按物理文件身份去重和判环，并拒绝 symlink、
+源树或穿越缺失/符号链接组件。内部 angle include 的识别覆盖 `./gint/...`、重复
+分隔符和 `..` 折叠后的等价路径，防止分发头残留对内部源树的依赖。
+路径按物理文件身份去重和判环，并拒绝 symlink、
 hardlink alias 与非精确大小写。普通模块按物理文件身份去重，fragment 保持判环但
 按 include site 展开。维护生成头需要 Python 3.5 或更高版本。
 

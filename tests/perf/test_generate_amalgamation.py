@@ -521,6 +521,37 @@ class GenerateAmalgamationTest(unittest.TestCase):
         ):
             AMALGAMATION.build_amalgamation(self.root)
 
+    def test_rejects_normalized_internal_angle_include(self):
+        self.write_bytes("src/gint/other.hpp", b"#pragma once\nstruct Other {};\n")
+        for spelling in (
+            "./gint/other.hpp",
+            "././gint/other.hpp",
+            "./gint//other.hpp",
+            "./gint/./other.hpp",
+            "gint/../gint/other.hpp",
+            "nested/../gint/other.hpp",
+        ):
+            with self.subTest(spelling=spelling):
+                self.write_bytes(
+                    "src/gint/gint.hpp",
+                    ('#pragma once\n#include "other.hpp"\n#include <' + spelling + '>\n').encode("ascii"),
+                )
+                with self.assertRaisesRegex(
+                    AMALGAMATION.AmalgamationError,
+                    "internal header must use a quoted include",
+                ):
+                    AMALGAMATION.build_amalgamation(self.root)
+
+    def test_preserves_normalized_external_angle_include(self):
+        self.write_bytes(
+            "src/gint/gint.hpp",
+            b"#pragma once\n#include <./vendor/format.hpp>\n",
+        )
+        self.assertEqual(
+            AMALGAMATION.build_amalgamation(self.root),
+            b"#include <./vendor/format.hpp>\n",
+        )
+
     def test_rejects_nested_internal_angle_include(self):
         self.write_bytes(
             "src/gint/gint.hpp", b'#pragma once\n#include "nested/a.hpp"\n'

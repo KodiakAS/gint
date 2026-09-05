@@ -13,6 +13,7 @@ import argparse
 import errno
 import hashlib
 import os
+import posixpath
 import re
 import stat
 import sys
@@ -617,7 +618,9 @@ class HeaderGraph(object):
         return (metadata.st_dev, metadata.st_ino)
 
     def is_internal_angle_include(self, include_path, including_header=None):
-        if include_path.startswith("gint/"):
+        # Include names use slash separators; classify equivalent spellings
+        # against the src include root before checking header-local candidates.
+        if include_path.startswith("gint/") or posixpath.normpath(include_path).startswith("gint/"):
             return True
         candidates = [os.path.join(self.source_directory, include_path)]
         if including_header is not None:
