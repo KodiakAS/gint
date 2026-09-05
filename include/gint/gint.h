@@ -4607,6 +4607,11 @@ public:
         // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
         if (std::is_same<Signed, unsigned>::value && rhs < 0)
             return lhs % integer(rhs);
+#if GINT_DETAIL_AARCH64_GCC
+        // Avoid carrying an unused quotient through the 256-bit native path.
+        if (limbs == 4)
+            return integer(lhs.mod_small(rhs));
+#endif
         integer q;
         signed_limb_type r = lhs.div_mod_small(rhs, q);
         return integer(r);
@@ -4676,6 +4681,10 @@ public:
         if (sizeof(T) <= sizeof(limb_type)
             && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
         {
+#if GINT_DETAIL_AARCH64_GCC
+            if (limbs == 4)
+                return integer(lhs.mod_small(static_cast<signed_limb_type>(rhs)));
+#endif
             integer q;
             signed_limb_type r = lhs.div_mod_small(static_cast<signed_limb_type>(rhs), q);
             return integer(r);
@@ -5071,6 +5080,21 @@ private:
     }
 
     GINT_FORCE_INLINE limb_type mod_small(limb_type div) const noexcept { return detail::limb_division<limbs>::mod_small(data_, div); }
+
+#if GINT_DETAIL_AARCH64_GCC
+    GINT_FORCE_INLINE signed_limb_type mod_small(signed_limb_type div) const noexcept
+    {
+        integer tmp = *this;
+        const bool lhs_neg = std::is_same<Signed, signed>::value && (tmp.data_[limbs - 1] >> 63);
+        if (lhs_neg)
+            negate_for_division(tmp);
+        limb_type abs_div = static_cast<limb_type>(div);
+        if (div < 0)
+            abs_div = limb_type(0) - abs_div;
+        const signed_limb_type rem = static_cast<signed_limb_type>(tmp.mod_small(abs_div));
+        return lhs_neg ? -rem : rem;
+    }
+#endif
 
     GINT_SMALL_DIV_INLINE signed_limb_type div_mod_small(signed_limb_type div, integer & quotient) const noexcept
     {
