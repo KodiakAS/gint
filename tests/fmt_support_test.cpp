@@ -102,8 +102,8 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_EQ(fmt::format("{:08c}", U128(65)), fmt::format("{:08c}", 65));
     EXPECT_EQ(fmt::format("{:L}", U128(42)), fmt::format("{:L}", 42u));
     EXPECT_EQ(fmt::format("{:Ld}", U128(42)), fmt::format("{:Ld}", 42u));
-    EXPECT_EQ(fmt::format("{:Lx}", U128(42)), fmt::format("{:Lx}", 42u));
-    EXPECT_EQ(fmt::format("{:#Lx}", U128(42)), fmt::format("{:#Lx}", 42u));
+    EXPECT_EQ(fmt::format("{:Lx}", U128(42)), "2a");
+    EXPECT_EQ(fmt::format("{:#Lx}", U128(42)), "0x2a");
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:{>8d}"), U128(42))), fmt::format_error);
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:999999999999999999999999999999999999d}"), U128(42))), fmt::format_error);
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:>{999999999999999999999999999999999999}}"), U128(42))), fmt::format_error);
@@ -135,7 +135,7 @@ TEST(fmt_support, format_signed_integer_base_specs)
     EXPECT_EQ(fmt::format("{:4c}", value), fmt::format("{:4c}", -42));
     EXPECT_EQ(fmt::format("{:L}", value), fmt::format("{:L}", -42));
     EXPECT_EQ(fmt::format("{:Ld}", value), fmt::format("{:Ld}", -42));
-    EXPECT_EQ(fmt::format("{:#Lx}", value), fmt::format("{:#Lx}", -42));
+    EXPECT_EQ(fmt::format("{:#Lx}", value), "-0x2a");
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:=8d}"), value)), fmt::format_error);
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:0=8d}"), value)), fmt::format_error);
 }
@@ -148,16 +148,16 @@ TEST(fmt_support, format_integer_locale_specs)
 
     EXPECT_EQ(fmt::format(locale, "{:L}", U128(1234567)), fmt::format(locale, "{:L}", 1234567u));
     EXPECT_EQ(fmt::format(locale, "{:Ld}", U128(1234567)), fmt::format(locale, "{:Ld}", 1234567u));
-    EXPECT_EQ(fmt::format(locale, "{:Lx}", U128(0x12d687)), fmt::format(locale, "{:Lx}", 0x12d687u));
-    EXPECT_EQ(fmt::format(locale, "{:#Lx}", U128(0x12d687)), fmt::format(locale, "{:#Lx}", 0x12d687u));
-    EXPECT_EQ(fmt::format(locale, "{:Lo}", U128(01234567)), fmt::format(locale, "{:Lo}", 01234567u));
-    EXPECT_EQ(fmt::format(locale, "{:Lb}", U128(0x12d687)), fmt::format(locale, "{:Lb}", 0x12d687u));
+    EXPECT_EQ(fmt::format(locale, "{:Lx}", U128(0x12d687)), "12d,687");
+    EXPECT_EQ(fmt::format(locale, "{:#Lx}", U128(0x12d687)), "0x12d,687");
+    EXPECT_EQ(fmt::format(locale, "{:Lo}", U128(01234567)), "1,234,567");
+    EXPECT_EQ(fmt::format(locale, "{:Lb}", U128(0x12d687)), "100,101,101,011,010,000,111");
     EXPECT_EQ(fmt::format(locale, "{:014L}", U128(1234567)), fmt::format(locale, "{:014L}", 1234567u));
     EXPECT_EQ(fmt::format(locale, "{:014L}", S128(-1234567)), fmt::format(locale, "{:014L}", -1234567));
     EXPECT_EQ(fmt::format(locale, "{:+014L}", S128(1234567)), fmt::format(locale, "{:+014L}", 1234567));
     EXPECT_EQ(fmt::format(locale, "{: 014L}", S128(1234567)), fmt::format(locale, "{: 014L}", 1234567));
-    EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(0x12d687)), fmt::format(locale, "{:#014Lx}", 0x12d687));
-    EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(-0x12d687)), fmt::format(locale, "{:#014Lx}", -0x12d687));
+    EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(0x12d687)), "000000x12d,687");
+    EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(-0x12d687)), "0000-0x12d,687");
 }
 
 TEST(fmt_support, utf8_fill_matches_native)
@@ -188,4 +188,35 @@ TEST(fmt_support, utf8_fill_zero_flag_and_named_width)
         fmt::format(FMT_STRING("{:é>{width}}"), gint::Int128(42), fmt::arg("width", 6)),
         fmt::format(FMT_STRING("{:é>{width}}"), 42, fmt::arg("width", 6)));
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:\xf0\x9f"), gint::Int128(42))), fmt::format_error);
+}
+
+TEST(fmt_support, localized_nondecimal_contract)
+{
+    const std::locale locale(std::locale::classic(), new comma_numpunct);
+    struct test_case
+    {
+        const char * spec;
+        int value;
+        const char * expected;
+    };
+    const test_case cases[] = {
+        {"{:Lx}", 0x1234567, "1,234,567"},
+        {"{:#LX}", -0xabcdef, "-0XABC,DEF"},
+        {"{:#Lo}", 01234567, "01,234,567"},
+        {"{:#LB}", 0x123, "0B100,100,011"},
+        {"{:#Lx}", 0, "0x0"},
+        {"{:#Lo}", 0, "0"},
+        {"{:界>14Lx}", 0x1234567, "界界界界界1,234,567"},
+    };
+    // fmt < 10.2 either ignores grouping in non-decimal formats or formats
+    // them as decimal (fmtlib/fmt#3693, fixed by #3750 in 10.2.0).
+    // Keep independent expected strings on every version, including old fmt.
+    for (const test_case & item : cases)
+    {
+        SCOPED_TRACE(item.spec);
+        EXPECT_EQ(fmt::format(locale, fmt::runtime(item.spec), gint::Int128(item.value)), item.expected);
+#if FMT_VERSION >= 100200
+        EXPECT_EQ(fmt::format(locale, fmt::runtime(item.spec), item.value), item.expected);
+#endif
+    }
 }

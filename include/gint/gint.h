@@ -6256,11 +6256,7 @@ struct formatter<gint::integer<Bits, Signed>>
                 prefix = "-";
         }
 
-        const bool use_localized_digits = localized && presentation != 'c'
-#        if FMT_VERSION < 120000
-            && base == 10
-#        endif
-            ;
+        const bool use_localized_digits = localized && presentation != 'c';
         if (use_localized_digits)
             apply_locale_grouping(digits, ctx.locale());
 
