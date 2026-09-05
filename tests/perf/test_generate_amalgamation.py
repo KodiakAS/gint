@@ -517,7 +517,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             AMALGAMATION.AmalgamationError,
-            "internal include path must not traverse symbolic-link components",
+            "source tree must not contain symbolic-link directories",
         ):
             AMALGAMATION.build_amalgamation(self.root)
 
@@ -543,14 +543,13 @@ class GenerateAmalgamationTest(unittest.TestCase):
                     AMALGAMATION.build_amalgamation(self.root)
 
     def test_preserves_normalized_external_angle_include(self):
-        self.write_bytes(
-            "src/gint/gint.hpp",
-            b"#pragma once\n#include <./vendor/format.hpp>\n",
-        )
-        self.assertEqual(
-            AMALGAMATION.build_amalgamation(self.root),
+        for directive in (
             b"#include <./vendor/format.hpp>\n",
-        )
+            b"#include<vendor//format.hpp>// comment\n",
+        ):
+            with self.subTest(directive=directive):
+                self.write_bytes("src/gint/gint.hpp", b"#pragma once\n" + directive)
+                self.assertEqual(AMALGAMATION.build_amalgamation(self.root), directive)
 
     def test_rejects_nested_internal_angle_include(self):
         self.write_bytes(
@@ -663,6 +662,151 @@ class GenerateAmalgamationTest(unittest.TestCase):
                     AMALGAMATION.AmalgamationError, expected_error
                 ):
                     AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_every_spliced_digraph(self):
+        self.write_bytes("src/gint/other.hpp", b"#pragma once\nstruct Other {};\n")
+        for token in (b"<:", b":>", b"<%", b"%>", b"%:", b"%:%:"):
+            for split in range(1, len(token)):
+                with self.subTest(token=token, split=split):
+                    spelling = token[:split] + b"\\\n" + token[split:]
+                    self.write_bytes(
+                        "src/gint/gint.hpp",
+                        b'#pragma once\n#include "other.hpp"\n'
+                        + spelling + b'include "other.hpp"\n',
+                    )
+                    with self.assertRaisesRegex(AMALGAMATION.AmalgamationError, "digraph"):
+                        AMALGAMATION.build_amalgamation(self.root)
+
+    def test_tracks_conditional_directive_tokens_without_whitespace(self):
+        self.write_bytes("src/gint/other.hpp", b"#pragma once\nstruct Other {};\n")
+        for start in (b"#if(0)", b"#if!defined(ENABLED)", b"#if +0", b"#ifdef ENABLED// comment"):
+            for end in (b"#endif", b"#endif// comment", b"#endif\t// comment"):
+                with self.subTest(start=start, end=end):
+                    self.write_bytes(
+                        "src/gint/gint.hpp",
+                        b'#pragma once\n' + start + b'\n#include "other.hpp"\n'
+                        + end + b'\n#include "other.hpp"\n',
+                    )
+                    with self.assertRaisesRegex(
+                        AMALGAMATION.AmalgamationError, "internal include must be unconditional"
+                    ):
+                        AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_malformed_conditional_structure(self):
+        for body in (
+            b"#if 1\n#else\n#else// duplicate\n#endif\n",
+            b"#if 1\n#else\n#elif(1)\n#endif\n",
+            b"#endif// unmatched\n",
+            b"#if\n#endif\n",
+            b"#ifdef X Y\n#endif\n",
+            b"#if 1\n#else extra\n#endif\n",
+            b"#if 1\n#endif extra\n",
+        ):
+            with self.subTest(body=body):
+                self.write_bytes("src/gint/gint.hpp", b"#pragma once\n" + body)
+                with self.assertRaises(AMALGAMATION.AmalgamationError):
+                    AMALGAMATION.build_amalgamation(self.root)
+
+    def test_preserves_balanced_conditional_tokens_and_comments(self):
+        body = (
+            b"#if(0)\nconstexpr int value = 0;\n"
+            b"#elif!defined(ENABLED)// branch\nconstexpr int value = 1;\n"
+            b"#else// fallback\nconstexpr int value = 2;\n#endif// end\n"
+        )
+        self.write_bytes("src/gint/gint.hpp", b"#pragma once\n" + body)
+        self.assertEqual(AMALGAMATION.build_amalgamation(self.root), body)
+
+    def test_rejects_additional_noncanonical_once_and_unknown_pragmas(self):
+        for directive in (
+            b"#pragma once// extra\n",
+            b"#pragma once // extra\n",
+            b"#pragma once extra\n",
+            b"#pragma GCC system_header\n",
+            b"#pragma clang system_header\n",
+            b"#pragma GCC poison name\n",
+        ):
+            with self.subTest(directive=directive):
+                self.write_bytes("src/gint/gint.hpp", b"#pragma once\n" + directive)
+                with self.assertRaisesRegex(AMALGAMATION.AmalgamationError, "pragma"):
+                    AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_file_context_builtins_and_aliases_after_splicing(self):
+        for name in (
+            b"__builtin_LINE", b"__builtin_COLUMN", b"__builtin_FILE",
+            b"__builtin_FILE_NAME", b"__builtin_source_location",
+        ):
+            for split in range(1, len(name)):
+                with self.subTest(name=name, split=split):
+                    self.write_bytes(
+                        "src/gint/gint.hpp",
+                        b"#pragma once\n#define LOCATION "
+                        + name[:split] + b"\\\n" + name[split:] + b"\n",
+                    )
+                    with self.assertRaisesRegex(AMALGAMATION.AmalgamationError, "file-context"):
+                        AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_case_variants_of_reserved_internal_angle_namespace(self):
+        self.write_bytes("src/gint/other.hpp", b"#pragma once\nstruct Other {};\n")
+        for spelling in (b"GINT/other.hpp", b"./Gint/other.hpp", b"nested/../gInT/other.hpp"):
+            with self.subTest(spelling=spelling):
+                self.write_bytes(
+                    "src/gint/gint.hpp",
+                    b'#pragma once\n#include "other.hpp"\n#include <' + spelling + b'>\n',
+                )
+                with self.assertRaisesRegex(AMALGAMATION.AmalgamationError, "quoted include"):
+                    AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_external_alias_to_internal_header_identity(self):
+        self.write_bytes("src/gint/other.hpp", b"#pragma once\nstruct Other {};\n")
+        os.link(os.path.join(self.root, "src", "gint", "other.hpp"), os.path.join(self.root, "alias.hpp"))
+        self.write_bytes(
+            "src/gint/gint.hpp",
+            b'#pragma once\n#include "other.hpp"\n#include <../alias.hpp>\n',
+        )
+        with self.assertRaisesRegex(AMALGAMATION.AmalgamationError, "quoted include"):
+            AMALGAMATION.build_amalgamation(self.root)
+
+    def test_rejects_split_forbidden_forms_with_source_locations(self):
+        for token, message in (
+            (b"/*", "block comments"),
+            (b"*/", "block comments"),
+            (b"_Pragma", "pragma operators"),
+            (b"__pragma", "pragma operators"),
+            (b"__has_include", "file-search"),
+            (b"__FILE__", "file-context"),
+            (b"__LINE__", "file-context"),
+            (b"R\"", "raw string"),
+        ):
+            for split in range(1, len(token)):
+                with self.subTest(token=token, split=split):
+                    self.write_bytes(
+                        "src/gint/gint.hpp",
+                        b"#pragma once\n\n#define FORBIDDEN "
+                        + token[:split] + b"\\\n" + token[split:] + b"\n",
+                    )
+                    with self.assertRaisesRegex(
+                        AMALGAMATION.AmalgamationError, message + r".*src/gint/gint.hpp:3"
+                    ):
+                        AMALGAMATION.build_amalgamation(self.root)
+
+    def test_production_graph_rejects_lexical_bypasses(self):
+        shutil.rmtree(os.path.join(self.root, "src", "gint"))
+        shutil.copytree(os.path.join(ROOT, "src", "gint"), os.path.join(self.root, "src", "gint"))
+        core_path = os.path.join(self.root, "src", "gint", "core.hpp")
+        with open(core_path, "rb") as source:
+            original = source.read()
+        for replacement in (
+            b'#if(0)\n#include "standard.hpp"\n#endif// end\n#include "standard.hpp"',
+            b'#include "standard.hpp"\n%\\\n:include "standard.hpp"',
+            b'#include "standard.hpp"\n#pragma once// extra',
+            b'#include "standard.hpp"\ninline int location() { return __builtin_LINE(); }',
+        ):
+            with self.subTest(replacement=replacement):
+                self.write_bytes(
+                    "src/gint/core.hpp", original.replace(b'#include "standard.hpp"', replacement)
+                )
+                with self.assertRaises(AMALGAMATION.AmalgamationError):
+                    AMALGAMATION.build_project_amalgamation(self.root)
 
     def test_allows_only_the_project_config_namespace_token_paste(self):
         content = (

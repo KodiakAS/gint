@@ -158,6 +158,56 @@ if(GINT_BUILD_TESTS)
     include(GoogleTest)
     include(CheckCXXCompilerFlag)
 
+    # Generator/compiler agreement is a maintainer test. Compile both forms as
+    # ordinary targets so compiler, target, sysroot, launcher and flags are the
+    # ones configured for this build. Installed/subproject consumers with tests
+    # disabled continue to have no Python or generation dependency.
+    find_package(Python3 3.5 REQUIRED COMPONENTS Interpreter)
+    set(GINT_AMALGAMATION_FIXTURE "${CMAKE_CURRENT_SOURCE_DIR}/tests/amalgamation/fixture")
+    set(GINT_AMALGAMATION_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/amalgamation-fixture/include")
+    set(GINT_AMALGAMATION_HEADER "${GINT_AMALGAMATION_INCLUDE}/gint/gint.hpp")
+    add_custom_command(
+        OUTPUT "${GINT_AMALGAMATION_HEADER}"
+        COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/amalgamation/generate_fixture.py"
+            --output-dir "${GINT_AMALGAMATION_INCLUDE}"
+        DEPENDS
+            scripts/generate-amalgamation.py
+            tests/amalgamation/generate_fixture.py
+            "${GINT_AMALGAMATION_FIXTURE}/src/gint/gint.hpp"
+            "${GINT_AMALGAMATION_FIXTURE}/src/gint/shared.hpp"
+            "${GINT_AMALGAMATION_FIXTURE}/src/gint/left.hpp"
+            "${GINT_AMALGAMATION_FIXTURE}/src/gint/right.hpp"
+        VERBATIM
+    )
+    add_custom_target(gint_amalgamation_fixture DEPENDS "${GINT_AMALGAMATION_HEADER}")
+    foreach(branch 0 1)
+        foreach(kind graph flat)
+            set(target "gint_amalgamation_${kind}_${branch}")
+            add_executable(${target} tests/amalgamation/compiler_contract.cpp)
+            set_target_properties(${target} PROPERTIES
+                CXX_STANDARD 11
+                CXX_STANDARD_REQUIRED YES
+                CXX_EXTENSIONS NO
+            )
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+            target_compile_definitions(${target} PRIVATE "FIXTURE_BRANCH=${branch}")
+            if(kind STREQUAL "graph")
+                target_include_directories(${target} PRIVATE "${GINT_AMALGAMATION_FIXTURE}/src")
+            else()
+                # The flat target sees no internal source include directory.
+                target_include_directories(${target} PRIVATE "${GINT_AMALGAMATION_INCLUDE}")
+                add_dependencies(${target} gint_amalgamation_fixture)
+            endif()
+        endforeach()
+        add_test(NAME generator.compiler_equivalence_${branch}
+            COMMAND ${CMAKE_COMMAND}
+                "-DGINT_GRAPH_EXECUTABLE=$<TARGET_FILE:gint_amalgamation_graph_${branch}>"
+                "-DGINT_FLAT_EXECUTABLE=$<TARGET_FILE:gint_amalgamation_flat_${branch}>"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_amalgamation_equivalence.cmake"
+        )
+    endforeach()
+
     add_test(
         NAME consumer.internal_headers
         COMMAND ${CMAKE_COMMAND}

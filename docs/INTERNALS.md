@@ -56,24 +56,52 @@ pass-local 环境的 frontier 模块直接声明 lifecycle 依赖：
 core definitions 已完成后，IO definition pass 必须通过 `io.hpp` 或 `gint.hpp` 建立，
 直接包含这两个 IO frontier 会给出明确诊断。
 
-生成器将内部源视为受限、fail-closed 的 C++ 头文件方言，而不是尝试实现完整
-preprocessor：普通模块必须以唯一、规范的 `#pragma once` 开始；只有 manifest 中
+### 生成器输入与处理契约
+
+生成器处理受限、fail-closed 的 C++ 头文件方言。普通模块必须以唯一、规范的
+`#pragma once` 开始；只有 manifest 中
 两个 definition-pass fragment 可改为以唯一、规范的
 `// GINT_REENTRANT_DEFINITION_PASS` 开始，并在每个 include site 重放。本地 quoted
 include 只能出现在顶层无条件上下文；条件/宏/内部 angle include、`#import`、
 `#include_next`、`__has_include`、`__has_include_next`、`__has_embed`、
 module/import 控制行、块注释、raw string、pragma operator、trigraph、全部六种
 digraph token（`<:`、`:>`、`<%`、`%>`、`%:`、`%:%:`）和
-非规范续行都会使生成失败。危险预处理运算符即使通过宏别名出现也会被拒绝；token
+非规范续行都会使生成失败。禁止形式按字节保守检查，注释和字符串中的相同拼写也
+受限制。危险预处理运算符即使通过宏别名出现也会被拒绝；token
 paste 仅允许用于项目定义的配置 namespace 宏。会让源码图和扁平头产生不同值的
 `__BASE_FILE__`、`__FILE__`、`__FILE_NAME__`、`__INCLUDE_LEVEL__`、`__LINE__`、
-`__TIMESTAMP__` 同样不属于内部头方言。quoted include 必须是非空相对路径且不得
+`__TIMESTAMP__` 和 `__builtin_LINE`、`__builtin_COLUMN`、`__builtin_FILE`、
+`__builtin_FILE_NAME`、`__builtin_source_location` 同样不属于内部头方言。
+除规范的 `#pragma once` 外，只允许 GCC/Clang 的 `diagnostic push/pop` 和
+`diagnostic ignored "-W..."`；`system_header` 等依赖文件边界的 pragma 不受支持。
+quoted include 必须是非空相对路径且不得
 包含空或 `.` 组件；`..` 只能在 `src/gint` 内沿真实存在且非符号链接的目录回退，不得逃出
 源树或穿越缺失/符号链接组件。内部 angle include 的识别覆盖 `./gint/...`、重复
-分隔符和 `..` 折叠后的等价路径，防止分发头残留对内部源树的依赖。
+分隔符和 `..` 折叠后的等价路径；`gint` include 命名空间的大小写变体均视为内部
+引用。检查同时覆盖 `src`、`src/gint`、包含者目录下的候选路径及指向已发现内部头的
+物理文件别名。外部 angle include 保留原拼写。include 路径不得含反斜杠、空白或
+控制字符，防止分发头残留对内部源树的依赖。
 路径按物理文件身份去重和判环，并拒绝 symlink、
 hardlink alias 与非精确大小写。普通模块按物理文件身份去重，fragment 保持判环但
 按 include site 展开。维护生成头需要 Python 3.5 或更高版本。
+
+处理阶段依次为：
+
+1. 检查原始 LF 字节和 trigraph，按反斜杠换行拼接逻辑行，保留原始字节与起始行号。
+2. 对完整逻辑行统一检查禁止形式；指令名只解析一次，产生共享的指令记录。
+3. 依据指令记录维护条件栈、解析 include 和校验 pragma。`#if(0)`、
+   `#elif!defined(X)`、`#else// ...`、`#endif// ...` 均按指令处理；重复 else、
+   else 之后的 elif、非法参数和未闭合条件直接报错。任何条件臂内的本地 include
+   都拒绝展开。
+4. 按源码清单、路径身份与角色约束展开依赖，完成后核对 fragment 次数和位置以及
+   全图可达性；输出检查使用同一份解析规则，禁止遗留内部 include、pragma once
+   或 fragment marker。
+
+这套语法层不计算条件表达式，也不实现完整 C++ 宏展开。C++ 语义由编译器门禁验证。
+`generator.compiler_equivalence_0/1` 将同一个依赖图和实际生成的独立头编译为普通
+CMake targets，使用当前配置的编译器、target、sysroot 和 flags，对照声明、条件分支、
+宏清理与运行结果。flat target 没有内部源码 include 路径。Python 测试覆盖拒绝矩阵
+和生产 manifest 下的源码图变体，完整 consumer 测试覆盖 core 到 IO 的两阶段升级。
 
 ## 算法结构
 

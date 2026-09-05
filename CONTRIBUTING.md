@@ -22,7 +22,8 @@ make test
 `#pragma once`，可重复包含的 definition-pass fragment 仅限文档规定的 lifecycle
 边界。
 
-测试构建需要 CMake、GoogleTest 和 `fmt`。可复现的 Linux 依赖与编译器环境见
+测试构建需要 CMake、GoogleTest、`fmt` 和 Python 3.5+；Python 用于生成器与编译器
+对照测试，普通消费者不需要它。可复现的 Linux 依赖与编译器环境见
 [验证环境](docs/VALIDATION_ENVIRONMENTS.md)。
 
 ## 按风险选择验证

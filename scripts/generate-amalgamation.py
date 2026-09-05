@@ -10,6 +10,7 @@ small and project-specific; it does not copy third-party generator code.
 from __future__ import print_function
 
 import argparse
+from collections import namedtuple
 import errno
 import hashlib
 import os
@@ -68,43 +69,24 @@ VALID_HEADER_KINDS = frozenset(("fragment", "module"))
 HEADER_POLICY_FIELDS = frozenset(("kind", "order", "role"))
 FRAGMENT_CONTRACT_FIELDS = frozenset(("must_be_last", "parents"))
 
-INCLUDE_RE = re.compile(
-    br'^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*"([^"\r\n]*)"[ \t\v\f]*(?://[^\r\n]*)?\n$'
-)
-ANGLE_INCLUDE_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*<([^>\r\n]+)>[ \t\v\f]*(?://[^\r\n]*)?\n$"
-)
-ANY_INCLUDE_RE = re.compile(br"^[ \t\v\f]*#[ \t\v\f]*include(?:[ \t\v\f]|$)")
+HORIZONTAL_SPACE = b" \t\v\f"
+QUOTED_HEADER_RE = re.compile(br'^"([^"\r\n]*)"[ \t\v\f]*(?://[^\r\n]*)?$')
+ANGLE_HEADER_RE = re.compile(br"^<([^>\r\n]+)>[ \t\v\f]*(?://[^\r\n]*)?$")
 PRAGMA_ONCE_RE = re.compile(
     br"^[ \t\v\f]*#[ \t\v\f]*pragma[ \t\v\f]+once[ \t\v\f]*\n$"
 )
-PRAGMA_ONCE_LIKE_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*pragma[ \t\v\f]+once(?:[ \t\v\f]|$)"
+DIAGNOSTIC_PRAGMA_RE = re.compile(
+    br'^(?:GCC|clang)[ \t\v\f]+diagnostic[ \t\v\f]+'
+    br'(?:(?:push|pop)|ignored[ \t\v\f]+"-W[A-Za-z_0-9-]+")$'
 )
-QUOTED_INCLUDE_RE = re.compile(br'^[ \t\v\f]*#[ \t\v\f]*include[ \t\v\f]*"')
-CONDITIONAL_START_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*(?:if|ifdef|ifndef)(?:[ \t\v\f]|$)"
-)
-CONDITIONAL_BRANCH_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*(?:elif|else)(?:[ \t\v\f]|$)"
-)
-CONDITIONAL_END_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*endif(?:[ \t\v\f]|$)"
-)
-PREPROCESSOR_DIRECTIVE_RE = re.compile(br"^[ \t\v\f]*#")
-DIRECTIVE_NAME_RE = re.compile(br"^[ \t\v\f]*#[ \t\v\f]*([A-Za-z_][A-Za-z_0-9]*)")
-DEFINE_DIRECTIVE_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*define(?:[ \t\v\f]|$)"
-)
-UNSUPPORTED_INCLUDE_DIRECTIVE_RE = re.compile(
-    br"^[ \t\v\f]*#[ \t\v\f]*(?:import|include_next)(?:[ \t\v\f]|$)"
-)
+IDENTIFIER_RE = re.compile(br"[A-Za-z_][A-Za-z_0-9]*")
 FILE_SEARCH_OPERATOR_RE = re.compile(br"\b(?:__has_embed|__has_include|__has_include_next)\b")
 TRIGRAPH_RE = re.compile(br"\?\?[=/'()!<>-]")
 DIGRAPH_RE = re.compile(br"(?:%:%:|<:|:>|<%|%>|%:)")
 PRAGMA_OPERATOR_RE = re.compile(br"\b(?:_Pragma|__pragma)\b")
 FILE_CONTEXT_MACRO_RE = re.compile(
-    br"\b(?:__BASE_FILE__|__FILE__|__FILE_NAME__|__INCLUDE_LEVEL__|__LINE__|__TIMESTAMP__)\b"
+    br"\b(?:__BASE_FILE__|__FILE__|__FILE_NAME__|__INCLUDE_LEVEL__|__LINE__|__TIMESTAMP__"
+    br"|__builtin_(?:LINE|COLUMN|FILE|FILE_NAME|source_location))\b"
 )
 TOKEN_PASTE_RE = re.compile(br"(?:##|%:%:)")
 ALLOWED_TOKEN_PASTE_RE = re.compile(
@@ -142,7 +124,7 @@ class AmalgamationError(ValueError):
 
 
 def logical_line_groups(content, description):
-    """Return (line number, raw bytes, logical bytes, was spliced) groups."""
+    """Normalize translation-phase line splices, retaining original bytes/locations."""
     whitespace_splice = WHITESPACE_SPLICE_RE.search(content)
     if whitespace_splice:
         line_number = content.count(b"\n", 0, whitespace_splice.start()) + 1
@@ -151,38 +133,17 @@ def logical_line_groups(content, description):
                 description, line_number
             )
         )
-    block_comment = content.find(b"/*")
-    block_comment_end = content.find(b"*/")
-    comment_offsets = [offset for offset in (block_comment, block_comment_end) if offset != -1]
-    if comment_offsets:
-        comment_offset = min(comment_offsets)
-        line_number = content.count(b"\n", 0, comment_offset) + 1
-        raise AmalgamationError(
-            "block comments are not supported in internal headers at {0}:{1}".format(
-                description, line_number
-            )
-        )
-    pragma_operator = PRAGMA_OPERATOR_RE.search(content)
-    if pragma_operator:
-        line_number = content.count(b"\n", 0, pragma_operator.start()) + 1
-        raise AmalgamationError(
-            "pragma operators are not supported in internal headers at {0}:{1}".format(
-                description, line_number
-            )
-        )
+    # Trigraph replacement precedes line splicing in the supported C++11
+    # translation model. Reject it before treating backslash-newline pairs.
     trigraph = TRIGRAPH_RE.search(content)
     if trigraph:
         line_number = content.count(b"\n", 0, trigraph.start()) + 1
         raise AmalgamationError(
             "trigraphs are not supported at {0}:{1}".format(description, line_number)
         )
-    digraph = DIGRAPH_RE.search(content)
-    if digraph:
-        line_number = content.count(b"\n", 0, digraph.start()) + 1
-        raise AmalgamationError(
-            "digraphs are not supported at {0}:{1}".format(description, line_number)
-        )
-    lines = content.splitlines(True)
+    # Only LF is a physical line boundary. Vertical tab/form feed are C++
+    # horizontal whitespace and must not split a preprocessing directive.
+    lines = [line + b"\n" for line in content.split(b"\n")[:-1]]
     groups = []
     index = 0
     while index < len(lines):
@@ -204,74 +165,172 @@ def logical_line_groups(content, description):
             index += 1
             break
         logical_line = b"".join(logical_parts)
-        if b"/*" in logical_line or b"*/" in logical_line:
-            raise AmalgamationError(
-                "block comments are not supported in internal headers at {0}:{1}".format(
-                    description, start_line
-                )
-            )
-        if RAW_STRING_RE.search(logical_line):
-            raise AmalgamationError(
-                "raw string literals are not supported in internal headers at {0}:{1}".format(
-                    description, start_line
-                )
-            )
-        if FILE_SEARCH_OPERATOR_RE.search(logical_line):
-            raise AmalgamationError(
-                "file-search preprocessing operators are not supported at {0}:{1}".format(
-                    description, start_line
-                )
-            )
-        if FILE_CONTEXT_MACRO_RE.search(logical_line):
-            raise AmalgamationError(
-                "file-context predefined macros are not supported at {0}:{1}".format(
-                    description, start_line
-                )
-            )
-        if TOKEN_PASTE_RE.search(logical_line) and not ALLOWED_TOKEN_PASTE_RE.match(logical_line):
-            raise AmalgamationError(
-                "token-pasting operators are not supported at {0}:{1}".format(
-                    description, start_line
-                )
-            )
-        if MODULE_CONTROL_LINE_RE.match(logical_line):
-            raise AmalgamationError(
-                "module control lines are not supported in internal headers at {0}:{1}".format(
-                    description, start_line
-                )
-            )
-        if PRAGMA_OPERATOR_RE.search(logical_line):
-            raise AmalgamationError(
-                "pragma operators are not supported in internal headers at {0}:{1}".format(
-                    description, start_line
-                )
-            )
         groups.append((start_line, b"".join(raw_lines), logical_line, len(raw_lines) != 1))
     return groups
 
 
-def validate_directive_spelling(logical_line, was_spliced, description, line_number):
-    if not PREPROCESSOR_DIRECTIVE_RE.match(logical_line):
-        return
-    if UNSUPPORTED_INCLUDE_DIRECTIVE_RE.match(logical_line):
-        raise AmalgamationError(
-            "#import and #include_next are not supported at {0}:{1}".format(
-                description, line_number
-            )
-        )
-    directive_name = DIRECTIVE_NAME_RE.match(logical_line)
-    if not directive_name or directive_name.group(1) not in ALLOWED_DIRECTIVES:
-        raise AmalgamationError(
-            "unsupported preprocessing directive at {0}:{1}".format(
-                description, line_number
-            )
-        )
-    if was_spliced and not DEFINE_DIRECTIVE_RE.match(logical_line):
-        raise AmalgamationError(
-            "line-spliced preprocessing directive is not supported at {0}:{1}".format(
-                description, line_number
-            )
-        )
+FORBIDDEN_LOGICAL_FORMS = (
+    (re.compile(br"/\*|\*/"), "block comments are not supported in internal headers"),
+    (TRIGRAPH_RE, "trigraph spellings are not supported"),
+    (DIGRAPH_RE, "digraphs are not supported"),
+    (RAW_STRING_RE, "raw string literals are not supported in internal headers"),
+    (FILE_SEARCH_OPERATOR_RE, "file-search preprocessing operators are not supported"),
+    (FILE_CONTEXT_MACRO_RE, "file-context predefined macros and builtins are not supported"),
+    (PRAGMA_OPERATOR_RE, "pragma operators are not supported in internal headers"),
+    (MODULE_CONTROL_LINE_RE, "module control lines are not supported in internal headers"),
+)
+
+
+def reject_at(message, description, line_number):
+    raise AmalgamationError("{0} at {1}:{2}".format(message, description, line_number))
+
+
+def validate_logical_line(logical_line, description, line_number):
+    # This is a deliberately conservative byte-level dialect: forbidden forms
+    # are also rejected in comments/literals. Apply every token restriction
+    # after splicing so split spellings and unsplit spellings have one policy.
+    for pattern, message in FORBIDDEN_LOGICAL_FORMS:
+        if pattern.search(logical_line):
+            reject_at(message, description, line_number)
+    if TOKEN_PASTE_RE.search(logical_line) and not ALLOWED_TOKEN_PASTE_RE.match(logical_line):
+        reject_at("token-pasting operators are not supported", description, line_number)
+
+
+def without_line_comment(text):
+    """Remove a trailing // comment without interpreting // inside a literal."""
+    quote = None
+    index = 0
+    while index < len(text):
+        char = text[index:index + 1]
+        if quote is not None:
+            if char == b"\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in (b'"', b"'"):
+            quote = char
+        elif text[index:index + 2] == b"//":
+            return text[:index]
+        index += 1
+    return text
+
+
+Directive = namedtuple("Directive", "name argument include_kind include_path")
+
+
+class SourceLine(namedtuple("SourceLineBase", "number raw logical was_spliced directive")):
+    __slots__ = ()
+
+    @property
+    def is_effective(self):
+        text = self.logical.strip()
+        return bool(text) and not text.startswith(b"//")
+
+    @property
+    def is_once(self):
+        return self.directive is not None and self.directive.name == b"pragma" and self.directive.argument == b"once"
+
+
+def parse_directive(logical_line, was_spliced, description, line_number):
+    text = logical_line.lstrip(HORIZONTAL_SPACE)
+    if not text.startswith(b"#"):
+        return None
+    text = text[1:].lstrip(HORIZONTAL_SPACE)
+    match = IDENTIFIER_RE.match(text)
+    if not match:
+        reject_at("unsupported preprocessing directive", description, line_number)
+    name = match.group()
+    if name in (b"import", b"include_next"):
+        reject_at("#import and #include_next are not supported", description, line_number)
+    if name not in ALLOWED_DIRECTIVES:
+        reject_at("unsupported preprocessing directive", description, line_number)
+    if was_spliced and name != b"define":
+        reject_at("line-spliced preprocessing directive is not supported", description, line_number)
+
+    argument = text[match.end():].rstrip(b"\n").lstrip(HORIZONTAL_SPACE)
+    if name == b"include":
+        # Header names form their own preprocessing token. In particular, //
+        # inside <...> is part of the path, not a line-comment delimiter.
+        quoted = QUOTED_HEADER_RE.match(argument)
+        angle = ANGLE_HEADER_RE.match(argument)
+        if not quoted and not angle:
+            reject_at("unsupported include syntax", description, line_number)
+        path_bytes = (quoted or angle).group(1)
+        if b"\\" in path_bytes or any(byte <= 32 or byte == 127 for byte in bytearray(path_bytes)):
+            reject_at("unsupported include path spelling", description, line_number)
+        try:
+            path = path_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            reject_at("include path is not UTF-8", description, line_number)
+        return Directive(name, argument, "quoted" if quoted else "angle", path)
+
+    argument = without_line_comment(argument).strip(HORIZONTAL_SPACE)
+    if name in (b"ifdef", b"ifndef", b"undef"):
+        identifier = IDENTIFIER_RE.match(argument)
+        if not identifier or identifier.end() != len(argument):
+            reject_at("directive requires exactly one identifier", description, line_number)
+    elif name in (b"if", b"elif"):
+        if not argument:
+            reject_at("conditional directive requires an expression", description, line_number)
+    elif name in (b"else", b"endif"):
+        if argument:
+            reject_at("unexpected tokens after conditional directive", description, line_number)
+    elif name == b"define":
+        if not IDENTIFIER_RE.match(argument):
+            reject_at("macro definition requires an identifier", description, line_number)
+    elif name == b"pragma":
+        if argument == b"once":
+            if not PRAGMA_ONCE_RE.match(logical_line):
+                reject_at("unsupported #pragma once syntax; expected canonical #pragma once", description, line_number)
+        elif not DIAGNOSTIC_PRAGMA_RE.match(argument):
+            reject_at("unsupported pragma; only once and GCC/clang diagnostic pragmas are supported", description, line_number)
+    return Directive(name, argument, None, None)
+
+
+def parse_source(content, description):
+    """Produce the only directive representation consumed by graph/output checks."""
+    lines = []
+    for number, raw, logical, spliced in logical_line_groups(content, description):
+        validate_logical_line(logical, description, number)
+        directive = parse_directive(logical, spliced, description, number)
+        lines.append(SourceLine(number, raw, logical, spliced, directive))
+    return lines
+
+
+class ConditionalState(object):
+    """Track syntax only; local includes are forbidden in every conditional arm."""
+
+    def __init__(self):
+        self.else_seen = []
+
+    @property
+    def active(self):
+        return bool(self.else_seen)
+
+    def consume(self, line, description):
+        if line.directive is None:
+            return False
+        name = line.directive.name
+        if name in (b"if", b"ifdef", b"ifndef"):
+            self.else_seen.append(False)
+        elif name in (b"elif", b"else"):
+            if not self.else_seen:
+                reject_at("unmatched conditional branch", description, line.number)
+            if self.else_seen[-1]:
+                reject_at("conditional branch follows #else", description, line.number)
+            self.else_seen[-1] = name == b"else"
+        elif name == b"endif":
+            if not self.else_seen:
+                reject_at("unmatched #endif", description, line.number)
+            self.else_seen.pop()
+        else:
+            return False
+        return True
+
+    def finish(self, description):
+        if self.else_seen:
+            raise AmalgamationError("unterminated conditional block in {0}".format(description))
 
 
 def repository_root():
@@ -311,6 +370,7 @@ class HeaderGraph(object):
         self.validate_policy(header_manifest, role_dependencies, fragment_contracts)
         self.expanded_identities = set()
         self.reached_identities = set()
+        self.source_identities = set()
         self.active = []
         self.direct_dependency_sites = []
 
@@ -618,11 +678,16 @@ class HeaderGraph(object):
         return (metadata.st_dev, metadata.st_ino)
 
     def is_internal_angle_include(self, include_path, including_header=None):
-        # Include names use slash separators; classify equivalent spellings
-        # against the src include root before checking header-local candidates.
-        if include_path.startswith("gint/") or posixpath.normpath(include_path).startswith("gint/"):
+        # Reserve the internal include namespace on both case-sensitive and
+        # case-insensitive filesystems. Classification never rewrites output.
+        namespace = os.path.basename(self.source_directory).casefold()
+        prefixes = (include_path.split("/", 1)[0], posixpath.normpath(include_path).split("/", 1)[0])
+        if any(prefix.casefold() == namespace for prefix in prefixes):
             return True
-        candidates = [os.path.join(self.source_directory, include_path)]
+        candidates = [
+            os.path.join(os.path.dirname(self.source_directory), include_path),
+            os.path.join(self.source_directory, include_path),
+        ]
         if including_header is not None:
             candidates.append(os.path.join(os.path.dirname(including_header), include_path))
         for candidate in candidates:
@@ -634,8 +699,9 @@ class HeaderGraph(object):
                 )
             except ValueError:
                 inside_source = False
-            if inside_source and os.path.isfile(candidate):
-                return True
+            if os.path.isfile(candidate):
+                if inside_source or self.file_identity(candidate) in self.source_identities:
+                    return True
         return False
 
     def resolve_include_path(
@@ -753,24 +819,24 @@ class HeaderGraph(object):
         skip_boundary_blank = False
         try:
             relative_path = relative_to_root(self.root, absolute_path)
-            groups = logical_line_groups(self.read_header(absolute_path), relative_path)
+            groups = parse_source(self.read_header(absolute_path), relative_path)
             pragma_lines = [
                 index
                 for index, group in enumerate(groups)
-                if not group[3] and PRAGMA_ONCE_RE.match(group[2])
+                if group.is_once
             ]
             fragment_marker_lines = [
                 index
                 for index, group in enumerate(groups)
-                if not group[3] and group[1] == FRAGMENT_MARKER
+                if not group.was_spliced and group.raw == FRAGMENT_MARKER
             ]
             first_content_line = next(
-                (index for index, group in enumerate(groups) if group[1].strip()), None
+                (index for index, group in enumerate(groups) if group.raw.strip()), None
             )
             effective_lines = [
                 index
                 for index, group in enumerate(groups)
-                if group[2].strip() and not group[2].lstrip().startswith(b"//")
+                if group.is_effective
             ]
             last_effective_line = effective_lines[-1] if effective_lines else None
             if policy["kind"] == "module":
@@ -800,114 +866,53 @@ class HeaderGraph(object):
                         )
                     )
 
-            conditional_depth = 0
-            for group_index, (
-                line_number,
-                raw_line,
-                logical_line,
-                was_spliced,
-            ) in enumerate(groups):
-                validate_directive_spelling(
-                    logical_line, was_spliced, relative_path, line_number
-                )
+            conditional = ConditionalState()
+            for group_index, line in enumerate(groups):
+                raw_line = line.raw
+                directive = line.directive
                 if skip_boundary_blank:
                     skip_boundary_blank = False
                     if raw_line == b"\n":
                         continue
-                if PRAGMA_ONCE_RE.match(logical_line):
+                if line.is_once:
                     skip_boundary_blank = True
                     continue
                 if raw_line == FRAGMENT_MARKER:
                     skip_boundary_blank = True
                     continue
-                if PRAGMA_ONCE_LIKE_RE.match(logical_line):
-                    raise AmalgamationError(
-                        "unsupported #pragma once syntax at {0}:{1}".format(
-                            relative_path, line_number
-                        )
-                    )
-                if CONDITIONAL_START_RE.match(logical_line):
-                    conditional_depth += 1
+                if conditional.consume(line, relative_path):
                     output.append(raw_line)
                     continue
-                if CONDITIONAL_BRANCH_RE.match(logical_line):
-                    if conditional_depth == 0:
-                        raise AmalgamationError(
-                            "unmatched conditional branch at {0}:{1}".format(
-                                relative_path, line_number
-                            )
-                        )
-                    output.append(raw_line)
-                    continue
-                if CONDITIONAL_END_RE.match(logical_line):
-                    if conditional_depth == 0:
-                        raise AmalgamationError(
-                            "unmatched #endif at {0}:{1}".format(
-                                relative_path, line_number
-                            )
-                        )
-                    conditional_depth -= 1
-                    output.append(raw_line)
-                    continue
-                include_match = INCLUDE_RE.match(logical_line)
-                if include_match:
-                    if conditional_depth:
+                if directive is not None and directive.include_kind == "quoted":
+                    if conditional.active:
                         raise AmalgamationError(
                             "internal include must be unconditional at {0}:{1}".format(
-                                relative_path, line_number
-                            )
-                        )
-                    try:
-                        include_path = include_match.group(1).decode("utf-8")
-                    except UnicodeDecodeError:
-                        raise AmalgamationError(
-                            "internal include path is not UTF-8 at {0}:{1}".format(
-                                relative_path, line_number
+                                relative_path, line.number
                             )
                         )
                     dependency = self.resolve_include_path(
-                        absolute_path, include_path, relative_path, line_number
+                        absolute_path, directive.include_path, relative_path, line.number
                     )
                     self.record_direct_dependency(
                         absolute_path,
                         dependency,
-                        line_number,
+                        line.number,
                         group_index == last_effective_line,
                     )
                     expanded_dependency = self.expand(dependency)
                     output.append(expanded_dependency)
                     continue
-                angle_include_match = ANGLE_INCLUDE_RE.match(logical_line)
-                if angle_include_match:
-                    try:
-                        angle_include_path = angle_include_match.group(1).decode("utf-8", "strict")
-                    except UnicodeDecodeError:
-                        raise AmalgamationError(
-                            "angle include path is not UTF-8 at {0}:{1}".format(
-                                relative_path, line_number
-                            )
-                        )
-                    if self.is_internal_angle_include(angle_include_path, absolute_path):
+                if directive is not None and directive.include_kind == "angle":
+                    if self.is_internal_angle_include(directive.include_path, absolute_path):
                         raise AmalgamationError(
                             "internal header must use a quoted include at {0}:{1}".format(
-                                relative_path, line_number
+                                relative_path, line.number
                             )
                         )
                     output.append(raw_line)
                     continue
-                if ANY_INCLUDE_RE.match(logical_line) or QUOTED_INCLUDE_RE.match(logical_line):
-                    raise AmalgamationError(
-                        "unsupported include syntax at {0}:{1}".format(
-                            relative_path, line_number
-                        )
-                    )
                 output.append(raw_line)
-            if conditional_depth:
-                raise AmalgamationError(
-                    "unterminated conditional block in {0}".format(
-                        relative_to_root(self.root, absolute_path)
-                    )
-                )
+            conditional.finish(relative_path)
         finally:
             self.active.pop()
         return b"".join(output)
@@ -958,9 +963,10 @@ def build_amalgamation(
         fragment_contracts=fragment_contracts,
     )
     absolute_input = graph.validate_source_path(os.path.join(root, input_path), "input path")
-    content = graph.expand(absolute_input)
     discovered_headers = graph.discovered_headers()
+    graph.source_identities = set(discovered_headers)
     graph.validate_manifest_coverage(discovered_headers)
+    content = graph.expand(absolute_input)
     graph.validate_fragment_structure()
     unreachable = sorted(
         path
@@ -976,34 +982,24 @@ def build_amalgamation(
     # The internal entry header starts with #pragma once. Removing it leaves
     # leading blank lines that have no value in the distribution header.
     content = content.lstrip(b"\n")
-    for line_number, raw_line, logical_line, was_spliced in logical_line_groups(
-        content, "generated header"
-    ):
-        validate_directive_spelling(
-            logical_line, was_spliced, "generated header", line_number
-        )
+    conditional = ConditionalState()
+    for line in parse_source(content, "generated header"):
+        directive = line.directive
+        conditional.consume(line, "generated header")
         if (
-            PRAGMA_ONCE_LIKE_RE.match(logical_line)
-            or QUOTED_INCLUDE_RE.match(logical_line)
-            or raw_line == FRAGMENT_MARKER
+            line.is_once
+            or (directive is not None and directive.include_kind == "quoted")
+            or line.raw == FRAGMENT_MARKER
         ):
             raise AmalgamationError(
-                "generated header retains an internal directive at line {0}".format(line_number)
+                "generated header retains an internal directive at line {0}".format(line.number)
             )
-        angle_include_match = ANGLE_INCLUDE_RE.match(logical_line)
-        if angle_include_match:
-            try:
-                angle_include_path = angle_include_match.group(1).decode("utf-8", "strict")
-            except UnicodeDecodeError:
+        if directive is not None and directive.include_kind == "angle":
+            if graph.is_internal_angle_include(directive.include_path):
                 raise AmalgamationError(
-                    "generated header retains a non-UTF-8 angle include at line {0}".format(
-                        line_number
-                    )
+                    "generated header retains an internal angle include at line {0}".format(line.number)
                 )
-            if graph.is_internal_angle_include(angle_include_path):
-                raise AmalgamationError(
-                    "generated header retains an internal angle include at line {0}".format(line_number)
-                )
+    conditional.finish("generated header")
     return content
 
 
