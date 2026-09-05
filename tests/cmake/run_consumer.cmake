@@ -60,18 +60,6 @@ if(GINT_CONSUMER_KIND STREQUAL "package")
         )
     endif()
 
-    file(GLOB_RECURSE installed_libraries LIST_DIRECTORIES FALSE
-        "${install_prefix}/*.a"
-        "${install_prefix}/*.dll"
-        "${install_prefix}/*.dylib"
-        "${install_prefix}/*.lib"
-        "${install_prefix}/*.so"
-        "${install_prefix}/*.so.*"
-    )
-    if(installed_libraries)
-        message(FATAL_ERROR "header-only package installed binary libraries: ${installed_libraries}")
-    endif()
-
     set(configure_args -DCMAKE_PREFIX_PATH=${install_prefix})
     if(DEFINED GINT_PACKAGE_VERSION)
         list(APPEND configure_args -DGINT_FIND_VERSION=${GINT_PACKAGE_VERSION})

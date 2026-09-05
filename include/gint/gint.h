@@ -55,15 +55,9 @@
 #    define GINT_DETAIL_CORE_DEFINITIONS_INCLUDED
 #    define GINT_DETAIL_HEADER_PASS_ACTIVE
 
-#    if defined(__GNUC__) || defined(__clang__)
-#        define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
-#        define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
-#        define GINT_FORCE_INLINE inline __attribute__((always_inline))
-#    else
-#        define GINT_UNLIKELY(x) (x)
-#        define GINT_LIKELY(x) (x)
-#        define GINT_FORCE_INLINE inline
-#    endif
+#    define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#    define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
+#    define GINT_FORCE_INLINE inline __attribute__((always_inline))
 
 #    if defined(__clang__)
 #        define GINT_CLANG_NOINLINE __attribute__((noinline))
@@ -71,15 +65,9 @@
 #        define GINT_CLANG_NOINLINE
 #    endif
 
-#    if defined(__GNUC__) || defined(__clang__)
-#        define GINT_NOINLINE __attribute__((noinline))
-#        define GINT_COLD __attribute__((cold))
-#        define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
-#    else
-#        define GINT_NOINLINE
-#        define GINT_COLD
-#        define GINT_HIDDEN_VISIBILITY
-#    endif
+#    define GINT_NOINLINE __attribute__((noinline))
+#    define GINT_COLD __attribute__((cold))
+#    define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
 
 #    if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 #        define GINT_DETAIL_EXCEPTIONS_ENABLED 1
@@ -5458,13 +5446,8 @@ struct hash<gint::integer<Bits, Signed>>
 // recreate the small subset needed by the string/stream/fmt extension pass.
 #    ifndef GINT_DETAIL_HEADER_PASS_ACTIVE
 #        define GINT_DETAIL_HEADER_PASS_ACTIVE
-#        if defined(__GNUC__) || defined(__clang__)
-#            define GINT_FORCE_INLINE inline __attribute__((always_inline))
-#            define GINT_NOINLINE __attribute__((noinline))
-#        else
-#            define GINT_FORCE_INLINE inline
-#            define GINT_NOINLINE
-#        endif
+#        define GINT_FORCE_INLINE inline __attribute__((always_inline))
+#        define GINT_NOINLINE __attribute__((noinline))
 #        if defined(__x86_64__) && GINT_GCC_TUNED_PATHS
 #            define GINT_WIDE_PARSE_INLINE inline GINT_NOINLINE
 #        else
