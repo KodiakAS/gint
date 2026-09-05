@@ -152,60 +152,14 @@ if(GINT_BUILD_TESTS)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_cmake_compiler_contract.cmake
     )
 
-    # Snapshot the selected toolchain as a cache preload file. Bracket quoting
-    # preserves paths with spaces and list-valued architecture settings.
-    set(GINT_CONSUMER_TOOLCHAIN_VARIABLES
-        CMAKE_CXX_COMPILER CMAKE_CXX_COMPILER_ARG1 CMAKE_TOOLCHAIN_FILE
-        CMAKE_BUILD_TYPE CMAKE_CONFIGURATION_TYPES CMAKE_GENERATOR_INSTANCE CMAKE_MAKE_PROGRAM
-        CMAKE_CXX_COMPILER_TARGET CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN
-        CMAKE_SYSROOT CMAKE_SYSROOT_COMPILE CMAKE_SYSROOT_LINK
-        CMAKE_OSX_SYSROOT CMAKE_OSX_ARCHITECTURES CMAKE_OSX_DEPLOYMENT_TARGET
-    )
-    set(gint_consumer_flag_variables CMAKE_CXX_FLAGS CMAKE_EXE_LINKER_FLAGS)
-    set(gint_consumer_configurations Debug Release RelWithDebInfo MinSizeRel
-        ${CMAKE_BUILD_TYPE} ${CMAKE_CONFIGURATION_TYPES})
-    list(REMOVE_DUPLICATES gint_consumer_configurations)
-    foreach(configuration IN LISTS gint_consumer_configurations)
-        string(TOUPPER "${configuration}" configuration_upper)
-        list(APPEND gint_consumer_flag_variables
-            CMAKE_CXX_FLAGS_${configuration_upper}
-            CMAKE_EXE_LINKER_FLAGS_${configuration_upper})
-    endforeach()
-    list(REMOVE_DUPLICATES gint_consumer_flag_variables)
-    list(APPEND GINT_CONSUMER_TOOLCHAIN_VARIABLES ${gint_consumer_flag_variables})
-    set(gint_consumer_toolchain "${CMAKE_CURRENT_BINARY_DIR}/consumer-toolchain.cmake")
-    file(WRITE "${gint_consumer_toolchain}" "# Generated consumer toolchain cache.\n")
-    foreach(variable IN LISTS GINT_CONSUMER_TOOLCHAIN_VARIABLES)
-        if(DEFINED ${variable})
-            file(APPEND "${gint_consumer_toolchain}"
-                "set(${variable} [==[${${variable}}]==] CACHE STRING \"Parent toolchain\" FORCE)\n")
-        endif()
-    endforeach()
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/consumer-compiler-check.cmake"
-        "if(NOT CMAKE_CXX_COMPILER STREQUAL [==[${CMAKE_CXX_COMPILER}]==] OR\n"
-        "   NOT CMAKE_CXX_COMPILER_ID STREQUAL [==[${CMAKE_CXX_COMPILER_ID}]==] OR\n"
-        "   NOT CMAKE_CXX_COMPILER_VERSION STREQUAL [==[${CMAKE_CXX_COMPILER_VERSION}]==])\n"
-        "    message(FATAL_ERROR \"consumer compiler differs from parent toolchain\")\n"
-        "endif()\n")
-
-    set(gint_consumer_checked_variables ${gint_consumer_flag_variables}
-        CMAKE_BUILD_TYPE CMAKE_CONFIGURATION_TYPES)
-    foreach(variable IN LISTS gint_consumer_checked_variables)
-        if(DEFINED ${variable})
-            file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/consumer-compiler-check.cmake"
-                "if(NOT ${variable} STREQUAL [==[${${variable}}]==])\n"
-                "    message(FATAL_ERROR \"consumer ${variable} differs from parent toolchain\")\n"
-                "endif()\n")
-        endif()
-    endforeach()
-
-    get_property(gint_consumer_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-    set(GINT_CONSUMER_BUILD_ARGS
-        "-DGINT_CONSUMER_GENERATOR=${CMAKE_GENERATOR}"
-        "-DGINT_CONSUMER_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-        "-DGINT_CONSUMER_GENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
-        "-DGINT_CONSUMER_MULTI_CONFIG=${gint_consumer_multi_config}"
-        "-DGINT_CONSUMER_CONFIG=$<CONFIG>"
+    include("${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/prepare_consumer.cmake")
+    add_test(NAME consumer.toolchain_forwarding
+        COMMAND ${CMAKE_COMMAND}
+            "-DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            "-DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DGINT_TEST_GENERATOR=${CMAKE_GENERATOR}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_consumer_toolchain.cmake
     )
 
     add_test(NAME consumer.subproject
