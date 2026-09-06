@@ -2595,12 +2595,16 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator*(integer lhs, T rhs) noexcept
     {
+        if (detail::is_unsigned<T>::value && !std::is_same<T, bool>::value && sizeof(T) <= sizeof(limb_type))
+            return lhs * static_cast<limb_type>(rhs);
         return lhs * integer(rhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator*(T lhs, integer rhs) noexcept
     {
+        if (detail::is_unsigned<T>::value && !std::is_same<T, bool>::value && sizeof(T) <= sizeof(limb_type))
+            return rhs * static_cast<limb_type>(lhs);
         return integer(lhs) * rhs;
     }
 

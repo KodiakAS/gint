@@ -27,6 +27,22 @@
       "forbid_calls": true,
       "max_back_edges": 0
     },
+    "gint_perf_mul_u32": {
+      "max_instructions": {
+        "aarch64": 40,
+        "x86_64": 60
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_u32_mul": {
+      "max_instructions": {
+        "aarch64": 40,
+        "x86_64": 60
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
     "gint_perf_xor256": {
       "max_instructions": {
         "aarch64": 16,
