@@ -35,6 +35,11 @@ GINT_PERF_NOINLINE void gint_perf_sub_u64(gint::UInt256 * out, const gint::UInt2
     *out = *lhs - rhs;
 }
 
+GINT_PERF_NOINLINE void gint_perf_sub_u64_zero(gint::UInt256 * out, const gint::UInt256 * lhs)
+{
+    *out = *lhs - std::uint64_t(0);
+}
+
 GINT_PERF_NOINLINE void gint_perf_mul256(gint::UInt256 * out, const gint::UInt256 * lhs, const gint::UInt256 * rhs)
 {
     *out = *lhs * *rhs;

@@ -93,7 +93,8 @@ include；分发头仅保留一个 `#pragma once`。条件表达式和 C++ 宏�
 - 加减逐 limb 传播进位或借位，常用 256-bit 路径显式展开。
 - x86-64 GCC 与 AArch64 Clang 的 256-bit 整数加减 `limb_type` 标量使用固定长度传播。
   加法通过溢出比较传播进位，AppleClang 保留布尔进位形式；减法在 AArch64 LLVM Clang
-  使用两个 128-bit 半部传递借位，x86-64 GCC 与 AppleClang 使用四 limb 传播。
+  运行时通过 `GINT_ENABLE_AARCH64_LIMB_ASM` 使用寄存器借位链，constexpr、操作数可常量折叠
+  或关闭汇编时使用两个 128-bit 半部。x86-64 GCC 与 AppleClang 使用四 limb 传播。
   这些差异用于避免短链和调用方额外 outlining 的退化；其他组合及位宽保留原有提前结束路径。
 - 128-bit 乘法使用 `__int128`；256-bit 使用定长 Comba 风格累加。
 - 512/1024-bit 使用 O(n²) 学校乘法。

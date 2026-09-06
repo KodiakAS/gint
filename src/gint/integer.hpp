@@ -670,6 +670,27 @@ sub_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT 
     dst[3] = r3;
 }
 
+#if GINT_DETAIL_AARCH64_CLANG && GINT_ENABLE_AARCH64_LIMB_ASM && !defined(__apple_build_version__)
+GINT_FORCE_INLINE void sub_limbs4_by_limb_runtime(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
+{
+    uint64_t r0 = lhs[0];
+    uint64_t r1 = lhs[1];
+    uint64_t r2 = lhs[2];
+    uint64_t r3 = lhs[3];
+    asm("subs %[r0], %[r0], %[rhs]\n\t"
+        "sbcs %[r1], %[r1], xzr\n\t"
+        "sbcs %[r2], %[r2], xzr\n\t"
+        "sbc %[r3], %[r3], xzr"
+        : [r0] "+&r"(r0), [r1] "+&r"(r1), [r2] "+&r"(r2), [r3] "+&r"(r3)
+        : [rhs] "r"(rhs)
+        : "cc");
+    dst[0] = r0;
+    dst[1] = r1;
+    dst[2] = r2;
+    dst[3] = r3;
+}
+#endif
+
 GINT_FORCE_INLINE
 bool mul_limbs4_try_small_operand(
     uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
@@ -2135,6 +2156,21 @@ public:
         {
             integer result;
 #    if GINT_DETAIL_AARCH64_CLANG && !defined(__apple_build_version__)
+#        if GINT_ENABLE_AARCH64_LIMB_ASM && (GINT_HAS_IS_CONSTANT_EVALUATED || __cplusplus < 201402L)
+#            if __cplusplus >= 201402L
+            if (!__builtin_is_constant_evaluated())
+#            endif
+            {
+                // Preserve ordinary constant folding when any operand limb is known.
+                if (!__builtin_constant_p(rhs) && !__builtin_constant_p(lhs.data_[0]) && !__builtin_constant_p(lhs.data_[1])
+                    && !__builtin_constant_p(lhs.data_[2]) && !__builtin_constant_p(lhs.data_[3]))
+                {
+                    integer runtime_result(uninitialized_tag{});
+                    detail::sub_limbs4_by_limb_runtime(runtime_result.data_, lhs.data_, rhs);
+                    return runtime_result;
+                }
+            }
+#        endif
             using u128 = unsigned __int128;
             const u128 low = (u128(lhs.data_[1]) << 64) | lhs.data_[0];
             const u128 high = (u128(lhs.data_[3]) << 64) | lhs.data_[2];
