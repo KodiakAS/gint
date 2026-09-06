@@ -636,9 +636,17 @@ add_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT 
     const uint64_t r0 = lhs[0] + rhs;
     uint64_t carry = r0 < lhs[0];
     const uint64_t r1 = lhs[1] + carry;
+#if defined(__apple_build_version__)
     carry = carry && r1 == 0;
+#else
+    carry = r1 < carry;
+#endif
     const uint64_t r2 = lhs[2] + carry;
+#if defined(__apple_build_version__)
     carry = carry && r2 == 0;
+#else
+    carry = r2 < carry;
+#endif
     const uint64_t r3 = lhs[3] + carry;
     dst[0] = r0;
     dst[1] = r1;
@@ -2126,7 +2134,19 @@ public:
         if (limbs == 4)
         {
             integer result;
+#    if GINT_DETAIL_AARCH64_CLANG && !defined(__apple_build_version__)
+            using u128 = unsigned __int128;
+            const u128 low = (u128(lhs.data_[1]) << 64) | lhs.data_[0];
+            const u128 high = (u128(lhs.data_[3]) << 64) | lhs.data_[2];
+            const u128 result_low = low - rhs;
+            const u128 result_high = high - (low < rhs);
+            result.data_[0] = static_cast<limb_type>(result_low);
+            result.data_[1] = static_cast<limb_type>(result_low >> 64);
+            result.data_[2] = static_cast<limb_type>(result_high);
+            result.data_[3] = static_cast<limb_type>(result_high >> 64);
+#    else
             detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs);
+#    endif
             return result;
         }
 #endif
