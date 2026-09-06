@@ -5,11 +5,9 @@
 
 ## 公共头文件
 
-### 完整接口
-
 只复制 [`include/gint/gint.h`](../include/gint/gint.h) 即可获得完整接口：宽整数、
 字符串转换、stream 输出，以及按需启用的 `fmt` 适配。该方式不依赖 CMake、
-生成头或链接库。
+生成步骤或链接库。
 
 ```cpp
 #include <gint/gint.h>
@@ -50,7 +48,7 @@ find_package(gint 0.9 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
-0.x package 的版本匹配规则见[升级指南](UPGRADING.md)，精确安装清单见
+package 的版本匹配规则见[支持策略](SUPPORT.md#0x-维护策略)，精确安装清单见
 [发布流程](RELEASING.md)。
 
 ## CMake targets 与配置
@@ -74,9 +72,7 @@ target_link_libraries(my_target PRIVATE gint::gint fmt::fmt)
 
 ## 常用 API
 
-`gint::integer<Bits, Signed>` 支持 `64/128/256/512/1024` 位；`Signed` 使用
-`signed` 或 `unsigned`。常用别名包括 `Int128`、`UInt128`、`Int256` 和
-`UInt256`。
+解析、输出与同时求商余数的示例：
 
 ```cpp
 gint::UInt256 value = gint::from_string<gint::UInt256>("0xffff", 0);
@@ -89,5 +85,5 @@ gint::divmod_result<gint::UInt256> qr = gint::divmod(value, divisor);
 
 ## 无异常构建
 
-普通算术可以使用 `-fno-exceptions`。当语言异常不可用时，本应抛出异常的路径
-（例如无效字符串、非有限浮点除模或启用检查后的除零）调用 `std::abort`。
+可使用 `-fno-exceptions`；错误路径的行为见
+[技术规格](TECH_SPEC.md#9-错误路径)。

@@ -4,9 +4,9 @@
 [集成指南](INTEGRATION.md)，兼容策略见[支持策略](SUPPORT.md)，具体变化见
 [CHANGELOG](../CHANGELOG.md)。
 
-## 0.x 版本约束
+## CMake 版本要求
 
-0.9.x package 使用 `SameMinorVersion`：
+按[版本策略](SUPPORT.md#0x-维护策略)，升级 minor 时需要显式修改 package 请求：
 
 ```cmake
 find_package(gint 0.9 CONFIG REQUIRED)
@@ -14,8 +14,7 @@ target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
 已安装的 `0.9.0` 可以满足 `0.9` 或 `0.9.0 EXACT`，不能满足更新的 patch 请求，
-也不被视为其他 minor 的兼容版本。patch 升级保持源码兼容；minor 升级必须显式
-修改版本要求并阅读迁移说明。
+也不被视为其他 minor 的兼容版本。
 
 ## 直接分发头文件
 
@@ -30,8 +29,5 @@ target_link_libraries(my_target PRIVATE gint::gint)
 
 - 原有 `#include <gint/gint.h>` 和单头文件方式继续有效；
 - CMake 消费者可以使用版本化 package、`gint::gint` 和 `gint::checked`；
-- 安装物新增 package version metadata 与 `LICENSE`，但不增加二进制库；
 - compiler frontend、平台和最低版本以当前[支持策略](SUPPORT.md)为准，旧工具链
   不应通过关闭 tuned path 绕过能力门禁。
-
-每次 minor 升级都应先阅读对应 changelog。头文件仍能编译不代表语义完全兼容。

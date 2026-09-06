@@ -3,22 +3,6 @@
 本文只负责依赖固化、compiler env 和输出目录。测试范围由变更风险决定，见
 [贡献指南](../CONTRIBUTING.md)；正式支持边界见[支持策略](SUPPORT.md)。
 
-## 边界
-
-- 仓库脚本准备当前环境并运行调用方指定的目标。
-- 外部编排负责执行位置、生命周期、代码同步和结果回收。
-- 不同 OS、架构和编译器使用独立构建目录并分别报告。
-
-常见环境形态：
-
-| 环境 | 主要用途 |
-| --- | --- |
-| macOS arm64 + AppleClang | 本机正确性、sanitizer、真实 macOS 集成 |
-| Linux AArch64 + GCC/Clang | AArch64 正确性与代码生成 |
-| Linux x86_64 + GCC/Clang | x86 正确性、代码生成与固定主机性能 |
-| AlmaLinux 8 x86_64 + GCC 8.5 | 日常 Linux/GCC 完整 C++11 矩阵 |
-| Linux x86_64 + GCC 4.8.5 | 最低编译器 correctness 和 integration |
-
 ## 目录约定
 
 所有构建、依赖源码、依赖安装、日志和 benchmark 结果都位于 `runs/`：
@@ -43,10 +27,6 @@ consumer/package 测试保留选定的 C++ 编译器、工具链和平台/sysroo
 不复制整个父 cache、项目选项、查找结果、目标属性或任意环境变量。
 这不扩展 `SUPPORT.md` 的平台矩阵，也不承诺重放任意外部构建环境。
 
-`consumer.toolchain_forwarding` 用真实子编译验证通用/Release flags、配置选择和
-声明的工具链输入，避免仅检查 cache 相等而漏掉实际命令变化。最低 CMake lane
-也执行该测试；Ninja Multi-Config 在支持它的现代 CMake 上验证。
-
 ## 初始化当前环境
 
 ```sh
@@ -56,7 +36,7 @@ scripts/bootstrap-validation-env.sh --scope linux-x86_64
 脚本会：
 
 1. 在 Ubuntu/Debian 安装基础依赖；其他系统可传 `--skip-packages`；
-2. 在 scope 下为所选编译器构建 Release Google Benchmark v1.9.5；
+2. 在 scope 下为所选编译器构建固定版本的 Release Google Benchmark；
 3. 生成包含 `CMAKE_CXX_COMPILER`、`CMAKE_PREFIX_PATH` 和
    `GINT_COMPILER_ID` 的 env 文件。
 

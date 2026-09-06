@@ -11,7 +11,7 @@
   `src/gint/prelude.hpp` 的 `GINT_VERSION_MAJOR/MINOR/PATCH`，再运行
   `make amalgamate` 并核对生成的 `include/gint/gint.h`。
 - `GINT_VERSION` 保持 `major * 10000 + minor * 100 + patch` 编码。
-- package version 继续使用 `SameMinorVersion`；改变该规则必须同步支持策略、
+- package 兼容规则遵守[版本策略](SUPPORT.md#0x-维护策略)；改变规则时同步
   升级指南和变更记录。
 
 ## 发布候选检查
@@ -31,9 +31,7 @@
 7. 将本次 CHANGELOG 条目的 `Unreleased` 替换为发布日期 `YYYY-MM-DD`；等待这个
    最终发布提交的全部 CI 与 review 通过，并确认本地提交、PR head 和验证对象一致。
 
-所有本地产物都应位于 `runs/`。最低 CMake 3.13 不支持 `cmake --install`；手工
-验证安装时使用 `cmake --build <build-dir> --target install`，或运行生成的
-`cmake_install.cmake`。
+手工验证安装使用[集成指南](INTEGRATION.md#安装后消费)中的 CMake 3.13 兼容命令。
 
 ## 安装清单
 

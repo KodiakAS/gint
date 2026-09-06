@@ -103,7 +103,7 @@ unchecked 行为是明确的库语义，用于避免底层整数除法 UB；它�
   和对齐等整数 stream 标志；
 - 定义 `GINT_ENABLE_FMT` 后提供 `fmt::formatter`，填充支持单个 UTF-8 字符，
   可配合左、右、居中对齐及静态或动态宽度；`L` 对所选进制的数字应用 locale 分组，
-  不会改变进制，也不沿用旧 fmt 的非十进制本地化缺陷。
+  不会改变进制。
 
 有符号负数的十进制 stream 输出使用 `-` 前缀；十六进制和八进制输出使用当前
 固定位宽的补码 bit pattern，与原生整数的非十进制展示习惯一致。
@@ -111,9 +111,6 @@ unchecked 行为是明确的库语义，用于避免底层整数除法 UB；它�
 `base == 0` 时自动识别十进制、`0x`/`0X`、`0b`/`0B` 和前导 `0` 八进制；显式
 进制范围是 `2..36`。解析按目标位宽累积，超宽输入按模 `2^Bits` 截断。空输入、
 非法前缀、非法数字或空指针抛出 `std::invalid_argument`。
-
-`<gint/gint.h>` 始终提供字符串和 stream，`fmt` 适配按需启用；集成方式见
-[集成指南](INTEGRATION.md)。
 
 ## 7. 浮点除模边界
 
@@ -135,10 +132,7 @@ unchecked 行为是明确的库语义，用于避免底层整数除法 UB；它�
 
 `std::hash<gint::integer<...>>` 使用全部 limb，并可默认构造且 `noexcept` 调用。
 
-## 9. 错误路径与配置一致性
+## 9. 错误路径
 
 启用语言异常时，解析错误抛出 `std::invalid_argument`，定义域错误抛出
 `std::domain_error`。使用 `-fno-exceptions` 时，相同错误路径调用 `std::abort`。
-
-一个 target 内必须统一影响语义或代码生成的配置；推荐通过 CMake target 管理，
-见[集成指南](INTEGRATION.md)。内部隔离机制见[实现说明](INTERNALS.md)。

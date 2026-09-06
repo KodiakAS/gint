@@ -5,11 +5,7 @@ PR 标题必须使用 `<类型>: <简要描述>`，类型限 `feat`、`fix`、`p
 通过 API、CLI 或 connector 创建 PR 时，请手动套用模板，并用 `gh pr view --json title,body` 核对。
 -->
 
-## 概述
-
--
-
-## 做了什么
+## 变更
 
 -
 
