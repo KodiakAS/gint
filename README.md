@@ -13,12 +13,10 @@ Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hi
 
 ## Highlights
 
-- Exact-width storage and modulo-2^N arithmetic.
-- Header-only integration with no library to build or link.
-- A C++11 public API with native integer and `__int128` interoperability.
-- Optional checked division by zero.
-- Specialized hot paths backed by reproducible code-generation and performance
-  validation.
+- **High performance**: optimized wide-integer arithmetic for GCC and Clang.
+- **C++11**: use the full public API without requiring a newer language standard.
+- **Header-only**: copy a single header, with no library to build or link.
+- **Exact width**: 64-, 128-, 256-, 512-, and 1024-bit integers with wraparound at the declared width.
 
 ## Quick start
 
@@ -40,12 +38,6 @@ Copy [`include/gint/gint.h`](include/gint/gint.h) into your include path for
 the simplest integration. No generation step or link-time dependency is
 required.
 
-Normal `.hpp` files under `src/gint` are the development source of truth; the
-committed `gint.h` is their deterministic single-header distribution. This is
-a maintainer workflow, so consumers never need Python or a generation step.
-See the [implementation notes](docs/INTERNALS.md) for the source-graph and
-language-service contract.
-
 For an installed CMake package:
 
 ```cmake
@@ -58,42 +50,18 @@ header always includes string and stream support. See the
 [integration guide](docs/INTEGRATION.md) for source
 tree consumption, optional `fmt` support, and exception-free builds.
 
-## Support
+## Support and documentation
 
-The public API requires C++11. Official targets are 64-bit little-endian Linux
-x86_64/AArch64 with GCC or LLVM Clang, and macOS arm64 with AppleClang. MSVC
-and `clang-cl` are not supported. GCC 4.8.5 is the compatibility floor only
-for Linux x86_64. See the [support policy](docs/SUPPORT.md) for the maintained
-matrix.
+The public API requires C++11 and a supported GCC or Clang toolchain.
+See the [support policy](docs/SUPPORT.md) for compiler and platform requirements.
 
-## Performance
+- [Integration](docs/INTEGRATION.md): CMake, configuration, and optional dependencies.
+- [Technical specification](docs/TECH_SPEC.md): types, operations, and edge cases.
+- [Upgrading](docs/UPGRADING.md) and [changelog](CHANGELOG.md): migration and release changes.
+- [Benchmarks](docs/BENCHMARKS.md): reproducible performance measurements.
+- [Contributing](CONTRIBUTING.md): source editing, validation, and pull requests.
 
-Performance is a primary design goal. In a local 256-bit sample from source
-commit `1cd05a1` on Apple M4 Pro with AppleClang 21 (seven repetitions, median
-`real_time`), gint was faster than Boost in all 22 default comparison scenarios
-and faster than ClickHouse in 17 of 22. Its strongest leads were in add/sub,
-wide division and modulo, shifts, and decimal conversion.
-
-Results are machine- and toolchain-specific. See the
-[benchmark guide](docs/BENCHMARKS.md) for the measurement contract,
-reproducible commands, and comparison caveats.
-
-## Documentation
-
-| Document | Purpose |
-| --- | --- |
-| [Documentation index](docs/README.md) | Guide to the documentation set |
-| [Integration](docs/INTEGRATION.md) | Headers, CMake targets, configuration, and dependencies |
-| [Technical specification](docs/TECH_SPEC.md) | Public semantics and edge cases |
-| [Support policy](docs/SUPPORT.md) | Compilers, platforms, and version policy |
-| [Benchmarks](docs/BENCHMARKS.md) | Methodology, commands, and result interpretation |
-| [Upgrading](docs/UPGRADING.md) | Consumer migration notes |
-| [Changelog](CHANGELOG.md) | User-visible changes |
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and
-validation expectations.
+The [documentation index](docs/README.md) covers all maintainer references.
 
 ## License
 

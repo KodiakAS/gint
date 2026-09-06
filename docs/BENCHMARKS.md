@@ -23,7 +23,8 @@ wall-clock 数字不能替代 correctness 测试，codegen contract 也不能证
 - baseline 与 result 串行采集，避免同一主机上的并行负载互相污染；
 - 使用[验证环境](VALIDATION_ENVIRONMENTS.md)固化的 Release Google Benchmark，
   不用发行版 Debug 构建；
-- 优先比较多次重复的 median，同时检查 CV 和异常值。
+- 修改 hot path 前建立 baseline；比较多次重复的中位数（median），同时检查
+  变异系数（CV）和异常值。
 
 Comparison 的 bit-pattern 场景统一使用 unsigned 固定位宽类型，使三方输入表示
 同一非负数学值。各库保留自身对象布局；结果衡量 operator 吞吐，不代表内存
@@ -68,10 +69,8 @@ Base2/8/10/16 parser 组合。
 推荐参数：
 
 ```sh
-BENCH_ARGS='--benchmark_min_time=0.2s \
---benchmark_repetitions=7 \
---benchmark_enable_random_interleaving=true' \
-make bench-full
+make bench-full \
+  BENCH_ARGS='--benchmark_min_time=0.2s --benchmark_repetitions=7 --benchmark_enable_random_interleaving=true'
 ```
 
 需要保存证据时再增加：
@@ -114,8 +113,7 @@ Google Benchmark，也不用于性能宣传。
 
 ## 结果记录
 
-README 可以保留一条标明 commit、主机、工具链和统计口径的定位性摘要；长期文档
-不维护某个历史 commit 的完整数字表。性能报告或发布证据至少记录：
+性能数字随报告或发布证据保存，至少记录：
 
 - commit、日期、机器、OS、架构和编译器完整版本；
 - Google Benchmark 版本、构建选项、位宽、过滤器和全部参数；

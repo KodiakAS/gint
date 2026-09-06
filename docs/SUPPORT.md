@@ -13,10 +13,6 @@
 | 必要能力 | `__int128`、GCC/Clang builtin、64-bit little-endian target |
 | 不支持 | MSVC、`clang-cl`、32-bit、big-endian |
 
-CMake contract 会拒绝不受支持的 frontend 和版本低于 4.8.5 的 GNU GCC；
-public header 还会独立拒绝低于 C++11 或缺少 `__int128` 的编译。这个能力门禁
-不等同于把 GCC 4.8.5 承诺扩展到所有架构。
-
 ## 平台矩阵
 
 | 平台 | 编译器 | 支持状态 |
@@ -27,8 +23,7 @@ public header 还会独立拒绝低于 C++11 或缺少 `__int128` 的编译。�
 | 其他 64-bit little-endian OS/架构 | GCC/Clang | best effort，不属于发布门禁 |
 | Windows、32-bit、big-endian | 任意 | 不支持 |
 
-Linux x86_64 的最低 GCC 版本不用于降低 AArch64 baseline。三个正式平台的结果
-必须分别报告，不能以一个 OS、架构或编译器替代另一个组合。
+GCC 4.8.5 的最低版本承诺仅适用于 Linux x86_64。三个正式平台分别验证和报告。
 
 ## 支持承诺与验证快照
 
