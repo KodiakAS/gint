@@ -1,3 +1,4 @@
+#include <random>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
@@ -1304,4 +1305,58 @@ TEST(WideIntegerDivision, DivLarge3QhatAdjustmentBreak)
     EXPECT_EQ(q, expected);
     U256 r = lhs - q * divisor;
     EXPECT_LT(r, divisor);
+}
+
+namespace
+{
+void check_public_divmod_bitwise(const gint::UInt256 & dividend, const gint::UInt256 & divisor)
+{
+    using U = gint::UInt256;
+    using W = gint::integer<512, unsigned>;
+    W remainder = 0;
+    U quotient = 0;
+    for (int bit = 255; bit >= 0; --bit)
+    {
+        remainder <<= 1;
+        remainder += W(uint64_t(dividend >> bit) & 1);
+        if (remainder >= W(divisor))
+        {
+            remainder -= W(divisor);
+            quotient |= U(1) << bit;
+        }
+    }
+    const auto result = gint::divmod(dividend, divisor);
+    EXPECT_EQ(result.quotient, quotient);
+    EXPECT_EQ(result.remainder, U(remainder));
+    EXPECT_EQ(dividend / divisor, quotient);
+    EXPECT_EQ(dividend % divisor, U(remainder));
+}
+}
+
+TEST(WideIntegerDivision, PublicDivModReusesNormalizedRemainder)
+{
+    using U = gint::UInt256;
+    std::mt19937_64 rng(0xd170d);
+    for (unsigned top = 0; top < 4; ++top)
+        for (unsigned shift = 0; shift < 64; ++shift)
+        {
+            U divisor = U(1) << (64 * top + shift);
+            U dividend = 0;
+            for (unsigned limb = 0; limb < 4; ++limb)
+                dividend |= U(rng()) << (64 * limb);
+            check_public_divmod_bitwise(dividend, divisor);
+            for (unsigned limb = 0; limb < top; ++limb)
+                divisor |= U(rng()) << (64 * limb);
+            divisor |= U(3);
+            check_public_divmod_bitwise(dividend, divisor);
+            check_public_divmod_bitwise(divisor, divisor);
+            check_public_divmod_bitwise(divisor - U(1), divisor);
+            check_public_divmod_bitwise(U(7), divisor);
+            check_public_divmod_bitwise(U(0), divisor);
+        }
+    // The trial quotient requires add-back for this three-limb divisor.
+    const U divisor = U(13930160852258120406ULL) | (U(11788048577503494824ULL) << 64) | (U(13874630024467741450ULL) << 128);
+    const U dividend = U(7865594366602207753ULL) | (U(14317669559219201549ULL) << 64) | (U(18061272594500877176ULL) << 128)
+        | (U(1890733067841405531ULL) << 192);
+    check_public_divmod_bitwise(dividend, divisor);
 }
