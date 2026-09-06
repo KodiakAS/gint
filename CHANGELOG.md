@@ -27,6 +27,8 @@
 
 ### 变更
 
+- x86-64 GCC 与 AArch64 Clang 的 256-bit 整数加减 `limb_type` 标量改用固定长度
+  进位/借位传播，保留 constexpr 与固定位宽回绕语义。
 - 不超过 64-bit 的无符号标量乘法（不含 `bool`）复用单 limb 路径，避免窄标量先扩成宽整数
   再执行宽乘法；保留固定位宽回绕语义。
 - 正式支持范围限定为 GCC、LLVM Clang 和 AppleClang，最低语言标准保持 C++11；

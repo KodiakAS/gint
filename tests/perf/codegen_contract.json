@@ -19,6 +19,30 @@
       "forbid_calls": true,
       "max_back_edges": 0
     },
+    "gint_perf_add_u64": {
+      "max_instructions": {
+        "aarch64": 40,
+        "x86_64": 60
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_u64_add": {
+      "max_instructions": {
+        "aarch64": 40,
+        "x86_64": 60
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_sub_u64": {
+      "max_instructions": {
+        "aarch64": 40,
+        "x86_64": 60
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
     "gint_perf_mul256": {
       "max_instructions": {
         "aarch64": 180,

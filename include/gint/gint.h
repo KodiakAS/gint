@@ -879,6 +879,22 @@ mul_limbs4_by_2limb(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT
 }
 
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
+add_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
+{
+    const uint64_t r0 = lhs[0] + rhs;
+    uint64_t carry = r0 < lhs[0];
+    const uint64_t r1 = lhs[1] + carry;
+    carry = carry && r1 == 0;
+    const uint64_t r2 = lhs[2] + carry;
+    carry = carry && r2 == 0;
+    const uint64_t r3 = lhs[3] + carry;
+    dst[0] = r0;
+    dst[1] = r1;
+    dst[2] = r2;
+    dst[3] = r3;
+}
+
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 sub_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
 {
     const uint64_t r0 = lhs[0] - rhs;
@@ -2284,6 +2300,14 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator+(integer lhs, limb_type rhs) noexcept
     {
+#if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
+        if (limbs == 4)
+        {
+            integer result;
+            detail::add_limbs4_by_limb(result.data_, lhs.data_, rhs);
+            return result;
+        }
+#endif
         const limb_type old = lhs.data_[0];
         lhs.data_[0] += rhs;
         limb_type carry = lhs.data_[0] < old;
@@ -2346,6 +2370,14 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator-(integer lhs, limb_type rhs) noexcept
     {
+#if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
+        if (limbs == 4)
+        {
+            integer result;
+            detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs);
+            return result;
+        }
+#endif
         const limb_type old = lhs.data_[0];
         lhs.data_[0] -= rhs;
         limb_type borrow = old < rhs;

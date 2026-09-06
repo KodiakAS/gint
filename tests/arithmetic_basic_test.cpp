@@ -2,6 +2,9 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#include <array>
+#include <random>
+
 #if __cplusplus >= 201402L
 constexpr bool constexpr_add_sub_works()
 {
@@ -185,3 +188,90 @@ TEST(WideIntegerArithmetic, SubBorrowChain256)
     expected += U256(0xffffffffffffffffULL) << 128;
     EXPECT_EQ(diff, expected);
 }
+
+namespace
+{
+template <size_t Bits, typename Signed>
+gint::integer<Bits, Signed> scalar_test_value(const std::array<uint64_t, Bits / 64> & words)
+{
+    gint::integer<Bits, Signed> value = 0;
+    for (size_t i = 0; i < words.size(); ++i)
+        value |= gint::integer<Bits, Signed>(words[i]) << (64 * i);
+    return value;
+}
+
+template <size_t Bits, typename Signed>
+void check_scalar_add_sub()
+{
+    using Int = gint::integer<Bits, Signed>;
+    using Wide = unsigned __int128;
+    std::mt19937_64 rng(0xaddu + Bits);
+    const uint64_t scalars[] = {0, 1, 2, uint64_t(1) << 63, ~uint64_t(0)};
+    for (unsigned sample = 0; sample < 48; ++sample)
+    {
+        std::array<uint64_t, Bits / 64> words = {{0}};
+        for (size_t i = 0; i < words.size(); ++i)
+            words[i] = sample == 0 ? 0 : sample == 1 ? ~uint64_t(0) : rng();
+        // Exercise every possible carry/borrow-chain length, including full wraparound.
+        if (sample >= 2 && sample < 2 + 2 * words.size())
+            for (size_t i = 0; i <= (sample - 2) / 2; ++i)
+                words[i] = sample % 2 ? ~uint64_t(0) : 0;
+        const Int value = scalar_test_value<Bits, Signed>(words);
+        for (uint64_t scalar : scalars)
+        {
+            std::array<uint64_t, Bits / 64> sum = {{0}};
+            std::array<uint64_t, Bits / 64> difference = {{0}};
+            Wide carry = scalar;
+            Wide borrow = scalar;
+            for (size_t i = 0; i < words.size(); ++i)
+            {
+                const Wide added = Wide(words[i]) + carry;
+                sum[i] = static_cast<uint64_t>(added);
+                carry = added >> 64;
+                // The extra high bit makes subtraction non-negative even for UINT64_MAX.
+                const Wide subtracted = (Wide(1) << 64) + words[i] - borrow;
+                difference[i] = static_cast<uint64_t>(subtracted);
+                borrow = 1 - (subtracted >> 64);
+            }
+            const Int expected_sum = scalar_test_value<Bits, Signed>(sum);
+            const Int expected_difference = scalar_test_value<Bits, Signed>(difference);
+            EXPECT_EQ(value + scalar, expected_sum);
+            EXPECT_EQ(scalar + value, expected_sum);
+            EXPECT_EQ(value - scalar, expected_difference);
+            Int assigned = value;
+            assigned += scalar;
+            EXPECT_EQ(assigned, expected_sum);
+            assigned = value;
+            assigned -= scalar;
+            EXPECT_EQ(assigned, expected_difference);
+        }
+    }
+}
+} // namespace
+
+TEST(WideIntegerArithmetic, U64ScalarCarryBorrowAllWidths)
+{
+    check_scalar_add_sub<64, signed>();
+    check_scalar_add_sub<64, unsigned>();
+    check_scalar_add_sub<128, signed>();
+    check_scalar_add_sub<128, unsigned>();
+    check_scalar_add_sub<256, signed>();
+    check_scalar_add_sub<256, unsigned>();
+    check_scalar_add_sub<512, signed>();
+    check_scalar_add_sub<512, unsigned>();
+    check_scalar_add_sub<1024, signed>();
+    check_scalar_add_sub<1024, unsigned>();
+}
+
+#if __cplusplus >= 201402L
+constexpr bool constexpr_u64_scalar_add_sub_works()
+{
+    using U = gint::UInt256;
+    using I = gint::Int256;
+    const uint64_t one = 1;
+    const U all = ~U(0);
+    return all + one == U(0) && one + all == U(0) && U(0) - one == all && I(-1) + one == I(0) && one + I(-1) == I(0) && I(0) - one == I(-1)
+        && (U(1) << 192) - one == (all >> 64);
+}
+static_assert(constexpr_u64_scalar_add_sub_works(), "U64 scalar carry/borrow must remain constexpr");
+#endif
