@@ -168,14 +168,6 @@
 #    define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
 #endif
 
-// Keep small division inline on AArch64 GCC after sharing the raw-limb kernel
-// across signed and unsigned objects. Other targets retain their call boundary.
-#if GINT_DETAIL_AARCH64_GCC
-#    define GINT_SMALL_DIV_INLINE GINT_FORCE_INLINE
-#else
-#    define GINT_SMALL_DIV_INLINE
-#endif
-
 #if GINT_GCC_TUNED_PATHS
 #    define GINT_DETAIL_GCC_TUNED_POLICY 1
 #else

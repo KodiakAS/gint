@@ -30,6 +30,7 @@
 #define GINT_VERSION (GINT_VERSION_MAJOR * 10000 + GINT_VERSION_MINOR * 100 + GINT_VERSION_PATCH)
 
 #include <array>
+#include <cassert>
 #include <cfenv>
 #include <cmath>
 #include <cstddef>
