@@ -27,6 +27,8 @@
 
 ### 变更
 
+- 不超过 64-bit 的无符号标量乘法（不含 `bool`）复用单 limb 路径，避免窄标量先扩成宽整数
+  再执行宽乘法；保留固定位宽回绕语义。
 - 正式支持范围限定为 GCC、LLVM Clang 和 AppleClang，最低语言标准保持 C++11；
   Linux x86_64 的 GCC 最低版本为 4.8.5，Linux AArch64 维护独立 baseline。
 - CMake 与 public header 对不满足 compiler/frontend 契约的配置 fail-closed；

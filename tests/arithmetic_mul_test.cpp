@@ -1,6 +1,9 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <random>
+
 TEST(WideIntegerMultiplication, SmallMul)
 {
     using UInt256 = gint::integer<256, unsigned>;
@@ -158,4 +161,72 @@ TEST(WideIntegerMultiplication, UInt256_AdditionCarryChain)
     U256 b = 1;
     U256 sum = a + b;
     EXPECT_EQ(sum - b, a);
+}
+
+namespace
+{
+template <typename Int, typename Scalar>
+void check_unsigned_scalar_products(std::mt19937_64 & rng)
+{
+    const Scalar scalars[]
+        = {Scalar(0), Scalar(1), Scalar(2), std::numeric_limits<Scalar>::max(), Scalar(std::numeric_limits<Scalar>::max() / 2)};
+    for (unsigned sample = 0; sample < 12; ++sample)
+    {
+        Int value = sample == 0 ? Int(-1) : Int(0);
+        if (sample != 0)
+            for (unsigned limb = 0; limb < sizeof(Int) / sizeof(uint64_t); ++limb)
+                value = (value << 64) + Int(rng());
+        for (Scalar scalar : scalars)
+        {
+            // Independent shift/add oracle, including carry chains and fixed-width wraparound.
+            Int expected = 0;
+            Int shifted = value;
+            uint64_t remaining = static_cast<uint64_t>(scalar);
+            while (remaining != 0)
+            {
+                if (remaining & 1)
+                    expected += shifted;
+                shifted <<= 1;
+                remaining >>= 1;
+            }
+            EXPECT_EQ(value * scalar, expected);
+            EXPECT_EQ(scalar * value, expected);
+            Int assigned = value;
+            assigned *= scalar;
+            EXPECT_EQ(assigned, expected);
+        }
+    }
+}
+
+template <size_t Bits, typename Signed>
+void check_scalar_widths()
+{
+    using Int = gint::integer<Bits, Signed>;
+    std::mt19937_64 rng(0x55324d554cULL + Bits);
+    check_unsigned_scalar_products<Int, unsigned char>(rng);
+    check_unsigned_scalar_products<Int, unsigned short>(rng);
+    check_unsigned_scalar_products<Int, unsigned int>(rng);
+    check_unsigned_scalar_products<Int, unsigned long>(rng);
+    check_unsigned_scalar_products<Int, unsigned long long>(rng);
+    const Int value = (Int(1) << (Bits - 1)) + Int(7);
+    EXPECT_EQ(value * int32_t(-3), -(value + value + value));
+    EXPECT_EQ(int32_t(-3) * value, -(value + value + value));
+    const unsigned __int128 large = (static_cast<unsigned __int128>(1) << 100) + 3;
+    EXPECT_EQ(value * large, (value << 100) + value + value + value);
+    EXPECT_EQ(large * value, (value << 100) + value + value + value);
+}
+} // namespace
+
+TEST(WideIntegerMultiplication, UnsignedScalarDispatchAllWidths)
+{
+    check_scalar_widths<64, signed>();
+    check_scalar_widths<64, unsigned>();
+    check_scalar_widths<128, signed>();
+    check_scalar_widths<128, unsigned>();
+    check_scalar_widths<256, signed>();
+    check_scalar_widths<256, unsigned>();
+    check_scalar_widths<512, signed>();
+    check_scalar_widths<512, unsigned>();
+    check_scalar_widths<1024, signed>();
+    check_scalar_widths<1024, unsigned>();
 }
