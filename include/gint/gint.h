@@ -261,6 +261,12 @@ inline namespace GINT_DETAIL_CONFIG_NAMESPACE
 template <size_t Bits, typename Signed>
 class integer;
 
+template <typename Integer>
+struct divmod_result;
+
+template <size_t Bits, typename Signed>
+divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> &, const integer<Bits, Signed> &);
+
 using Int128 = integer<128, signed>;
 using UInt128 = integer<128, unsigned>;
 using Int256 = integer<256, signed>;
@@ -3346,6 +3352,10 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator+(const integer & v) noexcept { return v; }
 
+    template <size_t OtherBits, typename OtherSigned>
+    friend divmod_result<integer<OtherBits, OtherSigned>>
+    divmod(const integer<OtherBits, OtherSigned> &, const integer<OtherBits, OtherSigned> &);
+
     friend std::string to_string<>(const integer & v);
     friend std::string detail::to_base_string<>(const integer & v, unsigned base, bool uppercase);
     template <size_t OtherBits, typename OtherSigned>
@@ -4766,12 +4776,17 @@ private:
     }
 
     // Optimized specialization: full-width 256-bit divisor (divisor_limbs == 4)
-    template <size_t L = limbs>
-    static GINT_NOINLINE typename std::enable_if<(L == 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
+    template <size_t L = limbs, bool WantRemainder = false>
+    static GINT_NOINLINE typename std::enable_if<(L == 4), integer>::type
+    div_large_4(integer lhs, const integer & divisor, integer * remainder = nullptr) noexcept
     {
         integer quotient;
         if (lhs.data_[3] == 0)
+        {
+            if (WantRemainder)
+                *remainder = lhs;
             return quotient;
+        }
 
         using u128 = unsigned __int128;
 
@@ -4851,7 +4866,29 @@ private:
         }
 
         if (static_cast<u128>(u4) < borrow)
+        {
             --qhat;
+            if (WantRemainder)
+            {
+                u128 sum = static_cast<u128>(u0) + v0;
+                u0 = static_cast<limb_type>(sum);
+                sum = static_cast<u128>(u1) + v1 + (sum >> 64);
+                u1 = static_cast<limb_type>(sum);
+                sum = static_cast<u128>(u2) + v2 + (sum >> 64);
+                u2 = static_cast<limb_type>(sum);
+                sum = static_cast<u128>(u3) + v3 + (sum >> 64);
+                u3 = static_cast<limb_type>(sum);
+            }
+        }
+        if (WantRemainder)
+        {
+            remainder->data_[0] = u0;
+            remainder->data_[1] = u1;
+            remainder->data_[2] = u2;
+            remainder->data_[3] = u3;
+            if (shift)
+                *remainder >>= shift;
+        }
 
         quotient.data_[0] = static_cast<limb_type>(qhat);
         return quotient;
@@ -4988,8 +5025,8 @@ private:
     }
 
     // Stub for non-256-bit instantiations to keep dependent calls well-formed.
-    template <size_t L = limbs>
-    static typename std::enable_if<(L != 4), integer>::type div_large_4(integer lhs, const integer & divisor) noexcept
+    template <size_t L = limbs, bool WantRemainder = false>
+    static typename std::enable_if<(L != 4), integer>::type div_large_4(integer lhs, const integer & divisor, integer * = nullptr) noexcept
     {
         return div_large(lhs, divisor, 4);
     }
@@ -5001,15 +5038,20 @@ private:
     }
 
     // Optimized specialization: two-limb divisor (divisor_limbs == 2)
-    template <size_t L = limbs>
-    static typename std::enable_if<(L >= 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept GINT_CLANG_NOINLINE
+    template <size_t L = limbs, bool WantRemainder = false>
+    static typename std::enable_if<(L >= 2), integer>::type
+    div_large_2(integer lhs, const integer & divisor, integer * remainder = nullptr) noexcept GINT_CLANG_NOINLINE
     {
         integer quotient;
         size_t n = limbs;
         while (n > 0 && lhs.data_[n - 1] == 0)
             --n;
         if (n < 2)
+        {
+            if (WantRemainder)
+                *remainder = lhs;
             return quotient;
+        }
 
         std::array<limb_type, limbs + 1> u = {{}};
 
@@ -5176,27 +5218,38 @@ private:
                 quotient.data_[j] = static_cast<limb_type>(qhat);
             }
         }
+        if (WantRemainder)
+        {
+            *remainder = integer();
+            remainder->data_[0] = shift ? (u[0] >> shift) | (u[1] << (64 - shift)) : u[0];
+            remainder->data_[1] = u[1] >> shift;
+        }
         return quotient;
     }
 
     // Safe fallback for a direct test/internal call on a type that cannot have
     // a two-limb divisor. Normal operator dispatch never reaches this overload.
-    template <size_t L = limbs>
-    static typename std::enable_if<(L < 2), integer>::type div_large_2(integer lhs, const integer & divisor) noexcept
+    template <size_t L = limbs, bool WantRemainder = false>
+    static typename std::enable_if<(L < 2), integer>::type div_large_2(integer lhs, const integer & divisor, integer * = nullptr) noexcept
     {
         return lhs / divisor;
     }
 
     // Optimized specialization: three-limb divisor (divisor_limbs == 3)
-    template <size_t L = limbs>
-    static typename std::enable_if<(L >= 3), integer>::type div_large_3(integer lhs, const integer & divisor) noexcept
+    template <size_t L = limbs, bool WantRemainder = false>
+    static typename std::enable_if<(L >= 3), integer>::type
+    div_large_3(integer lhs, const integer & divisor, integer * remainder = nullptr) noexcept
     {
         integer quotient;
         size_t n = limbs;
         while (n > 0 && lhs.data_[n - 1] == 0)
             --n;
         if (n < 3)
+        {
+            if (WantRemainder)
+                *remainder = lhs;
             return quotient;
+        }
 
         std::array<limb_type, limbs + 1> u = {{}};
         std::array<limb_type, 3> v = {{}};
@@ -5291,13 +5344,19 @@ private:
             }
             quotient.data_[j] = static_cast<limb_type>(qhat);
         }
+        if (WantRemainder)
+        {
+            *remainder = integer();
+            for (size_t i = 0; i < 3; ++i)
+                remainder->data_[i] = shift ? (u[i] >> shift) | ((i + 1 < 3 ? u[i + 1] : 0) << (64 - shift)) : u[i];
+        }
         return quotient;
     }
 
     // Safe fallback for a direct test/internal call on a type that cannot have
     // a three-limb divisor. Normal operator dispatch never reaches this overload.
-    template <size_t L = limbs>
-    static typename std::enable_if<(L < 3), integer>::type div_large_3(integer lhs, const integer & divisor) noexcept
+    template <size_t L = limbs, bool WantRemainder = false>
+    static typename std::enable_if<(L < 3), integer>::type div_large_3(integer lhs, const integer & divisor, integer * = nullptr) noexcept
     {
         return lhs / divisor;
     }
@@ -5315,12 +5374,50 @@ struct divmod_result
 
 /// Compute quotient and remainder while sharing the expensive quotient work.
 ///
-/// The remainder is reconstructed from the quotient so this is substantially
-/// cheaper than evaluating `/` and `%` independently for wide divisors, while
-/// preserving the exact signed and unsigned semantics of those operators.
+/// UInt256 retains the remainder from the division kernel. Other types rebuild
+/// it from the quotient. Both paths preserve the exact signed and unsigned
+/// semantics of the independent operators.
 template <size_t Bits, typename Signed>
 inline divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> & dividend, const integer<Bits, Signed> & divisor)
 {
+    using Int = integer<Bits, Signed>;
+    if (Bits == 256 && !std::is_same<Signed, signed>::value)
+    {
+        const size_t divisor_limbs = Int::used_limbs(divisor);
+        if (divisor_limbs != 0)
+        {
+            // Resolve quotient zero or one without entering a division kernel.
+            size_t different = Int::limbs;
+            while (different != 0 && dividend.data_[different - 1] == divisor.data_[different - 1])
+                --different;
+            if (different == 0)
+            {
+                const divmod_result<Int> result = {Int(1), Int()};
+                return result;
+            }
+            if (dividend.data_[different - 1] < divisor.data_[different - 1])
+            {
+                const divmod_result<Int> result = {Int(), dividend};
+                return result;
+            }
+            int shift;
+            if (Int::is_power_of_two(divisor, shift))
+            {
+                const divmod_result<Int> result = {dividend >> shift, dividend & (divisor - Int(1))};
+                return result;
+            }
+            divmod_result<Int> result;
+            if (divisor_limbs == 1)
+                result.remainder = Int(dividend.div_mod_small(divisor.data_[0], result.quotient));
+            else if (divisor_limbs == 2)
+                result.quotient = Int::template div_large_2<Int::limbs, true>(dividend, divisor, &result.remainder);
+            else if (divisor_limbs == 3)
+                result.quotient = Int::template div_large_3<Int::limbs, true>(dividend, divisor, &result.remainder);
+            else
+                result.quotient = Int::template div_large_4<Int::limbs, true>(dividend, divisor, &result.remainder);
+            return result;
+        }
+    }
     const integer<Bits, Signed> quotient = dividend / divisor;
     const divmod_result<integer<Bits, Signed>> result = {quotient, dividend - quotient * divisor};
     return result;

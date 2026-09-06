@@ -109,7 +109,9 @@ include；分发头仅保留一个 `#pragma once`。条件表达式和 C++ 宏�
 - 常见 2/3-limb 和 256-bit 满宽场景使用定长热点内核；
 - 其他多 limb 情况使用规范化的 Knuth Algorithm D。
 
-`divmod` 复用一次商计算，再以 `dividend - quotient * divisor` 重建余数。部分
+`divmod` 对 UInt256 复用单 limb 或定长除法内核的商与余数，2 的幂直接使用移位和
+掩码；多 limb 内核按模板参数决定是否输出余数，单独 `/` 不承担余数输出成本。
+其他类型保留一次商计算加 `dividend - quotient * divisor` 重建余数的路径。部分
 架构和编译器对 `%` 有独立直接求余路径；这些分派不能改变公共除模语义。
 
 ### 文本与浮点

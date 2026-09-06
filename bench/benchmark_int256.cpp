@@ -838,6 +838,23 @@ static const std::array<std::pair<Int, Int>, kDataN> & divmod_similar_magnitude_
     return data;
 }
 
+// Overload by the actual operand type: comparison builds also include gint.
+template <typename Int>
+inline void consume_divmod(const Int & dividend, const Int & divisor)
+{
+    Int quotient = dividend / divisor;
+    Int remainder = dividend % divisor;
+    benchmark::DoNotOptimize(quotient);
+    benchmark::DoNotOptimize(remainder);
+}
+
+inline void consume_divmod(const WInt & dividend, const WInt & divisor)
+{
+    const auto result = gint::divmod(dividend, divisor);
+    benchmark::DoNotOptimize(result.quotient);
+    benchmark::DoNotOptimize(result.remainder);
+}
+
 template <typename Int>
 static void DivMod_SimilarMagnitude(benchmark::State & state)
 {
@@ -847,16 +864,7 @@ static void DivMod_SimilarMagnitude(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-#if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
-        auto result = gint::divmod(p.first, p.second);
-        benchmark::DoNotOptimize(result.quotient);
-        benchmark::DoNotOptimize(result.remainder);
-#else
-        Int quotient = p.first / p.second;
-        Int remainder = p.first % p.second;
-        benchmark::DoNotOptimize(quotient);
-        benchmark::DoNotOptimize(remainder);
-#endif
+        consume_divmod(p.first, p.second);
     }
 }
 

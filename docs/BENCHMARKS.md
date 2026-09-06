@@ -26,6 +26,9 @@ wall-clock 数字不能替代 correctness 测试，codegen contract 也不能证
 - 修改 hot path 前建立 baseline；比较多次重复的中位数（median），同时检查
   变异系数（CV）和异常值。
 
+`DivMod/SimilarMagnitude` 中 gint 调用 `gint::divmod`，竞品分别调用 `/` 与 `%`，
+两种模式均消费商和余数。启用竞品宏不得改变 gint 的被测 API。
+
 Comparison 的 bit-pattern 场景统一使用 unsigned 固定位宽类型，使三方输入表示
 同一非负数学值。各库保留自身对象布局；结果衡量 operator 吞吐，不代表内存
 布局已归一化。
