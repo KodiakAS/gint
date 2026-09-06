@@ -23,6 +23,66 @@ u128 mulhi_u128_reference(u128 a, u128 b)
 }
 } // namespace
 
+TEST(WideIntegerDivision, NativeSmallRemainderMatchesWordOracle)
+{
+    using U256 = gint::integer<256, unsigned>;
+    using S256 = gint::integer<256, signed>;
+    const uint64_t all = ~uint64_t(0);
+    const uint64_t inputs[][4]
+        = {{0, 0, 0, 0},
+           {17, 0, 0, 0},
+           {all, all, all, all},
+           {0, 0, 0, uint64_t(1) << 63},
+           {all, all, all, all >> 1},
+           {0x91e5f73b6a042d87ULL, 3, 0x6a035ef981d24421ULL, 0xb394d56c008172afULL}};
+    const uint32_t divisors32[] = {1, 2, 3, 0x7fffffffU, 0xffffffffU};
+    const int64_t divisors64[]
+        = {1, -1, 3, -3, 0x10000000003LL, -0x10000000003LL, std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()};
+    for (const auto & words : inputs)
+    {
+        U256 unsigned_value;
+        S256 signed_value;
+        uint64_t magnitude[4];
+        const bool negative = (words[3] >> 63) != 0;
+        uint64_t carry = negative ? 1 : 0;
+        for (size_t i = 0; i < 4; ++i)
+        {
+            TestAccess<U256>::limb(unsigned_value, i) = words[i];
+            TestAccess<S256>::limb(signed_value, i) = words[i];
+            const u128 value = u128(negative ? ~words[i] : words[i]) + carry;
+            magnitude[i] = static_cast<uint64_t>(value);
+            carry = static_cast<uint64_t>(value >> 64);
+        }
+        auto remainder = [](const uint64_t * value, uint64_t divisor)
+        {
+            u128 rem = 0;
+            for (size_t i = 4; i-- > 0;)
+                rem = ((rem << 64) | value[i]) % divisor;
+            return static_cast<int64_t>(rem);
+        };
+        for (uint32_t divisor : divisors32)
+        {
+            EXPECT_EQ(unsigned_value % divisor, U256(remainder(words, divisor)));
+            const int64_t rem = remainder(magnitude, divisor);
+            EXPECT_EQ(signed_value % divisor, S256(negative ? -rem : rem));
+            if (divisor <= 0x7fffffffU)
+            {
+                EXPECT_EQ(signed_value % -static_cast<int32_t>(divisor), S256(negative ? -rem : rem));
+            }
+        }
+        for (int64_t divisor : divisors64)
+        {
+            const uint64_t abs_divisor = divisor < 0 ? uint64_t(0) - static_cast<uint64_t>(divisor) : static_cast<uint64_t>(divisor);
+            const int64_t rem = remainder(magnitude, abs_divisor);
+            EXPECT_EQ(signed_value % divisor, S256(negative ? -rem : rem));
+            if (divisor > 0)
+            {
+                EXPECT_EQ(unsigned_value % divisor, U256(remainder(words, abs_divisor)));
+            }
+        }
+    }
+}
+
 TEST(WideIntegerDivision, MulHiU128HandlesMiddleCarry)
 {
     const u128 all_bits = ~u128(0);

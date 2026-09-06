@@ -431,6 +431,7 @@ if(GINT_BUILD_TESTS)
     # target-wide at runtime and must not be mixed inside one test binary.
     set(GINT_TEST_SOURCES
         tests/arithmetic_basic_test.cpp
+        tests/integer_storage_test.cpp
         tests/arithmetic_divmod_test.cpp
         tests/arithmetic_mul_test.cpp
         tests/bitwise_test.cpp

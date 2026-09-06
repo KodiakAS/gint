@@ -32,14 +32,13 @@ context；clangd 仍会以 heuristic 选择 header command，因此这里不承�
 | [`gint.hpp`](../src/gint/gint.hpp) | 显式组合完整接口，最后清理私有宏 | integer、standard、string_stream、fmt、cleanup |
 | [`prelude.hpp`](../src/gint/prelude.hpp) | 编译器要求、版本和公共标准库头 | 无 |
 | [`configuration.hpp`](../src/gint/configuration.hpp) | 功能策略、编译器属性和配置 namespace | prelude |
-| [`primitives.hpp`](../src/gint/primitives.hpp) | 类型前置声明、traits 和 limb 运算 | configuration |
-| [`integer.hpp`](../src/gint/integer.hpp) | 整数类、运算符、转换和私有算术内核 | primitives |
+| [`integer.hpp`](../src/gint/integer.hpp) | 整数声明、traits、limb 运算、整数类及全部算术内核 | configuration |
 | [`standard.hpp`](../src/gint/standard.hpp) | `std::numeric_limits`、`std::hash` 特化 | integer |
 | [`string_stream.hpp`](../src/gint/string_stream.hpp) | 字符串解析、进制转换和 stream 输出 | integer |
 | [`fmt.hpp`](../src/gint/fmt.hpp) | 可选 fmt 适配，复用文本转换函数 | string_stream |
 | [`cleanup.hpp`](../src/gint/cleanup.hpp) | 清理私有实现宏 | 无 |
 
-生成器将 prelude、configuration、primitives、integer、standard 依次归入 core 角色，
+生成器将 prelude、configuration、integer、standard 依次归入 core 角色，
 string_stream、fmt 依次归入 IO 角色；同角色只能依赖较早模块，IO 可依赖 core。
 完整入口属于 distribution，可直接依赖 core、IO 和 cleanup；cleanup 不依赖其他模块。
 标准库适配和字符串/stream 是整数实现之上的并列模块，fmt 的外部头由 `fmt.hpp`
@@ -53,6 +52,23 @@ string_stream、fmt 依次归入 IO 角色；同角色只能依赖较早模块�
 内部模块不是公共入口；单独解析中间模块时会保留后续定义需要的实现宏，只有完整
 入口承诺清理。内部图测试覆盖直接包含完整入口，以及先使用字符串/stream、fmt
 模块再包含完整入口的顺序，并检查标准库适配和宏清理仍然完整。
+
+### 整数实现的阅读路径
+
+`integer.hpp` 集中维护整数相关实现：文件前部是类型声明、traits 和原生 limb
+工具，随后是文本接口声明、整数类、公共运算符和私有算术内核。原先放在
+`primitives.hpp` 的基础定义也在此文件内，不再另设整数计算模块。
+
+整数运算仍使用原有成员/友元关系、参数形式、对象初始化和编译器属性。
+按运算符向下阅读即可找到同一文件中的除法、移位、浮点转换与平台特化；
+不为统一接口增加数组适配层或改变内联边界。文件归并本身不构成性能证据，
+应先核对生成的公开头：若与基线逐字节一致，同一消费者在相同构建条件下
+接收的实现没有变化，无需重复耗时对比；若内容变化，再按性能门禁检查
+生成机器码及各环境的同条件性能数据。
+
+标准库适配、字符串/stream、fmt、配置及宏清理继续分别由原有模块维护。
+文本接口从 `integer.hpp` 的声明进入 `string_stream.hpp` 的定义，使用原有
+friend 和私有算术工具；`fmt.hpp` 继续复用文本转换。
 
 ### 生成器输入与处理契约
 

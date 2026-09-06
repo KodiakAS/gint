@@ -39,6 +39,9 @@
 
 ### 变更
 
+- 整数相关声明、traits、limb 工具与完整算术实现集中到 `integer.hpp`，
+  移除独立的整数计算模块；保持原有算法、调用边界和对象初始化。
+  配置、标准库适配、字符串/stream 与 fmt 的模块划分不变，公共 API 和对象布局不变。
 - 正式支持范围限定为 GCC、LLVM Clang 和 AppleClang，最低语言标准保持 C++11；
   Linux x86_64 的 GCC 最低版本为 4.8.5，Linux AArch64 维护独立 baseline。
 - CMake 与 public header 对不满足 compiler/frontend 契约的配置 fail-closed；
