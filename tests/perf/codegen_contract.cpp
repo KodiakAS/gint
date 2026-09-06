@@ -20,6 +20,21 @@ GINT_PERF_NOINLINE void gint_perf_sub256(gint::UInt256 * out, const gint::UInt25
     *out = *lhs - *rhs;
 }
 
+GINT_PERF_NOINLINE void gint_perf_add_u64(gint::UInt256 * out, const gint::UInt256 * lhs, std::uint64_t rhs)
+{
+    *out = *lhs + rhs;
+}
+
+GINT_PERF_NOINLINE void gint_perf_u64_add(gint::UInt256 * out, std::uint64_t lhs, const gint::UInt256 * rhs)
+{
+    *out = lhs + *rhs;
+}
+
+GINT_PERF_NOINLINE void gint_perf_sub_u64(gint::UInt256 * out, const gint::UInt256 * lhs, std::uint64_t rhs)
+{
+    *out = *lhs - rhs;
+}
+
 GINT_PERF_NOINLINE void gint_perf_mul256(gint::UInt256 * out, const gint::UInt256 * lhs, const gint::UInt256 * rhs)
 {
     *out = *lhs * *rhs;
