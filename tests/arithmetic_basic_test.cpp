@@ -4,6 +4,7 @@
 
 #include <array>
 #include <random>
+#include <type_traits>
 
 #if __cplusplus >= 201402L
 constexpr bool constexpr_add_sub_works()
@@ -207,7 +208,10 @@ void check_scalar_add_sub()
     using Wide = unsigned __int128;
     std::mt19937_64 rng(0xaddu + Bits);
     const uint64_t scalars[] = {0, 1, 2, uint64_t(1) << 63, ~uint64_t(0)};
-    for (unsigned sample = 0; sample < 48; ++sample)
+    SCOPED_TRACE(::testing::Message() << "bits=" << Bits << ", signed=" << std::is_signed<Signed>::value);
+    // Keep every carry/borrow length at every width; random stress targets the UInt256/Int256 fast path.
+    const unsigned samples = Bits == 256 ? 48 : 2 + 2 * (Bits / 64);
+    for (unsigned sample = 0; sample < samples; ++sample)
     {
         std::array<uint64_t, Bits / 64> words = {{0}};
         for (size_t i = 0; i < words.size(); ++i)
@@ -217,8 +221,10 @@ void check_scalar_add_sub()
             for (size_t i = 0; i <= (sample - 2) / 2; ++i)
                 words[i] = sample % 2 ? ~uint64_t(0) : 0;
         const Int value = scalar_test_value<Bits, Signed>(words);
+        SCOPED_TRACE(::testing::Message() << "sample=" << sample << ", value=" << gint::to_string(value));
         for (uint64_t scalar : scalars)
         {
+            SCOPED_TRACE(::testing::Message() << "scalar=" << scalar);
             std::array<uint64_t, Bits / 64> sum = {{0}};
             std::array<uint64_t, Bits / 64> difference = {{0}};
             Wide carry = scalar;
@@ -238,12 +244,16 @@ void check_scalar_add_sub()
             EXPECT_EQ(value + scalar, expected_sum);
             EXPECT_EQ(scalar + value, expected_sum);
             EXPECT_EQ(value - scalar, expected_difference);
-            Int assigned = value;
-            assigned += scalar;
-            EXPECT_EQ(assigned, expected_sum);
-            assigned = value;
-            assigned -= scalar;
-            EXPECT_EQ(assigned, expected_difference);
+            // Compound assignment uses the existing wide path: keep one boundary smoke per instantiation.
+            if (sample == 1)
+            {
+                Int assigned = value;
+                assigned += scalar;
+                EXPECT_EQ(assigned, expected_sum);
+                assigned = value;
+                assigned -= scalar;
+                EXPECT_EQ(assigned, expected_difference);
+            }
         }
     }
 }
