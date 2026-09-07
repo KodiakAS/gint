@@ -1307,56 +1307,33 @@ TEST(WideIntegerDivision, DivLarge3QhatAdjustmentBreak)
     EXPECT_LT(r, divisor);
 }
 
-namespace
-{
-void check_public_divmod_bitwise(const gint::UInt256 & dividend, const gint::UInt256 & divisor)
+TEST(WideIntegerDivision, PublicDivModUnsignedBoundaries)
 {
     using U = gint::UInt256;
-    using W = gint::integer<512, unsigned>;
-    W remainder = 0;
-    U quotient = 0;
-    for (int bit = 255; bit >= 0; --bit)
+    // One representative per divisor limb count; normalization sweeps live in differential.
+    const U divisors[] = {U(13), (U(1) << 64) + U(3), (U(1) << 128) + U(3), (U(1) << 192) + U(3)};
+    for (const U & divisor : divisors)
     {
-        remainder <<= 1;
-        remainder += W(uint64_t(dividend >> bit) & 1);
-        if (remainder >= W(divisor))
+        SCOPED_TRACE(::testing::Message() << "divisor=" << gint::to_string(divisor));
+        const U dividends[] = {U(0), U(7), divisor - U(1), divisor};
+        for (const U & dividend : dividends)
         {
-            remainder -= W(divisor);
-            quotient |= U(1) << bit;
+            SCOPED_TRACE(::testing::Message() << "dividend=" << gint::to_string(dividend));
+            const auto result = gint::divmod(dividend, divisor);
+            EXPECT_EQ(result.quotient, dividend == divisor ? U(1) : U(0));
+            EXPECT_EQ(result.remainder, dividend == divisor ? U(0) : dividend);
         }
     }
-    const auto result = gint::divmod(dividend, divisor);
-    EXPECT_EQ(result.quotient, quotient);
-    EXPECT_EQ(result.remainder, U(remainder));
-    EXPECT_EQ(dividend / divisor, quotient);
-    EXPECT_EQ(dividend % divisor, U(remainder));
-}
 }
 
-TEST(WideIntegerDivision, PublicDivModReusesNormalizedRemainder)
+TEST(WideIntegerDivision, PublicDivModThreeLimbAddback)
 {
     using U = gint::UInt256;
-    std::mt19937_64 rng(0xd170d);
-    for (unsigned top = 0; top < 4; ++top)
-        for (unsigned shift = 0; shift < 64; ++shift)
-        {
-            U divisor = U(1) << (64 * top + shift);
-            U dividend = 0;
-            for (unsigned limb = 0; limb < 4; ++limb)
-                dividend |= U(rng()) << (64 * limb);
-            check_public_divmod_bitwise(dividend, divisor);
-            for (unsigned limb = 0; limb < top; ++limb)
-                divisor |= U(rng()) << (64 * limb);
-            divisor |= U(3);
-            check_public_divmod_bitwise(dividend, divisor);
-            check_public_divmod_bitwise(divisor, divisor);
-            check_public_divmod_bitwise(divisor - U(1), divisor);
-            check_public_divmod_bitwise(U(7), divisor);
-            check_public_divmod_bitwise(U(0), divisor);
-        }
     // The trial quotient requires add-back for this three-limb divisor.
     const U divisor = U(13930160852258120406ULL) | (U(11788048577503494824ULL) << 64) | (U(13874630024467741450ULL) << 128);
     const U dividend = U(7865594366602207753ULL) | (U(14317669559219201549ULL) << 64) | (U(18061272594500877176ULL) << 128)
         | (U(1890733067841405531ULL) << 192);
-    check_public_divmod_bitwise(dividend, divisor);
+    const auto result = gint::divmod(dividend, divisor);
+    EXPECT_EQ(result.quotient, U(2513787319205155662ULL));
+    EXPECT_EQ(result.remainder, divisor - U(1));
 }

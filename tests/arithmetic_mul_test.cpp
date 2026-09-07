@@ -3,6 +3,7 @@
 
 #include <limits>
 #include <random>
+#include <type_traits>
 
 TEST(WideIntegerMultiplication, SmallMul)
 {
@@ -166,8 +167,9 @@ TEST(WideIntegerMultiplication, UInt256_AdditionCarryChain)
 namespace
 {
 template <typename Int, typename Scalar>
-void check_unsigned_scalar_products(std::mt19937_64 & rng)
+void check_unsigned_scalar_products(std::mt19937_64 & rng, const char * scalar_type)
 {
+    SCOPED_TRACE(::testing::Message() << "scalar_type=" << scalar_type);
     const Scalar scalars[]
         = {Scalar(0), Scalar(1), Scalar(2), std::numeric_limits<Scalar>::max(), Scalar(std::numeric_limits<Scalar>::max() / 2)};
     for (unsigned sample = 0; sample < 12; ++sample)
@@ -176,8 +178,10 @@ void check_unsigned_scalar_products(std::mt19937_64 & rng)
         if (sample != 0)
             for (unsigned limb = 0; limb < sizeof(Int) / sizeof(uint64_t); ++limb)
                 value = (value << 64) + Int(rng());
+        SCOPED_TRACE(::testing::Message() << "sample=" << sample << ", value=" << gint::to_string(value));
         for (Scalar scalar : scalars)
         {
+            SCOPED_TRACE(::testing::Message() << "scalar=" << static_cast<uint64_t>(scalar));
             // Independent shift/add oracle, including carry chains and fixed-width wraparound.
             Int expected = 0;
             Int shifted = value;
@@ -191,9 +195,13 @@ void check_unsigned_scalar_products(std::mt19937_64 & rng)
             }
             EXPECT_EQ(value * scalar, expected);
             EXPECT_EQ(scalar * value, expected);
-            Int assigned = value;
-            assigned *= scalar;
-            EXPECT_EQ(assigned, expected);
+            // Compound assignment uses wide multiplication; one wraparound smoke is sufficient here.
+            if (sample == 0)
+            {
+                Int assigned = value;
+                assigned *= scalar;
+                EXPECT_EQ(assigned, expected);
+            }
         }
     }
 }
@@ -202,12 +210,13 @@ template <size_t Bits, typename Signed>
 void check_scalar_widths()
 {
     using Int = gint::integer<Bits, Signed>;
+    SCOPED_TRACE(::testing::Message() << "bits=" << Bits << ", signed=" << std::is_signed<Signed>::value);
     std::mt19937_64 rng(0x55324d554cULL + Bits);
-    check_unsigned_scalar_products<Int, unsigned char>(rng);
-    check_unsigned_scalar_products<Int, unsigned short>(rng);
-    check_unsigned_scalar_products<Int, unsigned int>(rng);
-    check_unsigned_scalar_products<Int, unsigned long>(rng);
-    check_unsigned_scalar_products<Int, unsigned long long>(rng);
+    check_unsigned_scalar_products<Int, unsigned char>(rng, "unsigned char");
+    check_unsigned_scalar_products<Int, unsigned short>(rng, "unsigned short");
+    check_unsigned_scalar_products<Int, unsigned int>(rng, "unsigned int");
+    check_unsigned_scalar_products<Int, unsigned long>(rng, "unsigned long");
+    check_unsigned_scalar_products<Int, unsigned long long>(rng, "unsigned long long");
     const Int value = (Int(1) << (Bits - 1)) + Int(7);
     EXPECT_EQ(value * int32_t(-3), -(value + value + value));
     EXPECT_EQ(int32_t(-3) * value, -(value + value + value));

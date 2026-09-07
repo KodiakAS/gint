@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <vector>
 
 namespace
@@ -92,6 +93,51 @@ void verify_division_oracle_against_native()
         gint_differential::require(wide_quotient == dividend / divisor, "wide division oracle disagrees with native UInt128 quotient");
         gint_differential::require(wide_remainder == dividend % divisor, "wide division oracle disagrees with native UInt128 remainder");
     }
+}
+
+size_t verify_uint256_division_normalization()
+{
+    using namespace gint_differential;
+    std::mt19937_64 rng(0xd170d);
+    size_t total = 0;
+    for (unsigned top = 0; top < 4; ++top)
+        for (unsigned shift = 0; shift < 64; ++shift)
+        {
+            uint256_reference dividend;
+            for (unsigned limb = 0; limb < 4; ++limb)
+                dividend.limbs[limb] = rng();
+            uint256_reference divisor;
+            divisor.limbs[top] = uint64_t(1) << shift;
+            for (unsigned shape = 0; shape < 2; ++shape)
+            {
+                if (shape == 1)
+                {
+                    for (unsigned limb = 0; limb < top; ++limb)
+                        divisor.limbs[limb] = rng();
+                    divisor.limbs[0] |= 3;
+                }
+                gint::UInt256 actual_dividend = 0;
+                gint::UInt256 actual_divisor = 0;
+                for (unsigned limb = 0; limb < 4; ++limb)
+                {
+                    gint_integer_access<gint::UInt256>::limb(actual_dividend, limb) = dividend.limbs[limb];
+                    gint_integer_access<gint::UInt256>::limb(actual_divisor, limb) = divisor.limbs[limb];
+                }
+                try
+                {
+                    verify_unsigned_division(actual_dividend, actual_divisor, dividend, divisor);
+                }
+                catch (const std::exception & error)
+                {
+                    std::cerr << "division normalization failure: bits=256, seed=0xd170d, divisor_limbs=" << top + 1 << ", shift=" << shift
+                              << ", shape=" << (shape == 0 ? "power-of-two" : "mixed") << ", dividend=" << gint::to_string(actual_dividend)
+                              << ", divisor=" << gint::to_string(actual_divisor) << ", reason=" << error.what() << '\n';
+                    throw;
+                }
+                ++total;
+            }
+        }
+    return total;
 }
 
 gint_differential::uint256_reference reference_from_uint128(gint_differential::uint128_t value)
@@ -365,6 +411,7 @@ int main(int argc, char ** argv)
     {
         const size_t iterations_per_seed = argc > 1 ? parse_iterations(argv[1]) : 512;
         verify_division_oracle_against_native();
+        const size_t division_cases = verify_uint256_division_normalization();
         verify_float_oracle_against_native();
         verify_deterministic_float_boundaries();
         verify_uint1024_parser_boundaries();
@@ -419,7 +466,8 @@ int main(int argc, char ** argv)
             }
         }
 
-        std::cout << "differential checks passed: " << total << " deterministic cases\n";
+        std::cout << "differential checks passed: " << total << " deterministic cases, " << division_cases
+                  << " division normalization cases\n";
         return 0;
     }
     catch (const std::exception & error)

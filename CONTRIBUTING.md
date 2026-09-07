@@ -42,6 +42,17 @@ C++ 使用仓库 `.clang-format` 格式化受影响文件。跨平台或发布�
 [支持策略](docs/SUPPORT.md)和[发布流程](docs/RELEASING.md)扩大矩阵，逐环境报告；
 不能用单一工具链结果替代其他支持组合。
 
+## 测试职责与诊断
+
+- 单元测试保留可解释的边界、具体回归向量和公共 API/类型分派覆盖；性能路径的
+  随机样本集中在受影响位宽，其他位宽仍保留进位、借位与回绕边界。
+- 系统性输入扫描使用 `tests/differential/oracle.h` 的独立参考算法。除法的
+  limb 数与归一化移位扫描由确定性 differential 执行，不在单元测试另写 oracle。
+  具体缺陷的最小回归仍放在单元测试中，避免仅依赖随机种子。
+- 循环测试的失败信息应包含位宽、符号、标量类型、样本和输入等适用信息；
+  确定性 differential 应输出种子和案例位置，保证失败可以复现。
+- 精简重复样本不能替代平台、Release、sanitizer、consumer/package 与生成头检查。
+
 ## Pull request
 
 - 保持单一主题，使用 [.github/PULL_REQUEST_TEMPLATE/](.github/PULL_REQUEST_TEMPLATE/)
