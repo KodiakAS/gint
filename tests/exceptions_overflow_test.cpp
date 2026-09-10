@@ -25,6 +25,16 @@ TEST(WideIntegerDivMod, ZeroDivisor)
     EXPECT_THROW(sval % szero, std::domain_error);
 }
 
+TEST(WideIntegerDivMod, PreparedZeroDivisorChecksAtOperation)
+{
+    const gint::prepared_divisor<gint::UInt256> unsigned_zero{gint::UInt256(0)};
+    const gint::prepared_divisor<gint::Int256> signed_zero{gint::Int256(0)};
+    EXPECT_THROW(unsigned_zero.divmod(gint::UInt256(123)), std::domain_error);
+    EXPECT_THROW(signed_zero.divmod(gint::Int256(-123)), std::domain_error);
+    const auto copied = signed_zero;
+    EXPECT_THROW(copied.divmod(std::numeric_limits<gint::Int256>::min()), std::domain_error);
+}
+
 TEST(WideIntegerExceptions, ConstructFromNegative)
 {
     gint::integer<128, unsigned> u = -1;
