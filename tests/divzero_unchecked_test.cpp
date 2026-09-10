@@ -48,6 +48,23 @@ TEST(WideIntegerDivModUnchecked, SignedIntegerZeroDivisor)
     EXPECT_EQ(value % z512, value);
 }
 
+TEST(WideIntegerDivModUnchecked, PreparedZeroDivisor)
+{
+    const gint::prepared_divisor<gint::UInt256> unsigned_zero{gint::UInt256(0)};
+    const gint::prepared_divisor<gint::Int256> signed_zero{gint::Int256(0)};
+    const gint::UInt256 unsigned_value = (gint::UInt256(1) << 255) + 123;
+    const auto unsigned_result = unsigned_zero.divmod(unsigned_value);
+    EXPECT_EQ(unsigned_result.quotient, gint::UInt256(0));
+    EXPECT_EQ(unsigned_result.remainder, unsigned_value);
+    const auto copied = signed_zero;
+    for (const gint::Int256 & value : {gint::Int256(-123), std::numeric_limits<gint::Int256>::min()})
+    {
+        const auto result = copied.divmod(value);
+        EXPECT_EQ(result.quotient, gint::Int256(0));
+        EXPECT_EQ(result.remainder, value);
+    }
+}
+
 TEST(WideIntegerDivModUnchecked, ScalarZeroDivisor)
 {
     using U512 = gint::integer<512, unsigned>;

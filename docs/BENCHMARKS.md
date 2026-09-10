@@ -67,6 +67,39 @@ runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_list_tests
 1024-bit benchmark binary，以覆盖 String/CStr、满位宽/短输入和
 Base2/8/10/16 parser 组合。
 
+## 固定除数复用
+
+`perf_prepared_divisor256` 在同一二进制内比较普通 `divmod` 与
+`prepared_divisor<Int256/UInt256>`。先加载上文的 compiler env，再构建和发现用例：
+
+```sh
+cmake -S . -B runs/local/build-prepared-divisor \
+  -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON \
+  -DCMAKE_CXX_COMPILER="$CMAKE_CXX_COMPILER"
+cmake --build runs/local/build-prepared-divisor --target perf_prepared_divisor256 -j4
+runs/local/build-prepared-divisor/perf_prepared_divisor256 --benchmark_list_tests
+```
+
+名称依次包含 `Ordinary/Prepared`、操作、输入十进制位数 `P`、除数 `10^S` 的
+scale，以及正数、负数、混合符号或 unsigned。`DivMod` 和 `Round` 在计时前构造
+缓存；`Round` 消费商余并按绝对值四舍五入。`Setup1/16/256` 在每次计时迭代内
+重新构造，并复用 1、16、256 次；其时间对应整个批次，除以批次大小才是每项成本。
+`items_per_second` 已按实际运算数计算。
+
+例如，比较 65 位混合符号输入除以 `10^20`、`10^30` 和 `10^38`：
+
+```sh
+runs/local/build-prepared-divisor/perf_prepared_divisor256 \
+  --benchmark_filter='^PreparedDivisor/(Ordinary|Prepared)/(DivMod|Round)/P65/S(20|30|38)/Mixed$' \
+  --benchmark_min_time=0.2s --benchmark_repetitions=7 \
+  --benchmark_enable_random_interleaving=true
+```
+
+采样还应覆盖短被除数、单 limb 与 2 的幂除数，以及计入构造成本的用例。固定
+两 limb 除数的复用收益不能外推到每行构造或其他除数形态。做版本前后比较时，
+可将同一基准源码分别与两个版本的头编译；旧版本增加
+`-DGINT_BENCH_PREPARED_BASELINE`，使 `Prepared` 名称下也调用普通 `divmod`。
+
 ## 结论采样
 
 推荐参数：

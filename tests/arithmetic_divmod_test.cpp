@@ -1337,3 +1337,73 @@ TEST(WideIntegerDivision, PublicDivModThreeLimbAddback)
     EXPECT_EQ(result.quotient, U(2513787319205155662ULL));
     EXPECT_EQ(result.remainder, divisor - U(1));
 }
+
+TEST(WideIntegerDivision, PreparedDivisorReusesBothSignsAndAllShapeFallbacks)
+{
+    using Int = gint::Int256;
+    const Int divisors[] = {Int(7), (Int(1) << 64), (Int(1) << 64) + 3, (Int(1) << 100) + 17, (Int(1) << 128) + 3, (Int(1) << 192) + 3};
+    for (const Int & magnitude : divisors)
+        for (unsigned divisor_sign = 0; divisor_sign < 2; ++divisor_sign)
+        {
+            const Int divisor = divisor_sign ? -magnitude : magnitude;
+            const gint::prepared_divisor<Int> prepared(divisor);
+            for (const Int & dividend : {Int(0), magnitude - 1, magnitude, magnitude * 3 + 5, -(magnitude * 3 + 5)})
+            {
+                SCOPED_TRACE(::testing::Message() << "divisor=" << gint::to_string(divisor) << " dividend=" << gint::to_string(dividend));
+                const auto result = prepared.divmod(dividend);
+                EXPECT_EQ(result.quotient, dividend / divisor);
+                EXPECT_EQ(result.remainder, dividend % divisor);
+            }
+        }
+    const Int minimum = std::numeric_limits<Int>::min();
+    const auto overflow = gint::prepared_divisor<Int>(Int(-1)).divmod(minimum);
+    EXPECT_EQ(overflow.quotient, minimum);
+    EXPECT_EQ(overflow.remainder, Int(0));
+    const auto same = gint::prepared_divisor<Int>(minimum).divmod(minimum);
+    EXPECT_EQ(same.quotient, Int(1));
+    EXPECT_EQ(same.remainder, Int(0));
+}
+
+TEST(WideIntegerDivision, PreparedDivisorOwnsAndCopiesUnsignedState)
+{
+    using Int = gint::UInt256;
+    Int source = (Int(1) << 100) + 17;
+    const Int divisor = source;
+    const gint::prepared_divisor<Int> original(source);
+    source = Int(7);
+    const auto copied = original;
+    gint::prepared_divisor<Int> assigned(source);
+    assigned = copied;
+    for (const auto & prepared : {original, copied, assigned})
+    {
+        const auto result = prepared.divmod(divisor * 3 + 5);
+        EXPECT_EQ(result.quotient, Int(3));
+        EXPECT_EQ(result.remainder, Int(5));
+    }
+    assigned = gint::prepared_divisor<Int>(source);
+    const auto fallback = assigned.divmod(Int(100));
+    EXPECT_EQ(fallback.quotient, Int(14));
+    EXPECT_EQ(fallback.remainder, Int(2));
+}
+
+TEST(WideIntegerDivision, PreparedDivisorAssignmentReplacesSignedMetadata)
+{
+    using Int = gint::Int256;
+    Int source = -((Int(1) << 100) + 17);
+    const Int divisor = source;
+    const gint::prepared_divisor<Int> original(source);
+    source = (Int(1) << 65) + 3;
+    const auto copied = original;
+    gint::prepared_divisor<Int> assigned(source);
+    assigned = copied;
+    for (const auto & prepared : {original, copied, assigned})
+    {
+        const auto result = prepared.divmod(divisor * 3 - 5);
+        EXPECT_EQ(result.quotient, Int(3));
+        EXPECT_EQ(result.remainder, Int(-5));
+    }
+    assigned = gint::prepared_divisor<Int>(source);
+    const auto positive = assigned.divmod(-(source * 3 + 5));
+    EXPECT_EQ(positive.quotient, Int(-3));
+    EXPECT_EQ(positive.remainder, Int(-5));
+}
