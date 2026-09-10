@@ -172,9 +172,11 @@ jobs:
             --input "wide_parser=$RESULT_DIR/wide-parser.json" \
             --expected-library-version v1.9.5 \
             --expected-repetitions 7 \
-            --expected-median-count gint=48 \
+            --expected-median-count gint=768 \
             --expected-median-count comparison=93 \
             --expected-median-count wide_parser=16 \
+            --require-benchmark gint=PreparedDivisor/Ordinary/DivMod/P65/S30/Mixed/gint \
+            --require-benchmark gint=PreparedDivisor/Prepared/DivMod/P65/S30/Mixed/gint \
             --require-benchmark gint=FromString/Base2/gint \
             --require-benchmark gint=FromString/Base8/gint \
             --require-benchmark gint=FromString/Base10/gint \

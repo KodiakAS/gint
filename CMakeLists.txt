@@ -564,12 +564,6 @@ if(GINT_BUILD_BENCHMARKS)
         add_gint_bench_target(perf_compare_int${bits} ${bits} ON)
     endforeach()
 
-    add_executable(perf_prepared_divisor256 bench/benchmark_prepared_divisor.cpp)
-    set_target_properties(perf_prepared_divisor256 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-    target_include_directories(perf_prepared_divisor256 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_link_libraries(perf_prepared_divisor256 PRIVATE benchmark::benchmark)
-    target_compile_options(perf_prepared_divisor256 PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
-
 endif()
 
 if(GINT_INSTALL)
