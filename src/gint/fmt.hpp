@@ -243,10 +243,10 @@ struct formatter<gint::integer<Bits, Signed>>
         size_t grouping_index = 0;
         while (end > 0)
         {
-            const unsigned char group_size = static_cast<unsigned char>(grouping[grouping_index]);
-            if (group_size == 0 || group_size == static_cast<unsigned char>((std::numeric_limits<char>::max)()))
+            const int group_size = grouping[grouping_index];
+            if (group_size <= 0 || group_size == (std::numeric_limits<char>::max)())
                 break;
-            if (group_size >= end)
+            if (static_cast<size_t>(group_size) >= end)
                 break;
 
             const size_t begin = end - group_size;
