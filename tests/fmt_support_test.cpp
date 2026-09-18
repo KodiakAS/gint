@@ -12,9 +12,18 @@ namespace
 {
 class comma_numpunct : public std::numpunct<char>
 {
+public:
+    explicit comma_numpunct(std::string grouping = "\3")
+        : grouping_(std::move(grouping))
+    {
+    }
+
+private:
     char do_thousands_sep() const override { return ','; }
 
-    std::string do_grouping() const override { return "\3"; }
+    std::string do_grouping() const override { return grouping_; }
+
+    std::string grouping_;
 };
 }
 
@@ -158,6 +167,37 @@ TEST(fmt_support, format_integer_locale_specs)
     EXPECT_EQ(fmt::format(locale, "{: 014L}", S128(1234567)), fmt::format(locale, "{: 014L}", 1234567));
     EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(0x12d687)), "000000x12d,687");
     EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(-0x12d687)), "0000-0x12d,687");
+}
+
+TEST(fmt_support, locale_grouping_terminators)
+{
+    using U1024 = gint::integer<1024, unsigned>;
+    using S1024 = gint::integer<1024, signed>;
+    const std::string decimal = "1" + std::string(300, '0');
+    const U1024 value(decimal);
+    const std::string grouped = "1" + std::string(297, '0') + ",000";
+    const char terminators[] = {char(0), (std::numeric_limits<char>::max)(), char(-1)};
+    for (char terminator : terminators)
+    {
+        SCOPED_TRACE(static_cast<int>(terminator));
+        const std::locale stop_first(std::locale::classic(), new comma_numpunct(std::string(1, terminator)));
+        const std::locale stop_after_three(std::locale::classic(), new comma_numpunct(std::string("\3") + terminator));
+        EXPECT_EQ(fmt::format(stop_first, "{:L}", value), decimal);
+        EXPECT_EQ(fmt::format(stop_after_three, "{:L}", value), grouped);
+        EXPECT_EQ(fmt::format(stop_after_three, "{:L}", -S1024(value)), "-" + grouped);
+    }
+}
+
+TEST(fmt_support, locale_grouping_preserves_char_signedness)
+{
+    using U1024 = gint::integer<1024, unsigned>;
+    const U1024 value("1" + std::string(300, '0'));
+    const std::locale locale(std::locale::classic(), new comma_numpunct(std::string("\3\200", 2)));
+    // 0x80 stops grouping with signed char, but is a positive group size with unsigned char.
+    const std::string expected = std::numeric_limits<char>::is_signed
+        ? "1" + std::string(297, '0') + ",000"
+        : "1" + std::string(41, '0') + "," + std::string(128, '0') + "," + std::string(128, '0') + ",000";
+    EXPECT_EQ(fmt::format(locale, "{:L}", value), expected);
 }
 
 TEST(fmt_support, utf8_fill_matches_native)
