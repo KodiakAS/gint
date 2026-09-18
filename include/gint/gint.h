@@ -264,6 +264,9 @@ class integer;
 template <typename Integer>
 struct divmod_result;
 
+template <typename Integer>
+class prepared_divisor;
+
 template <size_t Bits, typename Signed>
 divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> &, const integer<Bits, Signed> &);
 
@@ -3356,6 +3359,9 @@ public:
     friend divmod_result<integer<OtherBits, OtherSigned>>
     divmod(const integer<OtherBits, OtherSigned> &, const integer<OtherBits, OtherSigned> &);
 
+    template <typename OtherInteger>
+    friend class prepared_divisor;
+
     friend std::string to_string<>(const integer & v);
     friend std::string detail::to_base_string<>(const integer & v, unsigned base, bool uppercase);
     template <size_t OtherBits, typename OtherSigned>
@@ -5422,6 +5428,262 @@ inline divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> &
     const divmod_result<integer<Bits, Signed>> result = {quotient, dividend - quotient * divisor};
     return result;
 }
+/// Reuse normalization and reciprocal state for a fixed 256-bit divisor.
+/// Other divisor shapes retain the ordinary divmod behavior.
+template <typename Signed>
+class prepared_divisor<integer<256, Signed>>
+{
+public:
+    using Int = integer<256, Signed>;
+    using Unsigned = integer<256, unsigned>;
+
+    explicit prepared_divisor(const Int & divisor) noexcept
+        : divisor_(divisor)
+        , magnitude_()
+        , inverse_(0)
+        , v0_(0)
+        , v1_(0)
+        , shift_(0)
+        , negative_(std::is_same<Signed, signed>::value && (divisor.data_[3] >> 63))
+        , active_(false)
+    {
+        Int::copy_abs_magnitude(magnitude_, divisor_, negative_);
+        int power;
+        if (Unsigned::used_limbs(magnitude_) == 2 && !Unsigned::is_power_of_two(magnitude_, power))
+        {
+            shift_ = __builtin_clzll(magnitude_.data_[1]);
+            v0_ = magnitude_.data_[0] << shift_;
+            v1_ = (magnitude_.data_[1] << shift_) | (shift_ ? magnitude_.data_[0] >> (64 - shift_) : 0);
+            inverse_ = ~static_cast<unsigned __int128>(0) / v1_;
+            active_ = true;
+        }
+    }
+
+#if GINT_DETAIL_X86_64_GCC && __GNUC__ == 8
+    GINT_FORCE_INLINE
+#endif
+    divmod_result<Int> divmod(const Int & dividend) const
+    {
+        if (!active_)
+            return gint::divmod(dividend, divisor_);
+        const bool negative = std::is_same<Signed, signed>::value && (dividend.data_[3] >> 63);
+        Unsigned magnitude(typename Unsigned::uninitialized_tag{});
+        Int::copy_abs_magnitude(magnitude, dividend, negative);
+#if GINT_DETAIL_X86_64_GCC && __GNUC__ == 8
+        if ((magnitude.data_[2] | magnitude.data_[3]) == 0)
+        {
+            if (magnitude.data_[1] < magnitude_.data_[1]
+                || (magnitude.data_[1] == magnitude_.data_[1] && magnitude.data_[0] < magnitude_.data_[0]))
+            {
+                const divmod_result<Int> result = {Int(), dividend};
+                return result;
+            }
+            if (magnitude.data_[1] == magnitude_.data_[1] && magnitude.data_[0] == magnitude_.data_[0])
+            {
+                const divmod_result<Int> result = {Int(negative != negative_ ? -1 : 1), Int()};
+                return result;
+            }
+        }
+#endif
+        Unsigned remainder;
+        const Unsigned quotient = divide_magnitude(magnitude, *this, &remainder);
+        divmod_result<Int> result = {Int(quotient), Int(remainder)};
+        if (negative != negative_)
+            Int::negate_for_division(result.quotient);
+        if (negative)
+            Int::negate_for_division(result.remainder);
+        return result;
+    }
+
+private:
+    using limb_type = uint64_t;
+    static constexpr size_t limbs = 4;
+    static Unsigned divide_magnitude(Unsigned lhs, const prepared_divisor & prepared, Unsigned * remainder) noexcept
+    {
+        Unsigned quotient;
+        size_t n = limbs;
+        while (n > 0 && lhs.data_[n - 1] == 0)
+            --n;
+        if (n < 2)
+        {
+            *remainder = lhs;
+            return quotient;
+        }
+
+        std::array<limb_type, limbs + 1> u = {{}};
+
+        const int shift = prepared.shift_;
+        const limb_type carry = Unsigned::lshift_limbs_to(lhs.data_, n, u.data(), shift);
+        u[n] = carry;
+        const limb_type v0 = prepared.v0_;
+        const limb_type v1 = prepared.v1_;
+        using u128 = unsigned __int128;
+        const u128 inv128 = prepared.inverse_;
+        const bool v1_is_half_base = v1 == (limb_type(1) << 63);
+
+        if (n == 4)
+        {
+            auto step = [&](int j)
+            {
+                limb_type & uj0 = u[j + 0];
+                limb_type & uj1 = u[j + 1];
+                limb_type & uj2 = u[j + 2];
+                u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
+                // 1) Initial estimate via reciprocal multiply
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
+                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
+                // The reciprocal estimate cannot overshoot; correct only the
+                // possible one-step underestimate.
+                if ((numerator - qhat_v1) >= v1)
+                {
+                    ++qhat;
+                    qhat_v1 += v1;
+                }
+                // Second test (Knuth): at most one adjust in practice for two-limb divisor
+                u128 rhat = numerator - qhat_v1;
+                if (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | uj0))
+                {
+                    --qhat;
+                    rhat += v1;
+                }
+                // Reuse high-limb product
+                qhat_v1 = numerator - rhat;
+
+                unsigned __int128 borrow = 0;
+                {
+                    unsigned __int128 p = qhat * v0 + borrow;
+                    if (uj0 < static_cast<limb_type>(p))
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                {
+                    unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
+                    if (uj1 < static_cast<limb_type>(p))
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                if (static_cast<unsigned __int128>(uj2) < borrow)
+                {
+                    unsigned __int128 carry2 = 0;
+                    unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
+                    uj0 = static_cast<limb_type>(t0);
+                    carry2 = t0 >> 64;
+                    unsigned __int128 t1 = static_cast<unsigned __int128>(uj1) + v1 + carry2;
+                    uj1 = static_cast<limb_type>(t1);
+                    carry2 = t1 >> 64;
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) + carry2);
+                    --qhat;
+                }
+                else
+                {
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
+                }
+                quotient.data_[j] = static_cast<limb_type>(qhat);
+            };
+            step(2);
+            step(1);
+            step(0);
+        }
+        else
+        {
+            for (int j = static_cast<int>(n - 2); j >= 0; --j)
+            {
+                limb_type & uj0 = u[j + 0];
+                limb_type & uj1 = u[j + 1];
+                limb_type & uj2 = u[j + 2];
+                u128 numerator = (static_cast<u128>(uj2) << 64) | uj1;
+                // 1) Initial estimate via reciprocal multiply
+                u128 qhat = v1_is_half_base ? (numerator >> 63) : detail::mulhi_u128_no_middle_wrap(numerator, inv128);
+                u128 qhat_v1 = v1_is_half_base ? (qhat << 63) : qhat * v1;
+                if ((numerator - qhat_v1) >= v1)
+                {
+                    ++qhat;
+                    qhat_v1 += v1;
+                }
+                // Second test
+                u128 rhat = numerator - qhat_v1;
+                if (qhat == (static_cast<u128>(1) << 64) || qhat * v0 > ((rhat << 64) | uj0))
+                {
+                    --qhat;
+                    rhat += v1;
+                }
+                qhat_v1 = numerator - rhat;
+
+                unsigned __int128 borrow = 0;
+                {
+                    unsigned __int128 p = qhat * v0 + borrow;
+                    if (uj0 < static_cast<limb_type>(p))
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj0 = static_cast<limb_type>(static_cast<unsigned __int128>(uj0) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                {
+                    unsigned __int128 p = static_cast<unsigned __int128>(qhat_v1) + borrow;
+                    if (uj1 < static_cast<limb_type>(p))
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = (p >> 64) + 1;
+                    }
+                    else
+                    {
+                        uj1 = static_cast<limb_type>(static_cast<unsigned __int128>(uj1) - p);
+                        borrow = p >> 64;
+                    }
+                }
+                if (static_cast<unsigned __int128>(uj2) < borrow)
+                {
+                    unsigned __int128 carry2 = 0;
+                    unsigned __int128 t0 = static_cast<unsigned __int128>(uj0) + v0 + carry2;
+                    uj0 = static_cast<limb_type>(t0);
+                    carry2 = t0 >> 64;
+                    unsigned __int128 t1 = static_cast<unsigned __int128>(uj1) + v1 + carry2;
+                    uj1 = static_cast<limb_type>(t1);
+                    carry2 = t1 >> 64;
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) + carry2);
+                    --qhat;
+                }
+                else
+                {
+                    uj2 = static_cast<limb_type>(static_cast<unsigned __int128>(uj2) - borrow);
+                }
+                quotient.data_[j] = static_cast<limb_type>(qhat);
+            }
+        }
+        *remainder = Unsigned();
+        remainder->data_[0] = shift ? (u[0] >> shift) | (u[1] << (64 - shift)) : u[0];
+        remainder->data_[1] = u[1] >> shift;
+        return quotient;
+    }
+
+    Int divisor_;
+    Unsigned magnitude_;
+    unsigned __int128 inverse_;
+    limb_type v0_;
+    limb_type v1_;
+    int shift_;
+    bool negative_;
+    bool active_;
+};
 
 #if __cplusplus < 201703L
 template <size_t Bits, typename Signed>
