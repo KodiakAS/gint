@@ -437,6 +437,17 @@ inline unsigned __int128 mulhi_u128_no_middle_wrap(unsigned __int128 a, unsigned
     const unsigned __int128 s = (t0 >> 64) + t1 + t2;
     return t3 + (s >> 64);
 }
+#if GINT_DETAIL_X86_64_GCC
+GINT_FORCE_INLINE uint64_t divrem_u128_u64(uint64_t low, uint64_t divisor, uint64_t & remainder) noexcept
+{
+    uint64_t quotient;
+    uint64_t next_remainder;
+    // The caller maintains remainder < divisor, so the quotient fits in 64 bits.
+    __asm__("divq %[divisor]" : "=&a"(quotient), "=&d"(next_remainder) : "0"(low), "1"(remainder), [divisor] "r"(divisor) : "cc");
+    remainder = next_remainder;
+    return quotient;
+}
+#endif
 // Add two 64-bit unsigned values and accumulate carry count (0 or 1) into c.
 // Returns the 64-bit sum; c is incremented if overflow occurs.
 inline uint64_t addc64(uint64_t a, uint64_t b, uint64_t & c) noexcept
@@ -1353,6 +1364,10 @@ public:
 #endif
 
 private:
+    static constexpr bool use_ref_division_lhs = GINT_DETAIL_X86_64_GCC && Bits == 256 && std::is_same<Signed, unsigned>::value;
+    using division_lhs_param = typename std::conditional<use_ref_division_lhs, const integer &, integer>::type;
+    using division_lhs_work = typename std::conditional<use_ref_division_lhs, integer, integer &>::type;
+
     struct uninitialized_tag
     {
     };
@@ -2680,40 +2695,54 @@ public:
         return rhs;
     }
 
-    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, const integer & rhs)
+    friend GINT_HIDDEN_VISIBILITY integer operator/(division_lhs_param lhs_value, const integer & rhs)
     {
 #if GINT_GCC_TUNED_PATHS
         limb_type positive_limb_divisor;
         if (positive_single_limb_value(rhs, positive_limb_divisor))
         {
             GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
+#    if GINT_DETAIL_X86_64_GCC
+            if (limbs == 4 && std::is_same<Signed, unsigned>::value && lhs_value.data_[3] != 0
+                && (positive_limb_divisor & (positive_limb_divisor - 1)) != 0)
+            {
+                integer result;
+                limb_type rem = 0;
+                result.data_[3] = detail::divrem_u128_u64(lhs_value.data_[3], positive_limb_divisor, rem);
+                result.data_[2] = detail::divrem_u128_u64(lhs_value.data_[2], positive_limb_divisor, rem);
+                result.data_[1] = detail::divrem_u128_u64(lhs_value.data_[1], positive_limb_divisor, rem);
+                result.data_[0] = detail::divrem_u128_u64(lhs_value.data_[0], positive_limb_divisor, rem);
+                return result;
+            }
+#    endif
 #    if GINT_DETAIL_AARCH64_GCC
             if (limbs == 2 && std::is_same<Signed, signed>::value && positive_limb_divisor > 0xFFFFFFFFULL
                 && (positive_limb_divisor & (positive_limb_divisor - 1)) == 0)
-                return div_by_positive_power_of_two(lhs, static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
+                return div_by_positive_power_of_two(integer(lhs_value), static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
 #    endif
-            return div_by_positive_limb(lhs, positive_limb_divisor);
+            return div_by_positive_limb(integer(lhs_value), positive_limb_divisor);
         }
 #elif GINT_DETAIL_AARCH64_CLANG
         if (limbs == 2)
         {
             int positive_pow_bit;
             if (positive_power_of_two_fastpath_divisor(rhs, positive_pow_bit))
-                return div_by_positive_power_of_two(lhs, positive_pow_bit);
+                return div_by_positive_power_of_two(integer(lhs_value), positive_pow_bit);
 
             limb_type positive_limb_divisor;
             if (positive_single_limb_value(rhs, positive_limb_divisor))
             {
                 GINT_DIVZERO_CHECK(positive_limb_divisor == 0);
-                return div_by_positive_limb(lhs, positive_limb_divisor);
+                return div_by_positive_limb(integer(lhs_value), positive_limb_divisor);
             }
         }
 #endif
 
         int positive_pow_bit;
         if (positive_power_of_two_fastpath_divisor(rhs, positive_pow_bit))
-            return div_by_positive_power_of_two(lhs, positive_pow_bit);
+            return div_by_positive_power_of_two(integer(lhs_value), positive_pow_bit);
 
+        division_lhs_work lhs = lhs_value;
         bool lhs_neg = false;
         bool rhs_neg = false;
         bool lhs_is_min = false;
@@ -3662,6 +3691,15 @@ private:
         if (div != 10000000000000000000ULL)
 #    endif
         {
+#    if GINT_DETAIL_X86_64_GCC
+            if (limbs == 4 && std::is_same<Signed, unsigned>::value)
+            {
+                limb_type rem = 0;
+                for (size_t i = n; i-- > 0;)
+                    quotient.data_[i] = detail::divrem_u128_u64(data_[i], div, rem);
+                return rem;
+            }
+#    endif
             u128 rem = 0;
             for (size_t i = n; i-- > 0;)
             {
