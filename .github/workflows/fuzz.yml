@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    - cron: "17 3 * * 1,4"
   workflow_dispatch:
     inputs:
       fuzz_seconds:
@@ -63,7 +61,7 @@ jobs:
           GINT_DIFFERENTIAL_ITERATIONS: "512"
         run: scripts/run-differential.sh
       - name: Run short libFuzzer smoke
-        if: matrix.name == 'x86_64-clang' && (github.event_name == 'pull_request' || github.event_name == 'push')
+        if: matrix.name == 'x86_64-clang' && github.event_name == 'pull_request'
         env:
           CXX: clang++
         run: scripts/run-fuzz.sh 10
@@ -71,8 +69,8 @@ jobs:
   deep-fuzz:
     # Keep sanitizer fuzzing on Linux x86_64, where GitHub's Clang package ships
     # a stable libFuzzer runtime. AppleClang remains covered by the main CI suite.
-    name: scheduled Clang libFuzzer
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: deep Clang libFuzzer
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
