@@ -86,3 +86,14 @@ docker run --rm --platform linux/amd64 \
 differential。它不构建 C++17 benchmark，不承担 sanitizer、现代 codegen 或
 性能结论；这些证据由现代工具链环境提供。默认输出在 `runs/gcc48/`，可调参数以
 [`scripts/run-gcc48-validation.sh`](../scripts/run-gcc48-validation.sh)为准。
+
+## CI coverage 工具链
+
+coverage lane 固定 Ubuntu 24.04，显式使用 GCC/G++ 13 与配套 `gcov-13`，
+并在生成报告前校验编译器与 gcov 版本一致。lcov 使用该发行版的软件包；
+不随 `ubuntu-latest` 的发行版迁移改变 coverage 工具组合。最新编译器兼容性
+仍由独立的 build 与 sanitizer lanes 验证。
+
+coverage 继续执行完整测试、生成和上传覆盖率报告，不以忽略新增错误类型
+或跳过报告生成掩盖工具链不兼容。实际命令见
+[CI workflow](../.github/workflows/ci.yml)。
