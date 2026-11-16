@@ -91,9 +91,22 @@ differential。它不构建 C++17 benchmark，不承担 sanitizer、现代 codeg
 
 coverage lane 固定 Ubuntu 24.04，显式使用 GCC/G++ 13 与配套 `gcov-13`，
 并在生成报告前校验编译器与 gcov 版本一致。lcov 使用该发行版的软件包；
-不随 `ubuntu-latest` 的发行版迁移改变 coverage 工具组合。最新编译器兼容性
-仍由独立的 build 与 sanitizer lanes 验证。
+不随 `ubuntu-latest` 的发行版迁移改变 coverage 工具组合。
 
 coverage 继续执行完整测试、生成和上传覆盖率报告，不以忽略新增错误类型
 或跳过报告生成掩盖工具链不兼容。实际命令见
 [CI workflow](../.github/workflows/ci.yml)。
+
+## CI 稳定工具链
+
+常规 Linux x86_64/AArch64 lanes 使用 Ubuntu 24.04 与显式 GCC 13 / Clang 18；
+Clang sanitizer、libFuzzer runtime 和 symbolizer 同属 LLVM 18，格式检查使用
+clang-format 18。macOS arm64 lanes 固定 macOS 26 与 Xcode 26.6，通过
+`DEVELOPER_DIR` 选择并验证 Xcode，不依赖 runner 默认版本。
+
+GCC 4.8.5、GCC 8.5 开发镜像与 CMake 3.13 的独立兼容性门禁保持不变。
+固定的是 runner 系列与工具链主版本（Xcode 固定到具体版本），允许同系列的
+修复更新；不是冻结整张托管镜像。升级主版本作为显式变更，通过完整相关门禁
+后再更新选择，不以自动追新代替兼容性验证。具体包名和选择以
+[CI](../.github/workflows/ci.yml)、[fuzz](../.github/workflows/fuzz.yml)和
+[performance](../.github/workflows/performance.yml)为准。

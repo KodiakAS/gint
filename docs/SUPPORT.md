@@ -27,9 +27,10 @@ GCC 4.8.5 的最低版本承诺仅适用于 Linux x86_64。三个正式平台分
 
 ## 支持承诺与验证快照
 
-长期策略只固定上表的边界。CI runner、rolling compiler 和一次发布实际使用的
-版本会随时间变化，应记录在对应 CI artifact 或发布证据中，不写入本文件形成
-易过期的第二套矩阵。
+长期策略只固定上表的边界。CI 使用已验证的稳定 runner 与显式编译器版本，
+不自动追随 `latest` 工具链；升级通过独立变更验证。具体选择由 workflow 和
+[验证环境](VALIDATION_ENVIRONMENTS.md)维护，实际版本记录在 CI artifact 或
+发布证据中，不在本文件复制第二套版本矩阵。
 
 可复现依赖和 legacy 环境见[验证环境](VALIDATION_ENVIRONMENTS.md)，发布门禁见
 [发布流程](RELEASING.md)。

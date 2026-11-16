@@ -43,7 +43,7 @@ jobs:
             cxx: clang++-18
             package: clang-18
           - name: macos-arm64-appleclang
-            os: macos-15
+            os: macos-26
             compiler: AppleClang
             cxx: c++
             package: ""
@@ -54,9 +54,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ${{ matrix.package }} python3
-      - name: Verify Apple Silicon runner
+      - name: Select stable Xcode
         if: runner.os == 'macOS'
-        run: test "$(uname -m)" = arm64
+        run: |
+          test "$(uname -m)" = arm64
+          test -d /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Verify stable Xcode
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+          xcrun clang++ --version
       - name: Test performance tooling
         run: python3 -m unittest discover -s tests/perf -p 'test_*.py'
       - name: Check C++11 hot-path code generation

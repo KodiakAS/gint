@@ -22,23 +22,34 @@ jobs:
       matrix:
         include:
           - name: ubuntu-gcc
-            os: ubuntu-latest
-            cxx: g++
+            os: ubuntu-24.04
+            cxx: g++-13
           - name: ubuntu-clang
-            os: ubuntu-latest
-            cxx: clang++
+            os: ubuntu-24.04
+            cxx: clang++-18
           - name: ubuntu-arm64-gcc
             os: ubuntu-24.04-arm
-            cxx: g++
+            cxx: g++-13
           - name: ubuntu-arm64-clang
             os: ubuntu-24.04-arm
-            cxx: clang++
+            cxx: clang++-18
           - name: macos-appleclang
-            os: macos-latest
+            os: macos-26
             cxx: c++
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Select stable Xcode
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          test -d /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Verify stable Xcode
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+          xcrun clang++ --version
       - name: Install dependencies
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
@@ -47,7 +58,7 @@ jobs:
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends \
-              cmake build-essential clang libfmt-dev libgtest-dev
+              cmake g++-13 clang-18 libfmt-dev libgtest-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             # Avoid reinstalling preinstalled or pinned formulae on GitHub macOS runners
             (brew list cmake >/dev/null 2>&1) || brew install cmake
@@ -90,14 +101,16 @@ jobs:
           ${{ matrix.cxx }} -std=c++11 -Wall -Wextra -Werror -Iinclude runs/ci/gint_header_warning_smoke.cpp -c -o runs/ci/gint_header_warning_smoke.o
 
   build-cxx17:
-    name: build (ubuntu-latest-cxx17)
-    runs-on: ubuntu-latest
+    name: build (ubuntu-24.04-cxx17)
+    runs-on: ubuntu-24.04
+    env:
+      CXX: g++-13
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake build-essential libfmt-dev libgtest-dev ccache
+          sudo apt-get install -y --no-install-recommends cmake g++-13 libfmt-dev libgtest-dev ccache
       - name: Prepare ccache directory
         run: mkdir -p ~/.ccache
       - name: Cache ccache
@@ -116,8 +129,9 @@ jobs:
 
   cmake-3-13:
     name: package contract (CMake 3.13)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
+      CXX: g++-13
       CMAKE_VERSION: 3.13.5
       CMAKE_ARCHIVE_SHA256: e2fd0080a6f0fc1ec84647acdcd8e0b4019770f48d83509e6a5b0b6ea27e5864
     steps:
@@ -125,7 +139,7 @@ jobs:
       - name: Install compiler and test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential curl libfmt-dev libgtest-dev
+          sudo apt-get install -y --no-install-recommends g++-13 curl libfmt-dev libgtest-dev
       - name: Install pinned CMake 3.13
         run: |
           mkdir -p runs/ci/cmake-3.13
@@ -157,7 +171,7 @@ jobs:
 
   gcc-4-8-5:
     name: gcc 4.8.5 (centos 7 x86_64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Build pinned GCC 4.8.5 image
@@ -171,7 +185,7 @@ jobs:
             scripts/run-gcc48-validation.sh
 
   coverage:
-    # Keep coverage tools paired; build lanes still test the latest compilers.
+    # Keep the compiler and coverage reader on the same stable toolchain.
     runs-on: ubuntu-24.04
     env:
       CC: gcc-13
@@ -219,47 +233,49 @@ jobs:
 
   sanitizers:
     name: sanitizers (ubuntu-clang)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CXX: clang++-18
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake build-essential clang \
+          sudo apt-get install -y --no-install-recommends cmake g++-13 clang-18 libclang-rt-18-dev llvm-18 \
             libfmt-dev libgtest-dev
       - name: Configure
-        run: CXX=clang++ cmake -S . -B runs/ci/build-sanitizers -DENABLE_SANITIZERS=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
+        run: CXX=clang++-18 cmake -S . -B runs/ci/build-sanitizers -DENABLE_SANITIZERS=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
       - name: Build
         run: cmake --build runs/ci/build-sanitizers --config Debug --parallel
       - name: Run tests
         run: ctest --test-dir runs/ci/build-sanitizers --output-on-failure
 
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-13 clang-format-18
       - name: Check performance tooling and amalgamated header
         run: |
           python3 -m unittest discover -s tests/perf -p 'test_*.py'
-          bash scripts/check-internal-headers.sh g++
+          bash scripts/check-internal-headers.sh g++-13
           python3 scripts/generate-amalgamation.py --check
-      - name: Install clang-format
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format
       - name: Check code format
         run: |
           git ls-files '*.cpp' '*.hpp' '*.h' | while IFS= read -r file; do
             if [[ "$file" == "include/gint/gint.h" ]]; then
               continue
             fi
-            clang-format -i --style=file "$file"
+            clang-format-18 -i --style=file "$file"
           done
           git diff --exit-code
 
   dockerfile:
     name: development image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Build development image
@@ -286,13 +302,15 @@ jobs:
 
   benchmark:
     name: benchmark smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CXX: g++-13
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libfmt-dev libbenchmark-dev libboost-dev
+          sudo apt-get install -y cmake g++-13 libfmt-dev libbenchmark-dev libboost-dev
       - name: Configure
         run: cmake -S . -B runs/ci/build-benchmark-smoke -DCMAKE_BUILD_TYPE=Release -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON
       - name: Build

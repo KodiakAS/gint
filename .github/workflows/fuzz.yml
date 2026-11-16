@@ -36,22 +36,22 @@ jobs:
         include:
           - name: x86_64-gcc
             os: ubuntu-24.04
-            cxx: g++
+            cxx: g++-13
           - name: x86_64-clang
             os: ubuntu-24.04
-            cxx: clang++
+            cxx: clang++-18
           - name: aarch64-gcc
             os: ubuntu-24.04-arm
-            cxx: g++
+            cxx: g++-13
           - name: aarch64-clang
             os: ubuntu-24.04-arm
-            cxx: clang++
+            cxx: clang++-18
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install GCC and Clang
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++ clang
+          sudo apt-get install -y --no-install-recommends g++-13 clang-18
       - name: Install libFuzzer runtime and symbolizer
         if: matrix.name == 'x86_64-clang'
         run: sudo apt-get install -y --no-install-recommends libclang-rt-18-dev llvm-18
@@ -63,7 +63,7 @@ jobs:
       - name: Run short libFuzzer smoke
         if: matrix.name == 'x86_64-clang' && github.event_name == 'pull_request'
         env:
-          CXX: clang++
+          CXX: clang++-18
         run: scripts/run-fuzz.sh 10
 
   deep-fuzz:
@@ -78,7 +78,7 @@ jobs:
       - name: Install Clang
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang libclang-rt-18-dev llvm-18
+          sudo apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev llvm-18
       - name: Restore accumulated fuzz corpus
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -88,7 +88,7 @@ jobs:
             gint-fuzz-corpus-${{ runner.os }}-
       - name: Run sanitizer-backed differential fuzzing
         env:
-          CXX: clang++
+          CXX: clang++-18
           GINT_FUZZ_SECONDS: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_seconds || '300' }}
         run: scripts/run-fuzz.sh
       - name: Upload crash artifacts
