@@ -118,7 +118,20 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:>{999999999999999999999999999999999999}}"), U128(42))), fmt::format_error);
 }
 
-#if FMT_VERSION >= 90000
+TEST(fmt_support, repeated_zero_flag_matches_native)
+{
+    for (const char * spec : {"{:00d}", "{:005d}", "{:>005d}"})
+    {
+#if FMT_VERSION >= 100000
+        EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime(spec), 42)), fmt::format_error);
+        EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime(spec), gint::Int128(42))), fmt::format_error);
+#else
+        EXPECT_EQ(fmt::format(fmt::runtime(spec), gint::Int128(42)), fmt::format(fmt::runtime(spec), 42));
+#endif
+    }
+}
+
+#if FMT_VERSION >= 90100
 TEST(fmt_support, delegates_positional_width_type_checks_to_fmt)
 {
     struct parse_context : fmt::format_parse_context
