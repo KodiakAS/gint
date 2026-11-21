@@ -2692,6 +2692,15 @@ public:
                 && (positive_limb_divisor & (positive_limb_divisor - 1)) == 0)
                 return div_by_positive_power_of_two(lhs, static_cast<int>(__builtin_ctzll(positive_limb_divisor)));
 #    endif
+#    if GINT_ARCH_X86_64 && __GNUC__ == 8
+            // GCC 8 otherwise retains another by-value transfer through the signed-capable wrapper.
+            if (limbs == 4 && !std::is_same<Signed, signed>::value)
+            {
+                integer result;
+                lhs.div_mod_small(positive_limb_divisor, result);
+                return result;
+            }
+#    endif
             return div_by_positive_limb(lhs, positive_limb_divisor);
         }
 #elif GINT_DETAIL_AARCH64_CLANG
