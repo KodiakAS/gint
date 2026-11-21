@@ -44,6 +44,7 @@ TEST(WideIntegerComparison, UInt64WithWideScalar)
     const U64 max = std::numeric_limits<U64>::max();
     EXPECT_LT(max, high);
     EXPECT_GT(high, max);
+    EXPECT_FALSE((high << 63) < max);
     EXPECT_EQ(max, high - 1);
     EXPECT_LT(__int128(-1), U64(0));
     EXPECT_GT(max, __int128(-1));
@@ -75,6 +76,16 @@ TEST(WideIntegerComparison, BuiltinComparison)
     EXPECT_TRUE(0 > b);
     EXPECT_TRUE(neg < b);
     EXPECT_TRUE(b >= neg);
+}
+
+TEST(WideIntegerComparison, BoolOperand)
+{
+    const gint::UInt256 one = 1;
+    EXPECT_TRUE(false < one);
+    EXPECT_FALSE(true < one);
+    EXPECT_TRUE(one > false);
+    EXPECT_TRUE(true >= one);
+    EXPECT_TRUE(one <= true);
 }
 
 TEST(WideIntegerComparison, Floating)
