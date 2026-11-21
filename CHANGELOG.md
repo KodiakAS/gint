@@ -7,6 +7,9 @@
 
 ### 新增
 
+- 增加 `gint::prepared_divisor<Int256/UInt256>`，支持重复使用固定除数的
+  `divmod`；非 2 的幂的两 limb 除数可复用归一化与倒数状态，其他形态沿用普通路径。
+
 - 增加项目版本、单头文件版本宏和可安装的 `gintConfigVersion.cmake`。
 - 增加 `gint::gint`、`gint::checked` 两个 header-only CMake targets。
 - 增加同时返回商、余数的 `gint::divmod`。

@@ -363,6 +363,10 @@ inline void verify_unsigned_division(
 {
     const reference_divmod_result expected = wide_reference_divmod(ref_dividend, ref_divisor);
     const gint::divmod_result<gint::UInt256> result = gint::divmod(dividend, divisor);
+    const gint::prepared_divisor<gint::UInt256> prepared(divisor);
+    const gint::divmod_result<gint::UInt256> reused = prepared.divmod(dividend);
+    require(equal_wide_unsigned_bits(reused.quotient, expected.quotient), "prepared unsigned quotient differs from bitwise oracle");
+    require(equal_wide_unsigned_bits(reused.remainder, expected.remainder), "prepared unsigned remainder differs from bitwise oracle");
 
     require(equal_wide_unsigned_bits(result.quotient, expected.quotient), "unsigned division quotient differs from bitwise oracle");
     require(equal_wide_unsigned_bits(result.remainder, expected.remainder), "unsigned division remainder differs from bitwise oracle");
@@ -383,6 +387,10 @@ inline void verify_signed_division(
         = make_wide_signed_reference<256>(expected_magnitudes.quotient, ref_dividend.negative != ref_divisor.negative);
     const signed_reference expected_remainder = make_wide_signed_reference<256>(expected_magnitudes.remainder, ref_dividend.negative);
     const gint::divmod_result<gint::Int256> result = gint::divmod(dividend, divisor);
+    const gint::prepared_divisor<gint::Int256> prepared(divisor);
+    const gint::divmod_result<gint::Int256> reused = prepared.divmod(dividend);
+    require(equal_wide_signed_bits(reused.quotient, expected_quotient), "prepared signed quotient differs from bitwise oracle");
+    require(equal_wide_signed_bits(reused.remainder, expected_remainder), "prepared signed remainder differs from bitwise oracle");
 
     require(equal_wide_signed_bits(result.quotient, expected_quotient), "signed division quotient differs from bitwise oracle");
     require(equal_wide_signed_bits(result.remainder, expected_remainder), "signed division remainder differs from bitwise oracle");
