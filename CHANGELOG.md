@@ -32,6 +32,7 @@
 
 ### 变更
 
+- stream 的字段对齐使用批量填充，避免启用 `std::unitbuf` 时逐个填充字符刷新。
 - UInt256 的 `divmod` 直接复用除法内核余数，避免额外宽乘法和减法。
 
 - x86-64 GCC 与 AArch64 Clang 的 256-bit 整数加减 `limb_type` 标量改用固定长度
