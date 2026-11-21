@@ -317,6 +317,7 @@ if(GINT_BUILD_TESTS)
             -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
             -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
             -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            "-DGINT_CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_header_contract.cmake
     )
     add_test(NAME consumer.cmake_compiler_contract
@@ -334,6 +335,7 @@ if(GINT_BUILD_TESTS)
             "-DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
             "-DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
             "-DGINT_TEST_GENERATOR=${CMAKE_GENERATOR}"
+            "-DGINT_CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_consumer_toolchain.cmake
     )
 

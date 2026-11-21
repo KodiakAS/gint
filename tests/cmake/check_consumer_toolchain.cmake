@@ -47,6 +47,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${probe}/parent" -B "${probe}/build"
         -G "${GINT_TEST_GENERATOR}" -C "${probe}/seed.cmake"
         "-DCMAKE_CXX_COMPILER=${GINT_CXX_COMPILER}"
+        "-DCMAKE_CXX_COMPILER_ARG1=${GINT_CXX_COMPILER_ARG1}"
         "-DCMAKE_TOOLCHAIN_FILE=${probe}/toolchain.cmake"
     RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr
 )
