@@ -2,10 +2,12 @@
 # Each package test owns its staging directory and can run concurrently.
 set(GINT_INSTALL_CMAKE_DIR "${GINT_INSTALL_LIBDIR}/cmake/gint")
 set(GINT_INSTALL_DATA_DIR "${GINT_INSTALL_DATADIR}/gint")
+# Join relative destinations with one slash, including when the prefix is /.
+string(REGEX REPLACE "/+$" "" install_prefix "${GINT_INSTALL_PREFIX}")
 foreach(kind IN ITEMS INCLUDE CMAKE DATA)
     set(dir "${GINT_INSTALL_${kind}_DIR}")
     if(NOT IS_ABSOLUTE "${dir}")
-        set(dir "${GINT_INSTALL_PREFIX}/${dir}")
+        set(dir "${install_prefix}/${dir}")
     endif()
     get_filename_component(logical_${kind} "${dir}" ABSOLUTE)
     get_filename_component(staged_${kind} "${stage_root}${dir}" ABSOLUTE)
