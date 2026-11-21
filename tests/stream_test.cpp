@@ -98,8 +98,9 @@ TEST(WideIntegerStream, PaddingUsesBoundedStreamFlushes)
         counting_buffer buffer;
         std::ostream out(&buffer);
         out.setf(align, std::ios_base::adjustfield);
-        out << std::unitbuf << std::showbase << std::hex << std::setfill('_') << std::setw(80) << gint::UInt128(1);
-        const std::string pad(77, '_');
+        const int width = 65536;
+        out << std::unitbuf << std::showbase << std::hex << std::setfill('_') << std::setw(width) << gint::UInt128(1);
+        const std::string pad(width - 3, '_');
         EXPECT_EQ(
             buffer.str(),
             align == std::ios_base::internal   ? "0x" + pad + "1"
@@ -132,6 +133,30 @@ TEST(WideIntegerStream, PaddingConsumesWidthOnWriteFailure)
         EXPECT_THROW(out << std::setw(9) << gint::Int128(21), std::ios_base::failure);
         EXPECT_EQ(out.width(), 0);
     }
+}
+
+TEST(WideIntegerStream, ExtremeWidthReachesThrowingBuffer)
+{
+    struct write_error
+    {
+    };
+    struct throwing_buffer : std::streambuf
+    {
+        int_type overflow(int_type) override { throw write_error(); }
+    } buffer;
+
+    std::ostream out(&buffer);
+    out.exceptions(std::ios_base::badbit);
+    out.width(std::numeric_limits<std::streamsize>::max());
+    EXPECT_THROW(out << gint::UInt128(7), write_error);
+    EXPECT_TRUE(out.bad());
+    EXPECT_EQ(out.width(), 0);
+
+    out.clear();
+    out.exceptions(std::ios_base::goodbit);
+    EXPECT_NO_THROW(out << std::setw(16) << gint::UInt128(7));
+    EXPECT_TRUE(out.bad());
+    EXPECT_EQ(out.width(), 0);
 }
 
 TEST(WideIntegerStream, OutputAdditionalWidths)
