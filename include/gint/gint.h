@@ -6374,8 +6374,9 @@ struct formatter<gint::integer<Bits, Signed>>
         }
     };
 
+    // fmt 11.0.0 provides only a non-const basic_format_arg::visit().
     template <typename FormatArg>
-    static unsigned visit_dynamic_width_arg(const FormatArg & arg)
+    static unsigned visit_dynamic_width_arg(FormatArg arg)
     {
 #    if FMT_VERSION >= 110000
         return arg.visit(dynamic_width_visitor{});
