@@ -61,7 +61,9 @@
 2. 推送 tag，确认远端 tag 仍指向同一提交。
 3. 基于已推送的该 tag 创建 GitHub Release，摘要列出 correctness、performance、
    integration 和 compatibility 变化，并链接升级说明。
-4. 使用 GitHub source archive 或额外源码归档交付；header-only 边界未改变时
-   不附加预编译库。
+4. 使用 GitHub source archive 或额外源码归档交付。源码归档须随 benchmark 的
+   ClickHouse 宽整数源码附带
+   [Boost Software License 1.0 全文](../third_party/wide_integer/LICENSE_1_0.txt)。
+   header-only 边界未改变时不附加预编译库。
 5. 发布后在新的开发提交中建立下一版本的 `Unreleased` 条目，并在需要时更新开发
    版本；不得移动或重建已经发布的 tag。
