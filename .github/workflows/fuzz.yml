@@ -60,6 +60,11 @@ jobs:
           CXX: ${{ matrix.cxx }}
           GINT_DIFFERENTIAL_ITERATIONS: "512"
         run: scripts/run-differential.sh
+      - name: Reject negative iteration counts
+        run: |
+          status=0
+          runs/differential/differential_test -18446744073709551615 || status=$?
+          test "$status" -eq 2
       - name: Run short libFuzzer smoke
         if: matrix.name == 'x86_64-clang' && github.event_name == 'pull_request'
         env:
