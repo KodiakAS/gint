@@ -262,6 +262,29 @@ TEST(WideIntegerConversion, FloatConversionSignedMinMagnitude)
     EXPECT_EQ(static_cast<float>(min128), -std::ldexp(1.0f, 127));
 }
 
+template <typename Float>
+static void test_exact_wide_to_float(int bits)
+{
+    SCOPED_TRACE(testing::Message() << "precision=" << std::numeric_limits<Float>::digits << ", bits=" << bits);
+    using U1024 = gint::integer<1024, unsigned>;
+    using S1024 = gint::integer<1024, signed>;
+    const U1024 magnitude = (U1024(1) << bits) - U1024(1);
+    const Float expected = std::ldexp(Float(1), bits) - Float(1);
+    EXPECT_EQ(static_cast<Float>(magnitude), expected);
+    EXPECT_EQ(static_cast<Float>(S1024(magnitude)), expected);
+    EXPECT_EQ(static_cast<Float>(-S1024(magnitude)), -expected);
+}
+
+TEST(WideIntegerConversion, FloatConversionExactLimbBoundaries)
+{
+    test_exact_wide_to_float<float>(std::numeric_limits<float>::digits);
+    test_exact_wide_to_float<double>(std::numeric_limits<double>::digits);
+    const int digits = std::numeric_limits<long double>::digits;
+    test_exact_wide_to_float<long double>(digits < 64 ? digits : 64);
+    if (digits > 64)
+        test_exact_wide_to_float<long double>(digits);
+}
+
 TEST(WideIntegerConversion, FloatConversionOverflowRespectsAllRoundingModes)
 {
     struct RoundingGuard

@@ -3323,6 +3323,12 @@ private:
         const int digits = std::numeric_limits<Float>::digits;
         if (hb < digits)
         {
+            if (hb < 64)
+            {
+                const Float res = static_cast<Float>(mag.data_[0]);
+                return neg ? -res : res;
+            }
+
             Float res = 0;
             for (size_t i = limbs; i-- > 0;)
             {
