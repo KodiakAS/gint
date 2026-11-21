@@ -141,9 +141,11 @@ inline char format_digit(unsigned digit, bool uppercase) noexcept
     return static_cast<char>((digit < 10) ? ('0' + digit) : ((uppercase ? 'A' : 'a') + (digit - 10)));
 }
 
-inline size_t stream_prefix_size(const std::string & text) noexcept
+inline std::streamsize stream_padding_offset(const std::string & text, std::ios_base::fmtflags align) noexcept
 {
-    if (text.empty())
+    if (align == std::ios_base::left)
+        return static_cast<std::streamsize>(text.size());
+    if (align != std::ios_base::internal || text.empty())
         return 0;
     if (text[0] == '-' || text[0] == '+')
         return 1;
@@ -152,35 +154,59 @@ inline size_t stream_prefix_size(const std::string & text) noexcept
     return 0;
 }
 
+inline bool write_stream_padding(std::streambuf & buffer, std::streamsize count, char fill)
+{
+    char block[1024];
+    const std::streamsize capacity = sizeof(block);
+    std::memset(block, fill, static_cast<size_t>(count < capacity ? count : capacity));
+    while (count > 0)
+    {
+        const std::streamsize n = count < capacity ? count : capacity;
+        if (buffer.sputn(block, n) != n)
+            return false;
+        count -= n;
+    }
+    return true;
+}
+
 inline std::ostream & write_formatted_string(std::ostream & out, const std::string & text)
 {
-    const std::streamsize width = out.width();
+    const std::streamsize width = out.width(0);
     const std::streamsize size = static_cast<std::streamsize>(text.size());
     if (width <= size)
-    {
-        out.width(0);
         return out.write(text.data(), size);
-    }
 
-    // String insertion can leave its field width set when a write fails.
-    struct reset_width
+    std::ostream::sentry sentry(out);
+    if (!sentry)
+        return out;
+    const std::streamsize before = stream_padding_offset(text, out.flags() & std::ios_base::adjustfield);
+    std::streambuf & buffer = *out.rdbuf();
+#if GINT_DETAIL_EXCEPTIONS_ENABLED
+    try
     {
-        std::ostream & stream;
-        ~reset_width() { stream.width(0); }
-    } reset{out};
-    if ((out.flags() & std::ios_base::adjustfield) == std::ios_base::internal)
-    {
-        const size_t prefix = stream_prefix_size(text);
-        if (prefix)
-        {
-            // String insertion handles padding after the numeric prefix.
-            out.width(0);
-            out.write(text.data(), static_cast<std::streamsize>(prefix));
-            out.width(width - static_cast<std::streamsize>(prefix));
-            return out << text.substr(prefix);
-        }
+#endif
+        if ((!before || buffer.sputn(text.data(), before) == before) && write_stream_padding(buffer, width - size, out.fill())
+            && (before == size || buffer.sputn(text.data() + before, size - before) == size - before))
+            return out;
+#if GINT_DETAIL_EXCEPTIONS_ENABLED
     }
-    return out << text;
+    catch (...)
+    {
+        // setstate can throw ios_base::failure. Preserve the streambuf exception when requested.
+        try
+        {
+            out.setstate(std::ios_base::badbit);
+        }
+        catch (const std::ios_base::failure &)
+        {
+        }
+        if (out.exceptions() & std::ios_base::badbit)
+            throw;
+        return out;
+    }
+#endif
+    out.setstate(std::ios_base::badbit);
+    return out;
 }
 
 template <size_t Bits, typename Signed>

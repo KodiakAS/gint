@@ -42,6 +42,7 @@
 #include <limits>
 #include <ostream>
 #include <stdexcept>
+#include <streambuf>
 #include <string>
 #include <type_traits>
 

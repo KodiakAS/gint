@@ -43,6 +43,7 @@
 #include <limits>
 #include <ostream>
 #include <stdexcept>
+#include <streambuf>
 #include <string>
 #include <type_traits>
 
@@ -1501,7 +1502,7 @@ private:
             ? static_cast<limb_type>(
                   (detail::is_signed<T>::value ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v))
                   >> (I * 64))
-            : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
+            : (detail::is_signed<T>::value && static_cast<wide_signed>(v) < 0 ? ~0ULL : 0ULL);
     }
 
 public:
@@ -2998,7 +2999,7 @@ public:
         if (needs_unsigned_signed_promotion(rhs))
             return truncate_promoted_signed(promote_signed_self(lhs) % promote_integral_value(rhs));
         // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
-        if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && rhs < 0)
+        if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && static_cast<__int128>(rhs) < 0)
             return lhs % integer(rhs);
         if (sizeof(T) <= sizeof(limb_type)
             && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
@@ -3224,7 +3225,7 @@ public:
         if (is_int64_with_int128<T>())
             return static_cast<__int128>(lhs) < static_cast<signed_limb_type>(rhs.data_[0]);
         if (outside_uint64_operand_range(lhs))
-            return lhs < 0;
+            return detail::is_signed<T>::value && static_cast<__int128>(lhs) < 0;
         if (needs_unsigned_signed_promotion(lhs))
             return promote_integral_value(lhs) < promote_signed_self(rhs);
         return integer(lhs) < rhs;
@@ -3408,7 +3409,7 @@ private:
     {
         typedef __int128 wide_signed;
         typedef unsigned __int128 wide_unsigned;
-        const bool sign_fill = detail::is_signed<T>::value && v < 0;
+        const bool sign_fill = detail::is_signed<T>::value && static_cast<wide_signed>(v) < 0;
         const limb_type fill = sign_fill ? ~limb_type(0) : limb_type(0);
         wide_unsigned val = sign_fill ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v);
 
@@ -5794,9 +5795,11 @@ inline char format_digit(unsigned digit, bool uppercase) noexcept
     return static_cast<char>((digit < 10) ? ('0' + digit) : ((uppercase ? 'A' : 'a') + (digit - 10)));
 }
 
-inline size_t stream_prefix_size(const std::string & text) noexcept
+inline std::streamsize stream_padding_offset(const std::string & text, std::ios_base::fmtflags align) noexcept
 {
-    if (text.empty())
+    if (align == std::ios_base::left)
+        return static_cast<std::streamsize>(text.size());
+    if (align != std::ios_base::internal || text.empty())
         return 0;
     if (text[0] == '-' || text[0] == '+')
         return 1;
@@ -5805,35 +5808,59 @@ inline size_t stream_prefix_size(const std::string & text) noexcept
     return 0;
 }
 
+inline bool write_stream_padding(std::streambuf & buffer, std::streamsize count, char fill)
+{
+    char block[1024];
+    const std::streamsize capacity = sizeof(block);
+    std::memset(block, fill, static_cast<size_t>(count < capacity ? count : capacity));
+    while (count > 0)
+    {
+        const std::streamsize n = count < capacity ? count : capacity;
+        if (buffer.sputn(block, n) != n)
+            return false;
+        count -= n;
+    }
+    return true;
+}
+
 inline std::ostream & write_formatted_string(std::ostream & out, const std::string & text)
 {
-    const std::streamsize width = out.width();
+    const std::streamsize width = out.width(0);
     const std::streamsize size = static_cast<std::streamsize>(text.size());
     if (width <= size)
-    {
-        out.width(0);
         return out.write(text.data(), size);
-    }
 
-    // String insertion can leave its field width set when a write fails.
-    struct reset_width
+    std::ostream::sentry sentry(out);
+    if (!sentry)
+        return out;
+    const std::streamsize before = stream_padding_offset(text, out.flags() & std::ios_base::adjustfield);
+    std::streambuf & buffer = *out.rdbuf();
+#if GINT_DETAIL_EXCEPTIONS_ENABLED
+    try
     {
-        std::ostream & stream;
-        ~reset_width() { stream.width(0); }
-    } reset{out};
-    if ((out.flags() & std::ios_base::adjustfield) == std::ios_base::internal)
-    {
-        const size_t prefix = stream_prefix_size(text);
-        if (prefix)
-        {
-            // String insertion handles padding after the numeric prefix.
-            out.width(0);
-            out.write(text.data(), static_cast<std::streamsize>(prefix));
-            out.width(width - static_cast<std::streamsize>(prefix));
-            return out << text.substr(prefix);
-        }
+#endif
+        if ((!before || buffer.sputn(text.data(), before) == before) && write_stream_padding(buffer, width - size, out.fill())
+            && (before == size || buffer.sputn(text.data() + before, size - before) == size - before))
+            return out;
+#if GINT_DETAIL_EXCEPTIONS_ENABLED
     }
-    return out << text;
+    catch (...)
+    {
+        // setstate can throw ios_base::failure. Preserve the streambuf exception when requested.
+        try
+        {
+            out.setstate(std::ios_base::badbit);
+        }
+        catch (const std::ios_base::failure &)
+        {
+        }
+        if (out.exceptions() & std::ios_base::badbit)
+            throw;
+        return out;
+    }
+#endif
+    out.setstate(std::ios_base::badbit);
+    return out;
 }
 
 template <size_t Bits, typename Signed>
@@ -6352,10 +6379,11 @@ struct formatter<gint::integer<Bits, Signed>>
         }
     };
 
+    // fmt 11.0.0 provides only a non-const basic_format_arg::visit().
     template <typename FormatArg>
-    static unsigned visit_dynamic_width_arg(const FormatArg & arg)
+    static unsigned visit_dynamic_width_arg(FormatArg arg)
     {
-#    if FMT_VERSION >= 120000
+#    if FMT_VERSION >= 110000
         return arg.visit(dynamic_width_visitor{});
 #    else
         return fmt::visit_format_arg(dynamic_width_visitor{}, arg);
