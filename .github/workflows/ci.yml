@@ -153,7 +153,7 @@ jobs:
           tar -xzf "$archive" -C runs/ci/cmake-3.13 --strip-components=1
           echo "$PWD/runs/ci/cmake-3.13/bin" >> "$GITHUB_PATH"
       - name: Configure with CMake 3.13
-        run: cmake -S . -B runs/ci/build-cmake-3.13 -DCMAKE_INSTALL_INCLUDEDIR=headers -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
+        run: cmake -S . -B runs/ci/build-cmake-3.13 -DCMAKE_INSTALL_INCLUDEDIR=/gint-validation/headers -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
       - name: Configure fmt pkg-config fallback with CMake 3.13
         run: |
           cmake -S . -B runs/ci/build-cmake-3.13-pkgconfig \
@@ -170,6 +170,7 @@ jobs:
           cd runs/ci/build-cmake-3.13
           ctest -N -R '^consumer\.(package|header_contract)' | grep -Eq 'Total Tests: [1-9][0-9]*'
           ctest --output-on-failure -R '^consumer\.(package|header_contract)'
+          test ! -e /gint-validation/headers/gint/gint.h
 
   gcc-4-8-5:
     name: gcc 4.8.5 (centos 7 x86_64)

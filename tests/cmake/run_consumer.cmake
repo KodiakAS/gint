@@ -20,47 +20,18 @@ set(consumer_build "${GINT_BINARY_DIR}/consumer-${consumer_case}")
 file(REMOVE_RECURSE "${consumer_build}")
 
 if(GINT_CONSUMER_KIND STREQUAL "package")
-    set(install_prefix "${GINT_BINARY_DIR}/consumer-${consumer_case}-prefix")
-    file(REMOVE_RECURSE "${install_prefix}")
-    execute_process(
-        COMMAND "${CMAKE_COMMAND}"
-            "-DCMAKE_INSTALL_PREFIX=${install_prefix}"
-            "-DCMAKE_INSTALL_CONFIG_NAME=${GINT_CONSUMER_CONFIG}"
-            -P "${GINT_BINARY_DIR}/cmake_install.cmake"
-        RESULT_VARIABLE result
-    )
-    if(NOT result EQUAL 0)
-        message(FATAL_ERROR "failed to install gint package: ${result}")
-    endif()
-
-    if(NOT DEFINED GINT_INSTALL_INCLUDE_DIR)
-        set(GINT_INSTALL_INCLUDE_DIR "include")
-    endif()
-    if(NOT DEFINED GINT_INSTALL_CMAKE_DIR)
-        set(GINT_INSTALL_CMAKE_DIR "lib/cmake/gint")
-    endif()
-    if(NOT DEFINED GINT_INSTALL_DATA_DIR)
-        set(GINT_INSTALL_DATA_DIR "share/gint")
-    endif()
+    set(stage_root "${GINT_BINARY_DIR}/consumer-${consumer_case}-prefix")
+    file(REMOVE_RECURSE "${stage_root}")
+    include("${CMAKE_CURRENT_LIST_DIR}/stage_package.cmake")
     set(expected_install_files
-        "${GINT_INSTALL_INCLUDE_DIR}/gint/gint.h"
-        "${GINT_INSTALL_CMAKE_DIR}/gintConfig.cmake"
-        "${GINT_INSTALL_CMAKE_DIR}/gintConfigVersion.cmake"
-        "${GINT_INSTALL_CMAKE_DIR}/gintCompilerContract.cmake"
-        "${GINT_INSTALL_CMAKE_DIR}/gintTargets.cmake"
-        "${GINT_INSTALL_DATA_DIR}/LICENSE"
+        "${staged_INCLUDE}/gint/gint.h"
+        "${staged_CMAKE}/gintConfig.cmake"
+        "${staged_CMAKE}/gintConfigVersion.cmake"
+        "${staged_CMAKE}/gintCompilerContract.cmake"
+        "${staged_CMAKE}/gintTargets.cmake"
+        "${staged_DATA}/LICENSE"
     )
-    foreach(relative_path IN LISTS expected_install_files)
-        if(NOT EXISTS "${install_prefix}/${relative_path}")
-            message(FATAL_ERROR "installed package is missing ${relative_path}")
-        endif()
-    endforeach()
-
-    file(GLOB_RECURSE installed_files
-        LIST_DIRECTORIES FALSE
-        RELATIVE "${install_prefix}"
-        "${install_prefix}/*"
-    )
+    file(GLOB_RECURSE installed_files LIST_DIRECTORIES FALSE "${stage_root}/*")
     list(SORT installed_files)
     list(SORT expected_install_files)
     if(NOT "${installed_files}" STREQUAL "${expected_install_files}")
@@ -71,7 +42,16 @@ if(GINT_CONSUMER_KIND STREQUAL "package")
         )
     endif()
 
-    set(configure_args -DCMAKE_PREFIX_PATH=${install_prefix})
+    set(configure_args "-DCMAKE_PREFIX_PATH=${stage_root}${GINT_INSTALL_PREFIX}")
+    # Prefix-only discovery covers the default layout. Custom libdirs may
+    # place the config outside CMake's standard package search locations.
+    if(NOT GINT_INSTALL_CMAKE_DIR STREQUAL "lib/cmake/gint")
+        list(APPEND configure_args "-Dgint_DIR=${staged_CMAKE}")
+    endif()
+    if(IS_ABSOLUTE "${GINT_INSTALL_INCLUDE_DIR}" OR IS_ABSOLUTE "${GINT_INSTALL_CMAKE_DIR}")
+        list(APPEND configure_args "-DGINT_LOGICAL_INCLUDE_DIR=${logical_INCLUDE}"
+            "-DGINT_STAGED_INCLUDE_DIR=${staged_INCLUDE}")
+    endif()
     if(DEFINED GINT_PACKAGE_VERSION)
         list(APPEND configure_args -DGINT_FIND_VERSION=${GINT_PACKAGE_VERSION})
     endif()

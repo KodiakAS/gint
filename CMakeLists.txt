@@ -353,6 +353,7 @@ if(GINT_BUILD_TESTS)
             math(EXPR GINT_TEST_OTHER_MINOR "${PROJECT_VERSION_MINOR} + 1")
         endif()
         set(GINT_PACKAGE_TEST_INSTALL_ARGS
+            -DGINT_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
             -DGINT_INSTALL_INCLUDE_DIR=${CMAKE_INSTALL_INCLUDEDIR}
             -DGINT_INSTALL_CMAKE_DIR=${CMAKE_INSTALL_LIBDIR}/cmake/gint
             -DGINT_INSTALL_DATA_DIR=${CMAKE_INSTALL_DATADIR}/gint
@@ -420,7 +421,8 @@ if(GINT_BUILD_TESTS)
         add_test(NAME consumer.package.compiler_contract
             COMMAND ${CMAKE_COMMAND}
                 -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-                -DGINT_INSTALL_CMAKE_DIR=${CMAKE_INSTALL_LIBDIR}/cmake/gint
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
                 -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_installed_compiler_contract.cmake
