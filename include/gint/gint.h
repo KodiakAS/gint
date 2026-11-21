@@ -2939,6 +2939,8 @@ public:
     {
         if (is_int64_with_int128<T>())
             return divmod_int64_int128<false>(static_cast<signed_limb_type>(lhs.data_[0]), rhs);
+        if (outside_uint64_operand_range(rhs))
+            return integer(static_cast<T>(lhs.data_[0]) / rhs);
         GINT_DIVZERO_CHECK(rhs == 0);
         if (needs_unsigned_signed_promotion(rhs))
             return truncate_promoted_signed(promote_signed_self(lhs) / promote_integral_value(rhs));
@@ -2953,6 +2955,8 @@ public:
     {
         if (is_int64_with_int128<T>())
             return divmod_int64_int128<false>(lhs, static_cast<signed_limb_type>(rhs.data_[0]));
+        if (outside_uint64_operand_range(lhs) && rhs.data_[0] != 0)
+            return integer(lhs / static_cast<T>(rhs.data_[0]));
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) / promote_signed_self(rhs));
         return integer(lhs) / rhs;
@@ -2986,6 +2990,8 @@ public:
     {
         if (is_int64_with_int128<T>())
             return divmod_int64_int128<true>(static_cast<signed_limb_type>(lhs.data_[0]), rhs);
+        if (outside_uint64_operand_range(rhs))
+            return integer(static_cast<T>(lhs.data_[0]) % rhs);
         GINT_MODZERO_CHECK(rhs == 0);
         if (GINT_UNLIKELY(rhs == 0))
             return lhs;
@@ -3009,6 +3015,8 @@ public:
     {
         if (is_int64_with_int128<T>())
             return divmod_int64_int128<true>(lhs, static_cast<signed_limb_type>(rhs.data_[0]));
+        if (outside_uint64_operand_range(lhs) && rhs.data_[0] != 0)
+            return integer(lhs % static_cast<T>(rhs.data_[0]));
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) % promote_signed_self(rhs));
         return integer(lhs) % rhs;
@@ -3050,8 +3058,9 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend constexpr bool operator==(const integer & lhs, T rhs) noexcept
     {
-        return is_int64_with_int128<T>() ? static_cast<signed_limb_type>(lhs.data_[0]) == static_cast<__int128>(rhs)
-                                         : !needs_unsigned_signed_promotion(rhs) && lhs == integer(rhs);
+        return is_int64_with_int128<T>()
+            ? static_cast<signed_limb_type>(lhs.data_[0]) == static_cast<__int128>(rhs)
+            : !outside_uint64_operand_range(rhs) && !needs_unsigned_signed_promotion(rhs) && lhs == integer(rhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
@@ -3202,6 +3211,8 @@ public:
     {
         if (is_int64_with_int128<T>())
             return static_cast<signed_limb_type>(lhs.data_[0]) < static_cast<__int128>(rhs);
+        if (outside_uint64_operand_range(rhs))
+            return rhs > 0;
         if (needs_unsigned_signed_promotion(rhs))
             return promote_signed_self(lhs) < promote_integral_value(rhs);
         return lhs < integer(rhs);
@@ -3212,6 +3223,8 @@ public:
     {
         if (is_int64_with_int128<T>())
             return static_cast<__int128>(lhs) < static_cast<signed_limb_type>(rhs.data_[0]);
+        if (outside_uint64_operand_range(lhs))
+            return lhs < 0;
         if (needs_unsigned_signed_promotion(lhs))
             return promote_integral_value(lhs) < promote_signed_self(rhs);
         return integer(lhs) < rhs;
@@ -4025,6 +4038,13 @@ private:
         for (size_t i = 1; i < limbs; ++i)
             high_or |= v.data_[i];
         return high_or == 0;
+    }
+
+    template <typename T>
+    static constexpr bool outside_uint64_operand_range(T value) noexcept
+    {
+        return Bits == 64 && std::is_same<Signed, unsigned>::value && sizeof(T) > sizeof(limb_type)
+            && value != static_cast<T>(static_cast<limb_type>(value));
     }
 
     template <typename T>
