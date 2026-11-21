@@ -59,6 +59,24 @@ TEST(WideIntegerStream, FormatsSignedNegativeHexAsBitPattern)
     EXPECT_EQ(oss.str(), "ffffffffffffffffffffffffffffffd6");
 }
 
+TEST(WideIntegerStream, FormatsOctalAcrossLimbAndWidthBoundaries)
+{
+    using U1024 = gint::integer<1024, unsigned>;
+    using S1024 = gint::integer<1024, signed>;
+
+    std::ostringstream out;
+    out << std::oct << ((U1024(7) << 63) | U1024(1));
+    EXPECT_EQ(out.str(), "7" + std::string(20, '0') + "1");
+
+    out.str("");
+    out << std::numeric_limits<U1024>::max();
+    EXPECT_EQ(out.str(), "1" + std::string(341, '7'));
+
+    out.str("");
+    out << std::numeric_limits<S1024>::min();
+    EXPECT_EQ(out.str(), "1" + std::string(341, '0'));
+}
+
 TEST(WideIntegerStream, HonorsWidthFillAndSigns)
 {
     using U128 = gint::integer<128, unsigned>;
