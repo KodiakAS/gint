@@ -680,6 +680,31 @@ TEST(WideIntegerDivision, S64UnsignedInteropAboveSignedRange)
     EXPECT_EQ(max_u64 % S64(2), S64(1));
 }
 
+TEST(WideIntegerDivision, SignedInt128ScalarKeepsItsMagnitudeWithInt64)
+{
+    using S64 = gint::integer<64, signed>;
+    const __int128 large = __int128(1) << 64;
+    for (const __int128 dividend : {large, -large, large + 1, -large - 1})
+    {
+        SCOPED_TRACE(gint::to_string(gint::Int128(dividend)));
+        EXPECT_EQ(dividend / S64(3), S64(dividend / 3));
+        EXPECT_EQ(dividend % S64(3), S64(dividend % 3));
+        S64 q = -7;
+        S64 r = -7;
+        EXPECT_EQ(q /= dividend, S64(0));
+        EXPECT_EQ(r %= dividend, S64(-7));
+        EXPECT_EQ(S64(-7) / dividend, q);
+        EXPECT_EQ(S64(-7) % dividend, r);
+    }
+    const S64 min = std::numeric_limits<S64>::min();
+    const __int128 two63 = large / 2;
+    EXPECT_EQ(min / two63, S64(-1));
+    EXPECT_EQ(min % two63, S64(0));
+    const __int128 native_min = -static_cast<__int128>((u128(1) << 127) - 1) - 1;
+    EXPECT_EQ(native_min / S64(-1), S64(0));
+    EXPECT_EQ(native_min % S64(-1), S64(0));
+}
+
 TEST(WideIntegerDivision, CompoundDivModPreservesUnsignedPromotion)
 {
     using S64 = gint::integer<64, signed>;
