@@ -6178,7 +6178,12 @@ struct formatter<gint::integer<Bits, Signed>>
     OutputIt write_fill(OutputIt out, size_t count) const
     {
         if (fill_size == 1)
-            return std::fill_n(out, count, fill[0]);
+        {
+            // fmt 11.0.0's appender does not provide a standard iterator category.
+            for (size_t i = 0; i < count; ++i)
+                *out++ = fill[0];
+            return out;
+        }
         for (size_t i = 0; i < count; ++i)
             out = std::copy_n(fill, fill_size, out);
         return out;
