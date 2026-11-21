@@ -58,13 +58,15 @@ jobs:
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends \
-              cmake g++-13 clang-18 libfmt-dev libgtest-dev
+              cmake g++-13 clang-18 libfmt-dev
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             # Avoid reinstalling preinstalled or pinned formulae on GitHub macOS runners
             (brew list cmake >/dev/null 2>&1) || brew install cmake
             (brew list fmt >/dev/null 2>&1) || brew install fmt
-            (brew list googletest >/dev/null 2>&1) || brew install googletest
           fi
+      - uses: ./.github/actions/cxx11-googletest
+        env:
+          CXX: ${{ matrix.cxx }}
       - name: Install ccache
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
@@ -199,7 +201,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake g++-13 \
-            libfmt-dev libgtest-dev lcov
+            libfmt-dev lcov
+      - uses: ./.github/actions/cxx11-googletest
       - name: Verify coverage toolchain
         run: |
           test "$(g++-13 -dumpfullversion -dumpversion)" = "$(gcov-13 --version | sed -n '1s/.* //p')"
@@ -215,7 +218,8 @@ jobs:
       - name: Generate coverage
         run: |
           lcov --capture --gcov-tool gcov-13 --directory runs/ci/build-coverage --output-file runs/ci/coverage.info --ignore-errors mismatch
-          lcov --remove runs/ci/coverage.info '/usr/*' '*/tests/*' --output-file runs/ci/coverage.info
+          lcov --remove runs/ci/coverage.info '/usr/*' '*/tests/*' '*/runs/ci/gtest-prefix/*' \
+            --output-file runs/ci/coverage.info
           lcov --summary runs/ci/coverage.info
       - name: Upload coverage info
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -242,7 +246,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake g++-13 clang-18 libclang-rt-18-dev llvm-18 \
-            libfmt-dev libgtest-dev
+            libfmt-dev
+      - uses: ./.github/actions/cxx11-googletest
       - name: Configure
         run: CXX=clang++-18 cmake -S . -B runs/ci/build-sanitizers -DENABLE_SANITIZERS=ON -DGINT_BUILD_TESTS=ON -DGINT_BUILD_TESTS_RELEASE=OFF -DGINT_BUILD_BENCHMARKS=OFF
       - name: Build
