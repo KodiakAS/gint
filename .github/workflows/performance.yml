@@ -157,7 +157,7 @@ jobs:
             --benchmark_min_time=0.2s
             --benchmark_repetitions=7
             --benchmark_enable_random_interleaving=true
-            --benchmark_report_aggregates_only=true
+            --benchmark_display_aggregates_only=true
             --benchmark_out_format=json
           )
           "$BUILD_DIR/perf_benchmark_int256" \
@@ -170,6 +170,10 @@ jobs:
             "${COMMON_ARGS[@]}" \
             '--benchmark_filter=^FromString(CStr)?/(Short)?Base(2|8|10|16)/gint$' \
             --benchmark_out="$RESULT_DIR/wide-parser.json"
+          "$BUILD_DIR/perf_benchmark_int1024" \
+            "${COMMON_ARGS[@]}" \
+            '--benchmark_filter=^((Div|Mod)/NativeU(32|64)|MulAssign/|DivMod/(SignedMixed|DenseDivisor[234]|DividendSmaller)|ToString/(Binary|Octal|Hex)(Short|Full)|ToDouble/)' \
+            --benchmark_out="$RESULT_DIR/wide-hotpaths.json"
       - name: Normalize benchmark evidence
         run: |
           RESULT_DIR="runs/performance-${{ matrix.name }}/results"
@@ -178,11 +182,13 @@ jobs:
             --input "gint=$RESULT_DIR/gint.json" \
             --input "comparison=$RESULT_DIR/comparison.json" \
             --input "wide_parser=$RESULT_DIR/wide-parser.json" \
+            --input "wide_hotpaths=$RESULT_DIR/wide-hotpaths.json" \
             --expected-library-version v1.9.5 \
             --expected-repetitions 7 \
-            --expected-median-count gint=48 \
+            --expected-median-count gint=68 \
             --expected-median-count comparison=93 \
             --expected-median-count wide_parser=16 \
+            --expected-median-count wide_hotpaths=19 \
             --require-benchmark gint=FromString/Base2/gint \
             --require-benchmark gint=FromString/Base8/gint \
             --require-benchmark gint=FromString/Base10/gint \
@@ -200,6 +206,12 @@ jobs:
             --require-benchmark gint=FromStringCStr/ShortBase10/gint \
             --require-benchmark gint=FromStringCStr/ShortBase16/gint \
             --require-benchmark gint=DivMod/SimilarMagnitudeSeparate/gint \
+            --require-benchmark gint=DivMod/SignedMixed/gint \
+            --require-benchmark gint=DivMod/ThreeLimbAddback/gint \
+            --require-benchmark wide_hotpaths=MulAssign/U64Sparse/gint \
+            --require-benchmark wide_hotpaths=MulAssign/U64Dense/gint \
+            --require-benchmark wide_hotpaths=ToString/HexShort/gint \
+            --require-benchmark wide_hotpaths=ToDouble/ExactLow/gint \
             --require-benchmark comparison=DivMod/SimilarMagnitude/gint \
             --require-benchmark comparison=DivMod/SimilarMagnitude/ClickHouse \
             --require-benchmark comparison=DivMod/SimilarMagnitude/Boost \
