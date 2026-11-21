@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -850,7 +851,7 @@ inline void consume_divmod(const Int & dividend, const Int & divisor)
 
 inline void consume_divmod(const WInt & dividend, const WInt & divisor)
 {
-    const auto result = gint::divmod(dividend, divisor);
+    auto result = gint::divmod(dividend, divisor);
     benchmark::DoNotOptimize(result.quotient);
     benchmark::DoNotOptimize(result.remainder);
 }
@@ -1052,6 +1053,213 @@ static void Div_SimilarMagnitude2(benchmark::State & state)
     }
 }
 
+#if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
+static WInt random_full_width(std::mt19937_64 & rng)
+{
+    return random_wide<WInt>(rng) | (WInt(1) << static_cast<int>(kBenchBits - 1));
+}
+
+template <typename Scalar>
+static const auto & native_division_data()
+{
+    static const auto data = []
+    {
+        std::array<std::pair<WInt, Scalar>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x4e41544956454449ULL);
+        for (auto & value : values)
+        {
+            const WInt dividend = random_full_width(rng);
+            uint64_t divisor = rng() | 1;
+            if constexpr (sizeof(Scalar) == sizeof(uint64_t))
+            {
+                // Keep the divisor above the 32-bit range and within the native signed-limb path.
+                divisor = (divisor & (std::numeric_limits<uint64_t>::max() >> 1)) | (uint64_t(1) << 32);
+            }
+            value = {dividend, static_cast<Scalar>(divisor)};
+        }
+        return values;
+    }();
+    return data;
+}
+
+template <typename Scalar, bool Remainder>
+static void Native_Division(benchmark::State & state)
+{
+    const auto & data = native_division_data<Scalar>();
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        WInt result = Remainder ? p.first % p.second : p.first / p.second;
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+template <bool Sparse>
+static void MulAssign_U64(benchmark::State & state)
+{
+    static const auto data = []
+    {
+        std::array<std::pair<WInt, uint64_t>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x4d554c4153534947ULL);
+        for (auto & value : values)
+        {
+            const WInt lhs = Sparse ? WInt(rng()) : random_full_width(rng);
+            value = {lhs, rng() | 1};
+        }
+        return values;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        WInt value = p.first;
+        value *= p.second;
+        benchmark::DoNotOptimize(value);
+    }
+}
+
+template <typename Int>
+static void run_gint_divmod(benchmark::State & state, const std::array<std::pair<Int, Int>, kDataN> & data)
+{
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        auto result = gint::divmod(p.first, p.second);
+        benchmark::DoNotOptimize(result.quotient);
+        benchmark::DoNotOptimize(result.remainder);
+    }
+}
+
+static void DivMod_SignedMixed(benchmark::State & state)
+{
+    using SInt = gint::integer<kBenchBits, signed>;
+    static const auto data = []
+    {
+        std::array<std::pair<SInt, SInt>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x5349474e4544444dULL);
+        for (size_t i = 0; i < kDataN; ++i)
+        {
+            const SInt dividend = random_wide<SInt>(rng, true) | (SInt(1) << static_cast<int>(kBenchBits - 2));
+            const uint64_t divisor_high = static_cast<uint32_t>(rng()) | (uint64_t(1) << 31);
+            const SInt divisor = (SInt(divisor_high) << 64) | SInt(rng() | 1);
+            values[i] = {(i & 1) ? -dividend : dividend, (i & 2) ? -divisor : divisor};
+        }
+        return values;
+    }();
+    run_gint_divmod(state, data);
+}
+
+template <size_t DivisorLimbs>
+static WInt random_divisor(std::mt19937_64 & rng, bool normalized)
+{
+    std::array<uint64_t, kBenchLimbs> words{};
+    for (size_t i = 0; i < DivisorLimbs; ++i)
+        words[i] = rng();
+    words[0] |= 1;
+    uint64_t & top = words[DivisorLimbs - 1];
+    if (normalized)
+        top |= uint64_t(1) << 63;
+    else
+        top = (top & (std::numeric_limits<uint64_t>::max() >> 1)) | (uint64_t(1) << 62);
+    return assemble_words<WInt>(words);
+}
+
+template <size_t DivisorLimbs>
+static void DivMod_DenseDivisor(benchmark::State & state)
+{
+    static const auto data = []
+    {
+        std::array<std::pair<WInt, WInt>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x44454e5345444956ULL);
+        for (auto & value : values)
+            value = {random_full_width(rng), random_divisor<DivisorLimbs>(rng, false)};
+        return values;
+    }();
+    run_gint_divmod(state, data);
+}
+
+static void DivMod_DividendSmaller(benchmark::State & state)
+{
+    static const auto data = []
+    {
+        std::array<std::pair<WInt, WInt>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x534d414c4c455244ULL);
+        for (auto & value : values)
+            value = {random_wide<WInt>(rng, true), random_full_width(rng)};
+        return values;
+    }();
+    run_gint_divmod(state, data);
+}
+
+template <size_t Bits>
+static void DivMod_ThreeLimbAddback(benchmark::State & state)
+{
+    static_assert(Bits == 256, "This case targets the 256-bit fused divmod kernel");
+    static const auto data = []
+    {
+        std::array<std::pair<WInt, WInt>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x4144444241434b44ULL);
+        for (auto & value : values)
+        {
+            const WInt divisor = random_divisor<3>(rng, true);
+            const WInt estimate((rng() & (std::numeric_limits<uint64_t>::max() >> 1)) | 2);
+            // For the normalized divisor, this estimate passes the leading-limb check but exceeds the true quotient by one.
+            value = {estimate * divisor - WInt(1), divisor};
+        }
+        return values;
+    }();
+    run_gint_divmod(state, data);
+}
+
+template <unsigned ShortBits>
+static const auto & conversion_data()
+{
+    static const auto data = []
+    {
+        std::array<WInt, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x434f4e564552534eULL);
+        for (WInt & value : values)
+        {
+            if constexpr (ShortBits)
+                value = WInt((rng() & ((uint64_t(1) << ShortBits) - 1)) | 1);
+            else
+                value = random_full_width(rng) | WInt(1);
+        }
+        return values;
+    }();
+    return data;
+}
+
+template <unsigned Base, bool Short>
+static void ToString_Nondecimal(benchmark::State & state)
+{
+    const auto & data = conversion_data<(Short ? 8 : 0)>();
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & value = data[i++ & (kDataN - 1)];
+        auto result = gint::detail::to_base_string(value, Base, false);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+template <bool Exact>
+static void ToDouble(benchmark::State & state)
+{
+    const auto & data = conversion_data<(Exact ? std::numeric_limits<double>::digits : 0)>();
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & value = data[i++ & (kDataN - 1)];
+        double result = static_cast<double>(value);
+        benchmark::DoNotOptimize(result);
+    }
+}
+#endif
+
 int main(int argc, char ** argv)
 {
     const bool full_matrix = parse_full_matrix_flag(argc, argv);
@@ -1137,6 +1345,30 @@ int main(int argc, char ** argv)
         REG_CASE("DivMod/SimilarMagnitude", DivMod_SimilarMagnitude);
 #if !defined(GINT_ENABLE_CH_COMPARE) && !defined(GINT_ENABLE_BOOST_COMPARE)
         benchmark::RegisterBenchmark("DivMod/SimilarMagnitudeSeparate/gint", &DivMod_SimilarMagnitudeSeparate<WInt>);
+        benchmark::RegisterBenchmark("Div/NativeU32/gint", &Native_Division<uint32_t, false>);
+        benchmark::RegisterBenchmark("Div/NativeU64/gint", &Native_Division<uint64_t, false>);
+        benchmark::RegisterBenchmark("Mod/NativeU32/gint", &Native_Division<uint32_t, true>);
+        benchmark::RegisterBenchmark("Mod/NativeU64/gint", &Native_Division<uint64_t, true>);
+        benchmark::RegisterBenchmark("MulAssign/U64Sparse/gint", &MulAssign_U64<true>);
+        benchmark::RegisterBenchmark("MulAssign/U64Dense/gint", &MulAssign_U64<false>);
+        benchmark::RegisterBenchmark("DivMod/SignedMixed/gint", &DivMod_SignedMixed);
+        benchmark::RegisterBenchmark("DivMod/DenseDivisor2/gint", &DivMod_DenseDivisor<2>);
+        if constexpr (kBenchLimbs >= 4)
+        {
+            benchmark::RegisterBenchmark("DivMod/DenseDivisor3/gint", &DivMod_DenseDivisor<3>);
+            benchmark::RegisterBenchmark("DivMod/DenseDivisor4/gint", &DivMod_DenseDivisor<4>);
+        }
+        benchmark::RegisterBenchmark("DivMod/DividendSmaller/gint", &DivMod_DividendSmaller);
+        if constexpr (kBenchBits == 256)
+            benchmark::RegisterBenchmark("DivMod/ThreeLimbAddback/gint", &DivMod_ThreeLimbAddback<kBenchBits>);
+        benchmark::RegisterBenchmark("ToString/BinaryShort/gint", &ToString_Nondecimal<2, true>);
+        benchmark::RegisterBenchmark("ToString/BinaryFull/gint", &ToString_Nondecimal<2, false>);
+        benchmark::RegisterBenchmark("ToString/OctalShort/gint", &ToString_Nondecimal<8, true>);
+        benchmark::RegisterBenchmark("ToString/OctalFull/gint", &ToString_Nondecimal<8, false>);
+        benchmark::RegisterBenchmark("ToString/HexShort/gint", &ToString_Nondecimal<16, true>);
+        benchmark::RegisterBenchmark("ToString/HexFull/gint", &ToString_Nondecimal<16, false>);
+        benchmark::RegisterBenchmark("ToDouble/ExactLow/gint", &ToDouble<true>);
+        benchmark::RegisterBenchmark("ToDouble/InexactFull/gint", &ToDouble<false>);
 #endif
     }
 

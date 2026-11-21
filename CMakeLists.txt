@@ -543,7 +543,7 @@ endif()
 
 if(GINT_BUILD_BENCHMARKS)
     include(CheckCXXCompilerFlag)
-    find_package(benchmark REQUIRED)
+    find_package(benchmark CONFIG REQUIRED)
 
     set(GINT_BENCH_COMPILE_OPTIONS -O3 -DNDEBUG)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
@@ -566,7 +566,8 @@ if(GINT_BUILD_BENCHMARKS)
         if(compare)
             target_compile_definitions(${target} PRIVATE GINT_ENABLE_CH_COMPARE GINT_ENABLE_BOOST_COMPARE)
         endif()
-        target_link_libraries(${target} PRIVATE fmt::fmt benchmark::benchmark)
+        # fmt may export a shared include directory containing another benchmark.h.
+        target_link_libraries(${target} PRIVATE benchmark::benchmark fmt::fmt)
         target_compile_options(${target} PRIVATE ${GINT_BENCH_COMPILE_OPTIONS})
     endfunction()
 

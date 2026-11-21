@@ -67,6 +67,10 @@ runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_list_tests
 1024-bit benchmark binary，以覆盖 String/CStr、满位宽/短输入和
 Base2/8/10/16 parser 组合。
 
+`--gint_full` 在 gint-only 中还提供原生除数、标量复合乘法、有符号与分 limb 除模，
+以及文本和浮点转换用例。复合乘法分别覆盖单 limb 和稠密输入，有符号除模消费
+一次 `gint::divmod` 的两个结果，浮点转换分别覆盖低 limb 精确值和满宽需舍入值。
+
 两个 benchmark 二进制都会拒绝无法识别的参数。过滤器无匹配或正则无效时，
 采样、`--benchmark_list_tests` 和 `--benchmark_dry_run` 均以非零状态退出。
 `--help` 仍可用于查看当前 Google Benchmark 版本支持的选项。
@@ -83,10 +87,12 @@ make bench-full \
 需要保存证据时再增加：
 
 ```text
---benchmark_report_aggregates_only=true
+--benchmark_display_aggregates_only=true
 --benchmark_out_format=json
 --benchmark_out=<path-under-runs>
 ```
+
+该参数只折叠终端输出，JSON 仍保留逐次样本。需要复核异常值或完成次数时使用逐次记录。
 
 怀疑频率、代码布局或虚拟化噪声时，应交错重复 baseline/result，并结合
 cycles、instructions 和汇编解释，不能只报告一次百分比。
@@ -112,7 +118,7 @@ contract 失败后应先检查生成汇编，并在同编译器上运行受影�
 
 [`Performance` workflow](../.github/workflows/performance.yml) 在 PR 上运行现代
 GCC/Clang/AppleClang codegen contract；定时和手工任务保存 gint-only、三方
-comparison 与宽 parser 的原始及规范化 JSON。
+comparison 与 1024-bit parser、定向热点的原始及规范化 JSON。
 
 共享 runner 的绝对时间不阻断 PR。自动化样本用于发现趋势；真正的性能回归结论
 必须回到固定主机复测。GCC 4.8.5 lane 只验证 correctness/integration，不构建

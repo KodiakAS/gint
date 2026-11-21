@@ -26,6 +26,21 @@ def aggregate(name, aggregate_name, real_time):
     }
 
 
+def iteration(name, index, **fields):
+    row = {
+        "name": name,
+        "run_name": name,
+        "run_type": "iteration",
+        "repetition_index": index,
+        "iterations": 100,
+        "real_time": 1.0,
+        "cpu_time": 0.99,
+        "time_unit": "ns",
+    }
+    row.update(fields)
+    return row
+
+
 class SummarizeDocumentTest(unittest.TestCase):
     def test_extracts_medians_and_noise(self):
         document = {
@@ -50,22 +65,25 @@ class SummarizeDocumentTest(unittest.TestCase):
             )
 
     def test_validates_library_version_count_and_required_names(self):
+        name = "FromString/Base16/gint"
         suite = SUMMARY.summarize_document(
             {
                 "context": {"library_version": "v1.9.5"},
                 "benchmarks": [
-                    aggregate("FromString/Base16/gint", "median", 1.0),
-                    aggregate("FromString/Base16/gint", "cv", 0.01),
+                    aggregate(name, "median", 1.0),
+                    aggregate(name, "cv", 0.01),
                 ],
             }
         )
+        rows = [iteration(name, index) for index in reversed(range(7))]
         SUMMARY.validate_suite(
             "gint",
             suite,
             expected_library_version="v1.9.5",
             expected_count=1,
             expected_repetitions=7,
-            required=["FromString/Base16/gint"],
+            required=[name],
+            raw_rows=rows,
         )
         with self.assertRaises(ValueError):
             SUMMARY.validate_suite("gint", suite, expected_library_version="v1.9.4")
@@ -77,8 +95,56 @@ class SummarizeDocumentTest(unittest.TestCase):
             SUMMARY.validate_suite("gint", suite, required=["DivMod/SimilarMagnitude/gint"])
 
         suite["benchmarks"][0]["real_time_cv"] = None
-        with self.assertRaises(ValueError):
-            SUMMARY.validate_suite("gint", suite, expected_repetitions=7)
+        with self.assertRaisesRegex(ValueError, "missing numeric CV"):
+            SUMMARY.validate_suite("gint", suite, expected_repetitions=7, raw_rows=rows)
+
+    def test_requires_each_successful_repetition_for_each_benchmark(self):
+        medians = [
+            aggregate(name, statistic, value)
+            for name in ("Add/gint", "Div/gint")
+            for statistic, value in (("median", 1.0), ("cv", 0.01))
+        ]
+        rows = [
+            iteration(name, index)
+            for index in reversed(range(7))
+            for name in ("Add/gint", "Div/gint")
+        ]
+        suite = SUMMARY.summarize_document({"benchmarks": medians + rows})
+        SUMMARY.validate_suite("gint", suite, expected_repetitions=7, raw_rows=medians + rows)
+
+        with self.assertRaisesRegex(ValueError, "missing successful iteration rows.*Div/gint"):
+            SUMMARY.validate_suite("gint", suite, expected_repetitions=7, raw_rows=medians + rows[:-1])
+
+        legacy_suite = SUMMARY.summarize_document({"benchmarks": medians})
+        SUMMARY.validate_suite("gint", legacy_suite)
+        with self.assertRaisesRegex(ValueError, "missing successful iteration rows"):
+            SUMMARY.validate_suite("gint", legacy_suite, expected_repetitions=7, raw_rows=medians)
+
+    def test_rejects_invalid_repetition_rows_even_with_complete_aggregates(self):
+        name = "Add/gint"
+        suite = SUMMARY.summarize_document(
+            {"benchmarks": [aggregate(name, "median", 1.0), aggregate(name, "cv", 0.01)]}
+        )
+        valid = [iteration(name, index) for index in range(6)]
+        cases = (
+            (iteration(name, 6, error_occurred=True), "failed or was skipped"),
+            (iteration(name, 6, skipped=True), "failed or was skipped"),
+            (iteration(name, 6, iterations=0), "invalid measurements"),
+            (iteration(name, 6, real_time=float("nan")), "invalid measurements"),
+            (iteration(name, 6, cpu_time=None), "invalid measurements"),
+            (iteration(name, 0), "duplicate repetition_index"),
+            (iteration(name, 7), "invalid repetition_index"),
+            (iteration(name, -1), "invalid repetition_index"),
+            (iteration(name, "6"), "invalid repetition_index"),
+            (iteration(name, 6.0), "invalid repetition_index"),
+            (iteration(name, False), "invalid repetition_index"),
+            (iteration(name, None), "invalid repetition_index"),
+            (iteration("Div/gint", 6), "iteration rows without a median"),
+        )
+        for row, message in cases:
+            with self.subTest(row=row):
+                with self.assertRaisesRegex(ValueError, message):
+                    SUMMARY.validate_suite("gint", suite, expected_repetitions=7, raw_rows=valid + [row])
 
     def test_markdown_lists_noisy_benchmark_names(self):
         suite = SUMMARY.summarize_document(

@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import argparse
 import json
+import math
 import os
 import statistics
 import sys
@@ -84,6 +85,52 @@ def percent(value):
     return "n/a" if value is None else "{0:.2f}%".format(value * 100.0)
 
 
+def validate_repetition_rows(name, benchmark_names, rows, expected_repetitions):
+    if expected_repetitions <= 0:
+        raise ValueError("--expected-repetitions must be positive")
+
+    seen = {benchmark: set() for benchmark in benchmark_names}
+    for row in rows:
+        if row.get("run_type") != "iteration":
+            continue
+        benchmark = row["run_name"]
+        if benchmark not in seen:
+            raise ValueError("{0}: iteration rows without a median for {1}".format(name, benchmark))
+
+        index = row.get("repetition_index")
+        if type(index) is not int or not 0 <= index < expected_repetitions:
+            raise ValueError(
+                "{0}: {1} has invalid repetition_index={2!r}".format(name, benchmark, index)
+            )
+        if index in seen[benchmark]:
+            raise ValueError(
+                "{0}: {1} has duplicate repetition_index={2}".format(name, benchmark, index)
+            )
+        if row.get("error_occurred") or row.get("skipped"):
+            raise ValueError(
+                "{0}: {1} repetition {2} failed or was skipped".format(name, benchmark, index)
+            )
+
+        iterations = row.get("iterations")
+        times = (row.get("real_time"), row.get("cpu_time"))
+        if type(iterations) is not int or iterations <= 0 or any(
+            type(value) not in (int, float) or not math.isfinite(value) or value < 0
+            for value in times
+        ):
+            raise ValueError(
+                "{0}: {1} repetition {2} has invalid measurements".format(name, benchmark, index)
+            )
+        seen[benchmark].add(index)
+
+    incomplete = sorted(benchmark for benchmark, indices in seen.items() if len(indices) != expected_repetitions)
+    if incomplete:
+        raise ValueError(
+            "{0}: benchmark(s) are missing successful iteration rows for {1} repetitions: {2}".format(
+                name, expected_repetitions, ", ".join(incomplete)
+            )
+        )
+
+
 def validate_suite(
     name,
     suite,
@@ -91,6 +138,7 @@ def validate_suite(
     expected_count=None,
     expected_repetitions=None,
     required=(),
+    raw_rows=(),
 ):
     if expected_library_version is not None:
         actual_version = suite["context"].get("library_version")
@@ -106,6 +154,7 @@ def validate_suite(
                 name, suite["median_count"], expected_count
             )
         )
+    names = {row["name"] for row in suite["benchmarks"]}
     if expected_repetitions is not None:
         wrong_repetitions = [
             row["name"]
@@ -129,7 +178,7 @@ def validate_suite(
                     name, ", ".join(missing_cv)
                 )
             )
-    names = set(row["name"] for row in suite["benchmarks"])
+        validate_repetition_rows(name, names, raw_rows, expected_repetitions)
     missing = sorted(set(required) - names)
     if missing:
         raise ValueError("{0}: missing required benchmark(s): {1}".format(name, ", ".join(missing)))
@@ -200,7 +249,7 @@ def parse_args(argv):
     parser.add_argument(
         "--expected-repetitions",
         type=int,
-        help="required repetitions value and numeric CV row for every median",
+        help="required count of successful iteration rows plus median and CV for every benchmark",
     )
     parser.add_argument(
         "--expected-median-count",
@@ -239,21 +288,21 @@ def main(argv=None):
             for item in args.require_benchmark
         ):
             required_benchmarks.setdefault(name, []).append(benchmark)
-        suites = {}
-        for name, path in inputs:
-            if name in suites:
-                raise ValueError("duplicate input label: {0}".format(name))
-            with open(path, "r") as input_file:
-                suites[name] = summarize_document(json.load(input_file))
         contract_labels = set(expected_counts) | set(required_benchmarks)
-        unknown_labels = sorted(contract_labels - set(suites))
+        unknown_labels = sorted(contract_labels - {name for name, _ in inputs})
         if unknown_labels:
             raise ValueError(
                 "benchmark contract references unknown input label(s): {0}".format(
                     ", ".join(unknown_labels)
                 )
             )
-        for name, suite in suites.items():
+        suites = {}
+        for name, path in inputs:
+            if name in suites:
+                raise ValueError("duplicate input label: {0}".format(name))
+            with open(path, "r") as input_file:
+                document = json.load(input_file)
+            suite = summarize_document(document)
             validate_suite(
                 name,
                 suite,
@@ -261,7 +310,9 @@ def main(argv=None):
                 expected_count=expected_counts.get(name),
                 expected_repetitions=args.expected_repetitions,
                 required=required_benchmarks.get(name, []),
+                raw_rows=document["benchmarks"],
             )
+            suites[name] = suite
     except (IOError, KeyError, TypeError, ValueError) as error:
         print("error: {0}".format(error), file=sys.stderr)
         return 2
