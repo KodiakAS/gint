@@ -1,0 +1,19 @@
+name: Build GoogleTest for C++11
+description: Install a pinned C++11-compatible GoogleTest with the selected compiler.
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        repository: google/googletest
+        ref: 58d77fa8070e8cec2dc1ed015d66b454c8d78850 # release-1.12.1
+        path: runs/ci/gtest-src
+        persist-credentials: false
+    - shell: bash
+      run: |
+        prefix="$GITHUB_WORKSPACE/runs/ci/gtest-prefix"
+        cmake -S runs/ci/gtest-src -B runs/ci/gtest-build \
+          -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=11 -DBUILD_GMOCK=OFF \
+          -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib
+        cmake --build runs/ci/gtest-build --target install --parallel
+        echo "GTest_DIR=$prefix/lib/cmake/GTest" >> "$GITHUB_ENV"

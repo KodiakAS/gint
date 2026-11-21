@@ -453,6 +453,9 @@ if(GINT_BUILD_TESTS)
     function(add_gint_unit_test target sources standard prefix)
         cmake_parse_arguments(TEST "RELEASE" "" "DEFINITIONS;LIBRARIES" ${ARGN})
         add_executable(${target} ${sources})
+        if(standard EQUAL 11)
+            target_sources(${target} PRIVATE tests/consumer/cxx11_test_mode.cpp)
+        endif()
         target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
         set_target_properties(${target} PROPERTIES
             CXX_STANDARD ${standard} CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
@@ -497,7 +500,7 @@ if(GINT_BUILD_TESTS)
         endforeach()
         target_compile_definitions(gint_divzero_checked_dso PRIVATE GINT_ENABLE_DIVZERO_CHECKS)
 
-        add_executable(gint_tests_divzero_dso tests/divzero_dso_loader_test.cpp)
+        add_executable(gint_tests_divzero_dso tests/divzero_dso_loader_test.cpp tests/consumer/cxx11_test_mode.cpp)
         target_compile_definitions(gint_tests_divzero_dso
             PRIVATE
                 GINT_DSO_CHECKED_PATH="$<TARGET_FILE:gint_divzero_checked_dso>"
