@@ -1501,7 +1501,7 @@ private:
             ? static_cast<limb_type>(
                   (detail::is_signed<T>::value ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v))
                   >> (I * 64))
-            : (detail::is_signed<T>::value && v < 0 ? ~0ULL : 0ULL);
+            : (detail::is_signed<T>::value && static_cast<wide_signed>(v) < 0 ? ~0ULL : 0ULL);
     }
 
 public:
@@ -3408,7 +3408,7 @@ private:
     {
         typedef __int128 wide_signed;
         typedef unsigned __int128 wide_unsigned;
-        const bool sign_fill = detail::is_signed<T>::value && v < 0;
+        const bool sign_fill = detail::is_signed<T>::value && static_cast<wide_signed>(v) < 0;
         const limb_type fill = sign_fill ? ~limb_type(0) : limb_type(0);
         wide_unsigned val = sign_fill ? static_cast<wide_unsigned>(static_cast<wide_signed>(v)) : static_cast<wide_unsigned>(v);
 

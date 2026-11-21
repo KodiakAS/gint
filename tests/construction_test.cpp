@@ -46,6 +46,19 @@ TEST(WideIntegerConstruction, ConstexprConstruction)
     (void)d;
 }
 
+TEST(WideIntegerConstruction, BoolConstructionAndAssignment)
+{
+    constexpr gint::UInt256 zero = false;
+    constexpr gint::UInt256 one = true;
+    static_assert(zero == 0 && one == 1, "bool must construct zero or one");
+
+    gint::UInt256 value = ~gint::UInt256(0);
+    value = true;
+    EXPECT_EQ(value, one);
+    value = false;
+    EXPECT_EQ(value, zero);
+}
+
 TEST(WideIntegerConstruction, DefaultCopyMove)
 {
     using U256 = gint::integer<256, unsigned>;
