@@ -5789,7 +5789,19 @@ inline std::ostream & write_formatted_string(std::ostream & out, const std::stri
 {
     const std::streamsize width = out.width();
     const std::streamsize size = static_cast<std::streamsize>(text.size());
-    if (width > size && (out.flags() & std::ios_base::adjustfield) == std::ios_base::internal)
+    if (width <= size)
+    {
+        out.width(0);
+        return out.write(text.data(), size);
+    }
+
+    // String insertion can leave its field width set when a write fails.
+    struct reset_width
+    {
+        std::ostream & stream;
+        ~reset_width() { stream.width(0); }
+    } reset{out};
+    if ((out.flags() & std::ios_base::adjustfield) == std::ios_base::internal)
     {
         const size_t prefix = stream_prefix_size(text);
         if (prefix)

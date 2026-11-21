@@ -110,6 +110,30 @@ TEST(WideIntegerStream, PaddingUsesBoundedStreamFlushes)
     }
 }
 
+TEST(WideIntegerStream, PaddingConsumesWidthOnWriteFailure)
+{
+    struct rejecting_buffer : std::streambuf
+    {
+    };
+    for (auto align : {std::ios_base::right, std::ios_base::internal})
+    {
+        rejecting_buffer buffer;
+        std::ostream out(&buffer);
+        out.setf(align, std::ios_base::adjustfield);
+        out << std::showpos << std::setw(9) << gint::Int128(21);
+        EXPECT_TRUE(out.bad());
+        EXPECT_EQ(out.width(), 0);
+
+        out << std::setw(9) << gint::Int128(21);
+        EXPECT_EQ(out.width(), 0);
+
+        out.clear();
+        out.exceptions(std::ios_base::badbit);
+        EXPECT_THROW(out << std::setw(9) << gint::Int128(21), std::ios_base::failure);
+        EXPECT_EQ(out.width(), 0);
+    }
+}
+
 TEST(WideIntegerStream, OutputAdditionalWidths)
 {
     {
