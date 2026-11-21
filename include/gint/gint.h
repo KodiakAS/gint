@@ -1965,7 +1965,7 @@ private:
             const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
             const s128 shifted = static_cast<s128>(raw) >> n;
             const u128 shifted_raw = static_cast<u128>(shifted);
-            integer result(uninitialized_tag{});
+            integer result;
             result.data_[0] = static_cast<limb_type>(shifted_raw);
             result.data_[1] = static_cast<limb_type>(shifted_raw >> 64);
             return result;
@@ -1983,7 +1983,7 @@ private:
             using u128 = unsigned __int128;
             const u128 raw = (static_cast<u128>(lhs.data_[1]) << 64) | lhs.data_[0];
             const u128 shifted = raw << n;
-            integer result(uninitialized_tag{});
+            integer result;
             result.data_[0] = static_cast<limb_type>(shifted);
             result.data_[1] = static_cast<limb_type>(shifted >> 64);
             return result;
