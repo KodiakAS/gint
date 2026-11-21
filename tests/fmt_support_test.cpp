@@ -118,9 +118,36 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:>{999999999999999999999999999999999999}}"), U128(42))), fmt::format_error);
 }
 
+#if FMT_VERSION >= 90000
+TEST(fmt_support, delegates_positional_width_type_checks_to_fmt)
+{
+    struct parse_context : fmt::format_parse_context
+    {
+        explicit parse_context(const char * spec)
+            : fmt::format_parse_context(spec)
+        {
+        }
+        void check_dynamic_spec(int id) { checked_id = id; }
+        int checked_id = -1;
+    };
+
+    parse_context automatic("{}}");
+    automatic.next_arg_id();
+    fmt::formatter<gint::Int128>().parse(automatic);
+    EXPECT_EQ(automatic.checked_id, 1);
+
+    parse_context indexed("{2}}");
+    fmt::formatter<gint::Int128>().parse(indexed);
+    EXPECT_EQ(indexed.checked_id, 2);
+}
+#endif
+
 TEST(fmt_support, dynamic_width_matches_integer_grammar)
 {
     const gint::Int128 value = 42;
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{0:{01}}"), value, 6)), fmt::format_error);
+    EXPECT_EQ(fmt::format(fmt::runtime("{1:{0}}"), 6, value), "    42");
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:{}}"), value, 1.5)), fmt::format_error);
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:4{}}"), value, 6)), fmt::format_error);
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{0:4{1}}"), value, 6)), fmt::format_error);
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:4{w}}"), value, fmt::arg("w", 6))), fmt::format_error);

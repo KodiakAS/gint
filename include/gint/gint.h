@@ -6207,6 +6207,9 @@ struct formatter<gint::integer<Bits, Signed>>
             if (it != end && *it == '}')
             {
                 dynamic_width_arg_id = ctx.next_arg_id();
+#    if FMT_VERSION >= 90000
+                ctx.check_dynamic_spec(dynamic_width_arg_id);
+#    endif
                 ++it;
             }
             else if (it != end && is_name_start(*it))
@@ -6224,6 +6227,8 @@ struct formatter<gint::integer<Bits, Signed>>
             }
             else
             {
+                if (it != end && *it == '0' && it + 1 != end && it[1] != '}')
+                    GINT_THROW(fmt::format_error("invalid argument index"));
                 int arg_id = 0;
                 bool has_arg_id = false;
                 while (it != end && *it >= '0' && *it <= '9')
@@ -6238,6 +6243,9 @@ struct formatter<gint::integer<Bits, Signed>>
                 if (!has_arg_id || it == end || *it != '}')
                     GINT_THROW(fmt::format_error("invalid format specifier for gint::integer"));
                 ctx.check_arg_id(arg_id);
+#    if FMT_VERSION >= 90000
+                ctx.check_dynamic_spec(arg_id);
+#    endif
                 dynamic_width_arg_id = arg_id;
                 ++it;
             }
