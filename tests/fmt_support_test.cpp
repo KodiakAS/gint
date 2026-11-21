@@ -232,6 +232,40 @@ TEST(fmt_support, format_integer_locale_specs)
     EXPECT_EQ(fmt::format(locale, "{:#014Lx}", S128(-0x12d687)), "0000-0x12d,687");
 }
 
+#if FMT_VERSION >= 100000 && (!defined(FMT_USE_LOCALE) || FMT_USE_LOCALE)
+TEST(fmt_support, explicit_format_facet)
+{
+    const std::locale comma(std::locale::classic(), new comma_numpunct);
+    const std::locale locale(comma, new fmt::format_facet<std::locale>("_"));
+    const gint::Int256 negative(-1234567);
+    EXPECT_EQ(fmt::format(locale, "{:L}", negative), "-1_234_567");
+    EXPECT_EQ(fmt::format(locale, "{} {:界^{}L}", 1, negative, 15), fmt::format(locale, "{} {:界^{}L}", 1, -1234567, 15));
+    EXPECT_EQ(fmt::format(locale, "{:+0{w}Ld}", -negative, fmt::arg("w", 15)), fmt::format(locale, "{:+015Ld}", 1234567));
+    EXPECT_EQ(fmt::format(locale, "{0:{1}L}", negative, 15), fmt::format(locale, "{:15L}", -1234567));
+#    if FMT_VERSION >= 100200
+    EXPECT_EQ(fmt::format(locale, "{:#014LX}", negative), fmt::format(locale, "{:#014LX}", -1234567));
+#    else
+    EXPECT_EQ(fmt::format(locale, "{:#LX}", negative), "-0X12D,687");
+#    endif
+#    if FMT_USE_INT128
+    using Native = unsigned __int128;
+    using NativeSigned = __int128;
+#    else
+    using Native = unsigned long long;
+    using NativeSigned = long long;
+#    endif
+    const Native max_native = ~Native(0);
+    const gint::Int256 max_unsigned(max_native);
+    const NativeSigned native_min = -static_cast<NativeSigned>(max_native / 2) - 1;
+    const gint::Int256 min_signed(native_min);
+    EXPECT_EQ(fmt::format(locale, "{:L}", gint::UInt256(max_native)), fmt::format(locale, "{:L}", max_native));
+    EXPECT_EQ(fmt::format(locale, "{:+L}", max_unsigned), "+" + fmt::format(locale, "{:L}", max_native));
+    EXPECT_EQ(fmt::format(locale, "{:L}", min_signed), fmt::format(locale, "{:L}", native_min));
+    EXPECT_EQ(fmt::format(locale, "{:L}", max_unsigned + 1), fmt::format(comma, "{:L}", max_unsigned + 1));
+    EXPECT_EQ(fmt::format(locale, "{:L}", min_signed - 1), fmt::format(comma, "{:L}", min_signed - 1));
+}
+#endif
+
 TEST(fmt_support, locale_grouping_terminators)
 {
     using U1024 = gint::integer<1024, unsigned>;

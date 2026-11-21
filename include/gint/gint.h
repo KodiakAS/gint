@@ -6145,6 +6145,7 @@ inline std::ostream & operator<<(std::ostream & out, const integer<Bits, Signed>
 // Optional fmt formatter, built on the shared integer-to-text conversion helpers.
 
 #ifdef GINT_ENABLE_FMT
+#    include <algorithm>
 #    include <locale>
 #    include <fmt/format.h>
 
@@ -6165,22 +6166,27 @@ struct formatter<gint::integer<Bits, Signed>>
     bool dynamic_width_is_named = false;
     bool localized = false;
     char presentation = 0;
+#    if FMT_VERSION >= 100000 && (!defined(FMT_USE_LOCALE) || FMT_USE_LOCALE)
+    basic_string_view<char> localized_specs;
+#    endif
 
     static FMT_CONSTEXPR bool is_name_start(char ch) { return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_'; }
 
     static FMT_CONSTEXPR bool is_name_char(char ch) { return is_name_start(ch) || (ch >= '0' && ch <= '9'); }
 
-    void insert_fill(std::string & text, size_t position, size_t count) const
+    template <typename OutputIt>
+    OutputIt write_fill(OutputIt out, size_t count) const
     {
         if (fill_size == 1)
         {
-            text.insert(position, count, fill[0]);
-            return;
+            // fmt 11.0.0's appender does not provide a standard iterator category.
+            for (size_t i = 0; i < count; ++i)
+                *out++ = fill[0];
+            return out;
         }
-        std::string padding;
         for (size_t i = 0; i < count; ++i)
-            padding.append(fill, fill_size);
-        text.insert(position, padding);
+            out = std::copy_n(fill, fill_size, out);
+        return out;
     }
 
     template <typename ParseContext>
@@ -6333,6 +6339,10 @@ struct formatter<gint::integer<Bits, Signed>>
 
         if (it != end && *it != '}')
             GINT_THROW(fmt::format_error("invalid format specifier for gint::integer"));
+#    if FMT_VERSION >= 100000 && (!defined(FMT_USE_LOCALE) || FMT_USE_LOCALE)
+        if (localized)
+            localized_specs = basic_string_view<char>(ctx.begin(), static_cast<size_t>(it - ctx.begin()));
+#    endif
         return it;
     }
 
@@ -6431,6 +6441,23 @@ struct formatter<gint::integer<Bits, Signed>>
 #    endif
     }
 
+#    if FMT_VERSION >= 100000 && (!defined(FMT_USE_LOCALE) || FMT_USE_LOCALE)
+    template <typename Native, typename FormatContext>
+    auto format_native(Native value, unsigned resolved_width, FormatContext & ctx) const -> typename FormatContext::iterator
+    {
+        // Reuse fmt's integer specs for the facet, including a signed gint's sign
+        // flag when its positive value needs an unsigned native representation.
+        fmt::detail::dynamic_format_specs<char> specs;
+        fmt::format_parse_context parse_ctx(localized_specs);
+        fmt::detail::parse_format_specs(parse_ctx.begin(), parse_ctx.end(), specs, parse_ctx, fmt::detail::type::long_long_type);
+        specs.width = static_cast<int>(resolved_width);
+        auto out = ctx.out();
+        auto && buffer = fmt::detail::get_buffer<char>(out);
+        fmt::detail::write<char>(fmt::appender(buffer), value, specs, ctx.locale());
+        return fmt::detail::get_iterator(buffer, out);
+    }
+#    endif
+
     template <typename FormatContext>
     auto format(const gint::integer<Bits, Signed> & value, FormatContext & ctx) const -> typename FormatContext::iterator
     {
@@ -6453,6 +6480,32 @@ struct formatter<gint::integer<Bits, Signed>>
         }
 
         const bool negative = std::is_same<Signed, signed>::value && value < Int(0);
+        unsigned resolved_width = width;
+        if (dynamic_width_arg_id >= 0)
+            resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_id));
+        else if (dynamic_width_is_named)
+            resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_name));
+        const bool use_localized_digits = localized && presentation != 'c';
+#    if FMT_VERSION >= 100000 && (!defined(FMT_USE_LOCALE) || FMT_USE_LOCALE)
+        // fmt before 10.2 renders localized nondecimal integers in decimal.
+        if (use_localized_digits && (FMT_VERSION >= 100200 || base == 10)
+            && std::has_facet<fmt::format_facet<std::locale>>(ctx.locale().template get<std::locale>()))
+        {
+#        if FMT_USE_INT128
+            using NativeSigned = __int128;
+            using NativeUnsigned = unsigned __int128;
+#        else
+            using NativeSigned = long long;
+            using NativeUnsigned = unsigned long long;
+#        endif
+            const auto signed_value = static_cast<NativeSigned>(value);
+            if (std::is_same<Signed, signed>::value && (signed_value < 0) == negative && Int(signed_value) == value)
+                return format_native(signed_value, resolved_width, ctx);
+            const auto unsigned_value = static_cast<NativeUnsigned>(value);
+            if (!negative && Int(unsigned_value) == value)
+                return format_native(unsigned_value, resolved_width, ctx);
+        }
+#    endif
         std::string prefix;
         std::string digits;
         if (presentation == 'c')
@@ -6477,7 +6530,6 @@ struct formatter<gint::integer<Bits, Signed>>
                 prefix = "-";
         }
 
-        const bool use_localized_digits = localized && presentation != 'c';
         if (use_localized_digits)
             apply_locale_grouping(digits, ctx.locale());
 
@@ -6499,41 +6551,19 @@ struct formatter<gint::integer<Bits, Signed>>
                 prefix += "0";
         }
 
-        std::string text = prefix + digits;
-        unsigned resolved_width = width;
-        if (dynamic_width_arg_id >= 0)
-            resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_id));
-        else if (dynamic_width_is_named)
-            resolved_width = visit_dynamic_width_arg(ctx.arg(dynamic_width_arg_name));
-        if (resolved_width > text.size())
-        {
-            const size_t padding = resolved_width - text.size();
-            const char effective_align = (presentation == 'c' && !explicit_align && align == '>') ? '<' : align;
-            if (effective_align == '<')
-            {
-                insert_fill(text, text.size(), padding);
-            }
-            else if (effective_align == '^')
-            {
-                const size_t left = padding / 2;
-                const size_t right = padding - left;
-                insert_fill(text, 0, left);
-                insert_fill(text, text.size(), right);
-            }
-            else if (effective_align == '=' && !use_localized_digits && !prefix.empty())
-            {
-                insert_fill(text, prefix.size(), padding);
-            }
-            else
-            {
-                insert_fill(text, 0, padding);
-            }
-        }
-
+        const size_t size = prefix.size() + digits.size();
+        const size_t padding = resolved_width > size ? resolved_width - size : 0;
+        const char effective_align = (presentation == 'c' && !explicit_align && align == '>') ? '<' : align;
+        const size_t left = effective_align == '<' ? 0 : effective_align == '^' ? padding / 2 : padding;
+        const bool pad_after_prefix = effective_align == '=' && !use_localized_digits;
         auto out = ctx.out();
-        for (size_t i = 0; i < text.size(); ++i)
-            *out++ = text[i];
-        return out;
+        if (!pad_after_prefix)
+            out = write_fill(out, left);
+        out = std::copy(prefix.begin(), prefix.end(), out);
+        if (pad_after_prefix)
+            out = write_fill(out, left);
+        out = std::copy(digits.begin(), digits.end(), out);
+        return write_fill(out, padding - left);
     } // LCOV_EXCL_LINE
 };
 } // namespace fmt
