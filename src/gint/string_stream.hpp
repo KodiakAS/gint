@@ -215,13 +215,16 @@ inline std::string to_base_string(const integer<Bits, Signed> & value, unsigned 
     if (base == 10)
         return to_string(value);
 
+    const int high_bit = value.highest_bit();
+    if (high_bit < 0)
+        return "0";
+
     const unsigned bits_per_digit = (base == 16) ? 4 : (base == 8) ? 3 : 1;
     const unsigned mask = (1u << bits_per_digit) - 1u;
-    const size_t digit_count = (Bits + bits_per_digit - 1) / bits_per_digit;
-    std::string out;
-    out.reserve(digit_count);
+    const size_t digit_count = static_cast<size_t>(high_bit) / bits_per_digit + 1;
+    std::string out(digit_count, '\0');
+    char * next_digit = &out[0];
 
-    bool seen = false;
     for (size_t digit_index = digit_count; digit_index-- > 0;)
     {
         const size_t bit = digit_index * bits_per_digit;
@@ -231,17 +234,10 @@ inline std::string to_base_string(const integer<Bits, Signed> & value, unsigned 
         if (shift + bits_per_digit > 64 && limb_index + 1 < integer<Bits, Signed>::limbs)
             digit |= static_cast<unsigned>(value.data_[limb_index + 1] << (64 - shift)) & mask;
 
-        const unsigned valid_bits = static_cast<unsigned>((Bits - bit < bits_per_digit) ? (Bits - bit) : bits_per_digit);
-        digit &= (1u << valid_bits) - 1u;
-
-        if (digit || seen)
-        {
-            out.push_back(format_digit(digit, uppercase));
-            seen = true;
-        }
+        *next_digit++ = format_digit(digit, uppercase);
     }
 
-    return seen ? out : std::string("0");
+    return out;
 }
 
 template <size_t Bits, typename Signed>

@@ -212,6 +212,12 @@ TEST(fmt_support, format_signed_integer_base_specs)
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:0=8d}"), value)), fmt::format_error);
 }
 
+TEST(fmt_support, format_signed_minimum_octal)
+{
+    using S1024 = gint::integer<1024, signed>;
+    EXPECT_EQ(fmt::format("{:o}", std::numeric_limits<S1024>::min()), "-1" + std::string(341, '0'));
+}
+
 TEST(fmt_support, format_integer_locale_specs)
 {
     using U128 = gint::integer<128, unsigned>;
