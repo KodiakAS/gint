@@ -118,6 +118,29 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
     EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:>{999999999999999999999999999999999999}}"), U128(42))), fmt::format_error);
 }
 
+TEST(fmt_support, dynamic_width_matches_integer_grammar)
+{
+    const gint::Int128 value = 42;
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:4{}}"), value, 6)), fmt::format_error);
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{0:4{1}}"), value, 6)), fmt::format_error);
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:4{w}}"), value, fmt::arg("w", 6))), fmt::format_error);
+}
+
+#if FMT_USE_INT128
+TEST(fmt_support, dynamic_width_accepts_native_int128)
+{
+    const gint::Int128 value = 42;
+    const __int128 width = 6;
+    const unsigned too_wide = static_cast<unsigned>((std::numeric_limits<int>::max)()) + 1;
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:{}}"), value, too_wide)), fmt::format_error);
+    const unsigned __int128 unsigned_width = 6;
+    EXPECT_EQ(fmt::format(fmt::runtime("{:{}}"), value, width), fmt::format(fmt::runtime("{:{}}"), 42, width));
+    EXPECT_EQ(fmt::format(fmt::runtime("{:{}}"), value, unsigned_width), fmt::format(fmt::runtime("{:{}}"), 42, unsigned_width));
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:{}}"), value, -width)), fmt::format_error);
+    EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime("{:{}}"), value, unsigned_width << 80)), fmt::format_error);
+}
+#endif
+
 TEST(fmt_support, reject_unsigned_integer_sign_specs)
 {
     using U128 = gint::integer<128, unsigned>;

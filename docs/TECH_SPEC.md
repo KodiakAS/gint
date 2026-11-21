@@ -102,7 +102,8 @@ unchecked 行为是明确的库语义，用于避免底层整数除法 UB；它�
 - `operator<<`：遵循 `std::hex`、`std::oct`、`std::showbase`、符号、宽度、填充
   和对齐等整数 stream 标志；
 - 定义 `GINT_ENABLE_FMT` 后提供 `fmt::formatter`，填充支持单个 UTF-8 字符，
-  可配合左、右、居中对齐及静态或动态宽度；`L` 对所选进制的数字应用 locale 分组，
+  可配合左、右、居中对齐。静态和动态宽度二选一，宽度范围为 `0..INT_MAX`；
+  fmt 启用原生 128 位整数时也接受该类型的动态宽度。`L` 对所选进制的数字应用 locale 分组，
   不会改变进制。
 
 `fmt` locale 分组项按平台 `char` 的有符号性解释；非正值或 `CHAR_MAX` 终止分组。
