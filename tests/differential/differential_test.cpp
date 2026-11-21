@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <random>
@@ -36,7 +37,7 @@ size_t parse_iterations(const char * text)
     errno = 0;
     char * end = nullptr;
     const unsigned long long value = std::strtoull(text, &end, 10);
-    if (errno != 0 || end == text || *end != '\0' || value == 0)
+    if (errno != 0 || end == text || *end != '\0' || value == 0 || std::strchr(text, '-'))
         throw std::invalid_argument("iterations must be a positive integer");
     return static_cast<size_t>(value);
 }
