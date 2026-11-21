@@ -150,12 +150,12 @@ install_packages() {
 }
 
 resolve_compilers() {
-    local -a input=("$@")
+    local -a input=(g++ clang++)
     local -a resolved=()
     local candidate path
 
-    if ((${#input[@]} == 0)); then
-        input=(g++ clang++)
+    if ((${#requested_compilers[@]} > 0)); then
+        input=("${requested_compilers[@]}")
     fi
 
     for candidate in "${input[@]}"; do
@@ -308,7 +308,7 @@ EOF
 install_packages
 compilers=()
 compiler_output=""
-if ! compiler_output="$(resolve_compilers "${requested_compilers[@]}")"; then
+if ! compiler_output="$(resolve_compilers)"; then
     echo "error: failed to resolve requested compilers" >&2
     exit 2
 fi
