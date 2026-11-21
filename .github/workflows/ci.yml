@@ -333,6 +333,24 @@ jobs:
         run: cmake -S . -B runs/ci/build-benchmark-smoke -DCMAKE_BUILD_TYPE=Release -DGINT_BUILD_TESTS=OFF -DGINT_BUILD_BENCHMARKS=ON
       - name: Build
         run: cmake --build runs/ci/build-benchmark-smoke --parallel
+      - name: Check benchmark CLI
+        run: |
+          benchmark=runs/ci/build-benchmark-smoke/perf_benchmark_int256
+          "$benchmark" --help | grep -F -- '--benchmark_filter='
+          "$benchmark" --gint_full --benchmark_list_tests --benchmark_filter='^Add/CarryChain64/gint$' \
+            | grep -Fx 'Add/CarryChain64/gint'
+          if "$benchmark" --benchmark_list_tests --benchmark_filtre='^Add/'; then
+            echo 'A misspelled benchmark flag succeeded' >&2
+            exit 1
+          fi
+          if "$benchmark" --benchmark_filter='^NoSuchBenchmark$'; then
+            echo 'A benchmark filter with no matches succeeded' >&2
+            exit 1
+          fi
+          if "$benchmark" --benchmark_list_tests --benchmark_filter='^NoSuchBenchmark$'; then
+            echo 'Listing zero matching benchmarks succeeded' >&2
+            exit 1
+          fi
       - name: Run benchmark smoke tests
         run: |
           # Smoke only: keep this short. Use local runs or a dedicated perf workflow for performance conclusions.
