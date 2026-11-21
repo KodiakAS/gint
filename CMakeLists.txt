@@ -317,6 +317,7 @@ if(GINT_BUILD_TESTS)
             -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
             -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
             -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            "-DGINT_CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_header_contract.cmake
     )
     add_test(NAME consumer.cmake_compiler_contract
@@ -334,6 +335,7 @@ if(GINT_BUILD_TESTS)
             "-DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
             "-DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
             "-DGINT_TEST_GENERATOR=${CMAKE_GENERATOR}"
+            "-DGINT_CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/check_consumer_toolchain.cmake
     )
 
@@ -355,8 +357,8 @@ if(GINT_BUILD_TESTS)
         set(GINT_PACKAGE_TEST_INSTALL_ARGS
             -DGINT_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
             -DGINT_INSTALL_INCLUDE_DIR=${CMAKE_INSTALL_INCLUDEDIR}
-            -DGINT_INSTALL_CMAKE_DIR=${CMAKE_INSTALL_LIBDIR}/cmake/gint
-            -DGINT_INSTALL_DATA_DIR=${CMAKE_INSTALL_DATADIR}/gint
+            -DGINT_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}
+            -DGINT_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}
         )
 
         add_test(NAME consumer.package
@@ -531,7 +533,7 @@ if(GINT_BUILD_TESTS)
     if(GINT_BUILD_TESTS_CXX17)
         check_cxx_compiler_flag("-std=c++17" HAS_CXX17)
         if(HAS_CXX17)
-            add_gint_unit_test(gint_tests_cxx17 "${GINT_TEST_SOURCES}" 17 "" ${GINT_CORE_TEST_ARGS})
+            add_gint_unit_test(gint_tests_cxx17 "${GINT_TEST_SOURCES}" 17 "cxx17." ${GINT_CORE_TEST_ARGS})
         endif()
     endif()
 endif()

@@ -2,6 +2,8 @@ if(NOT DEFINED GINT_CXX_COMPILER OR NOT DEFINED GINT_SOURCE_DIR OR NOT DEFINED G
     message(FATAL_ERROR "GINT_CXX_COMPILER, GINT_SOURCE_DIR, and GINT_BINARY_DIR are required")
 endif()
 
+# CMake stores mandatory compiler arguments as one command-line string.
+separate_arguments(compiler_args UNIX_COMMAND "${GINT_CXX_COMPILER_ARG1}")
 set(source "${GINT_SOURCE_DIR}/tests/consumer/header_contract.cpp")
 set(output_dir "${GINT_BINARY_DIR}/consumer-header-contract")
 file(MAKE_DIRECTORY "${output_dir}")
@@ -11,7 +13,7 @@ file(REMOVE_RECURSE "${single_header_include}")
 file(MAKE_DIRECTORY "${single_header_include}/gint")
 file(COPY "${GINT_SOURCE_DIR}/include/gint/gint.h" DESTINATION "${single_header_include}/gint")
 execute_process(
-    COMMAND "${GINT_CXX_COMPILER}"
+    COMMAND "${GINT_CXX_COMPILER}" ${compiler_args}
         -std=c++11
         -Wall
         -Wextra
@@ -32,7 +34,7 @@ endif()
 
 function(expect_compile_failure name standard expected_diagnostic)
     execute_process(
-        COMMAND "${GINT_CXX_COMPILER}"
+        COMMAND "${GINT_CXX_COMPILER}" ${compiler_args}
             "-std=${standard}"
             ${ARGN}
             "-I${GINT_SOURCE_DIR}/include"
