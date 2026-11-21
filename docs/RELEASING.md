@@ -38,7 +38,7 @@
 标准安装必须且只能产生：
 
 ```text
-<prefix>/include/gint/gint.h
+<prefix>/<includedir>/gint/gint.h
 <prefix>/<libdir>/cmake/gint/gintConfig.cmake
 <prefix>/<libdir>/cmake/gint/gintConfigVersion.cmake
 <prefix>/<libdir>/cmake/gint/gintCompilerContract.cmake
@@ -46,8 +46,8 @@
 <prefix>/<datadir>/gint/LICENSE
 ```
 
-`<libdir>` 与 `<datadir>` 分别由 `GNUInstallDirs` 的
-`CMAKE_INSTALL_LIBDIR`、`CMAKE_INSTALL_DATADIR` 决定。`gint::gint` 和
+`<includedir>`、`<libdir>` 与 `<datadir>` 分别由 `GNUInstallDirs` 的
+`CMAKE_INSTALL_INCLUDEDIR`、`CMAKE_INSTALL_LIBDIR`、`CMAKE_INSTALL_DATADIR` 决定。`gint::gint` 和
 `gint::checked` 必须都是 `INTERFACE_LIBRARY`。
 
 机器检查由
