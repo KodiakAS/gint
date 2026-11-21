@@ -67,6 +67,10 @@ runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_list_tests
 1024-bit benchmark binary，以覆盖 String/CStr、满位宽/短输入和
 Base2/8/10/16 parser 组合。
 
+两个 benchmark 二进制都会拒绝无法识别的参数。过滤器无匹配或正则无效时，
+采样、`--benchmark_list_tests` 和 `--benchmark_dry_run` 均以非零状态退出。
+`--help` 仍可用于查看当前 Google Benchmark 版本支持的选项。
+
 ## 结论采样
 
 推荐参数：

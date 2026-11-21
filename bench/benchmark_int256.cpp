@@ -1054,11 +1054,15 @@ static void Div_SimilarMagnitude2(benchmark::State & state)
 
 int main(int argc, char ** argv)
 {
+    const bool full_matrix = parse_full_matrix_flag(argc, argv);
+    benchmark::Initialize(&argc, argv);
+    if (benchmark::ReportUnrecognizedArguments(argc, argv))
+        return EXIT_FAILURE;
+
 #if defined(GINT_ENABLE_CH_COMPARE) && defined(GINT_ENABLE_BOOST_COMPARE)
     if (!verify_comparison_value_domain())
         return 2;
 #endif
-    bool full_matrix = parse_full_matrix_flag(argc, argv);
     // Addition
     REG_CASE("Add/NoCarry", Add_NoCarry);
     REG_CASE("Add/FullCarry", Add_FullCarry);
@@ -1136,7 +1140,7 @@ int main(int argc, char ** argv)
 #endif
     }
 
-    benchmark::Initialize(&argc, argv);
-    benchmark::RunSpecifiedBenchmarks();
-    return 0;
+    const size_t matched = benchmark::RunSpecifiedBenchmarks();
+    benchmark::Shutdown();
+    return matched == 0 ? EXIT_FAILURE : EXIT_SUCCESS;
 }
