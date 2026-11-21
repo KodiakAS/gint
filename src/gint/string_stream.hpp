@@ -154,30 +154,33 @@ inline size_t stream_prefix_size(const std::string & text) noexcept
 
 inline std::ostream & write_formatted_string(std::ostream & out, const std::string & text)
 {
-    const std::streamsize width = out.width(0);
+    const std::streamsize width = out.width();
     const std::streamsize size = static_cast<std::streamsize>(text.size());
     if (width <= size)
-        return out.write(text.data(), size);
-
-    const std::streamsize padding = width - size;
-    const char fill = out.fill();
-    const std::ios_base::fmtflags adjust = out.flags() & std::ios_base::adjustfield;
-    const size_t prefix = (adjust == std::ios_base::internal) ? stream_prefix_size(text) : 0;
-
-    if (adjust == std::ios_base::left)
     {
-        out.write(text.data(), size);
-        for (std::streamsize i = 0; i < padding; ++i)
-            out.put(fill);
-        return out;
+        out.width(0);
+        return out.write(text.data(), size);
     }
 
-    if (prefix)
-        out.write(text.data(), static_cast<std::streamsize>(prefix));
-    for (std::streamsize i = 0; i < padding; ++i)
-        out.put(fill);
-    out.write(text.data() + prefix, size - static_cast<std::streamsize>(prefix));
-    return out;
+    // String insertion can leave its field width set when a write fails.
+    struct reset_width
+    {
+        std::ostream & stream;
+        ~reset_width() { stream.width(0); }
+    } reset{out};
+    if ((out.flags() & std::ios_base::adjustfield) == std::ios_base::internal)
+    {
+        const size_t prefix = stream_prefix_size(text);
+        if (prefix)
+        {
+            // String insertion handles padding after the numeric prefix.
+            out.width(0);
+            out.write(text.data(), static_cast<std::streamsize>(prefix));
+            out.width(width - static_cast<std::streamsize>(prefix));
+            return out << text.substr(prefix);
+        }
+    }
+    return out << text;
 }
 
 template <size_t Bits, typename Signed>

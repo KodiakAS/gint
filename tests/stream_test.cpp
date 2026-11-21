@@ -82,6 +82,58 @@ TEST(WideIntegerStream, HonorsWidthFillAndSigns)
     }
 }
 
+TEST(WideIntegerStream, PaddingUsesBoundedStreamFlushes)
+{
+    struct counting_buffer : std::stringbuf
+    {
+        int sync() override
+        {
+            ++flushes;
+            return 0;
+        }
+        int flushes = 0;
+    };
+    for (auto align : {std::ios_base::left, std::ios_base::right, std::ios_base::internal})
+    {
+        counting_buffer buffer;
+        std::ostream out(&buffer);
+        out.setf(align, std::ios_base::adjustfield);
+        out << std::unitbuf << std::showbase << std::hex << std::setfill('_') << std::setw(80) << gint::UInt128(1);
+        const std::string pad(77, '_');
+        EXPECT_EQ(
+            buffer.str(),
+            align == std::ios_base::internal   ? "0x" + pad + "1"
+                : align == std::ios_base::left ? "0x1" + pad
+                                               : pad + "0x1");
+        EXPECT_LE(buffer.flushes, 2);
+        EXPECT_EQ(out.width(), 0);
+    }
+}
+
+TEST(WideIntegerStream, PaddingConsumesWidthOnWriteFailure)
+{
+    struct rejecting_buffer : std::streambuf
+    {
+    };
+    for (auto align : {std::ios_base::right, std::ios_base::internal})
+    {
+        rejecting_buffer buffer;
+        std::ostream out(&buffer);
+        out.setf(align, std::ios_base::adjustfield);
+        out << std::showpos << std::setw(9) << gint::Int128(21);
+        EXPECT_TRUE(out.bad());
+        EXPECT_EQ(out.width(), 0);
+
+        out << std::setw(9) << gint::Int128(21);
+        EXPECT_EQ(out.width(), 0);
+
+        out.clear();
+        out.exceptions(std::ios_base::badbit);
+        EXPECT_THROW(out << std::setw(9) << gint::Int128(21), std::ios_base::failure);
+        EXPECT_EQ(out.width(), 0);
+    }
+}
+
 TEST(WideIntegerStream, OutputAdditionalWidths)
 {
     {
