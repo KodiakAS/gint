@@ -705,6 +705,29 @@ TEST(WideIntegerDivision, SignedInt128ScalarKeepsItsMagnitudeWithInt64)
     EXPECT_EQ(native_min % S64(-1), S64(0));
 }
 
+TEST(WideIntegerDivision, UInt64WithWideScalar)
+{
+    using U64 = gint::integer<64, unsigned>;
+    const u128 high = u128(1) << 64;
+    for (const u128 n : {high, high + 1, ~u128(0)})
+    {
+        SCOPED_TRACE(gint::to_string(gint::UInt128(n)));
+        EXPECT_EQ(n / U64(2), U64(n / 2));
+        EXPECT_EQ(n % U64(3), U64(n % 3));
+        U64 q = 7, r = 7;
+        EXPECT_EQ(q /= n, U64(0));
+        EXPECT_EQ(r %= n, U64(7));
+        EXPECT_EQ(n / U64(0), U64(0));
+        EXPECT_EQ(n % U64(0), U64(n));
+    }
+    const __int128 negative = -static_cast<__int128>(high) - 1;
+    EXPECT_EQ(negative / U64(3), U64(negative / 3));
+    EXPECT_EQ(negative % U64(3), U64(negative % 3));
+    const U64 max = std::numeric_limits<U64>::max();
+    EXPECT_EQ(max / __int128(-2), U64(-static_cast<__int128>(UINT64_MAX) / 2));
+    EXPECT_EQ(max % __int128(-2), U64(1));
+}
+
 TEST(WideIntegerDivision, CompoundDivModPreservesUnsignedPromotion)
 {
     using S64 = gint::integer<64, signed>;

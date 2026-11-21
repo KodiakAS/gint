@@ -29,6 +29,8 @@ target_link_libraries(my_target PRIVATE gint::gint)
 
 - 有符号 64 位 gint 与有符号 `__int128` 混合比较、除模时会保留标量高位。旧代码
   若依赖先截断标量，可显式构造 `gint::integer<64, signed>(scalar)` 再运算。
+- 无符号 64 位 gint 与原生 128 位标量混合比较或除模时也使用完整数值，包括有符号标量的负值。
+  需要原先的截断行为时，先显式构造 `gint::integer<64, unsigned>(scalar)`。
 - 原有 `#include <gint/gint.h>` 和单头文件方式继续有效；
 - CMake 消费者可以使用版本化 package、`gint::gint` 和 `gint::checked`；
 - compiler frontend、平台和最低版本以当前[支持策略](SUPPORT.md)为准，旧工具链

@@ -36,6 +36,20 @@ TEST(WideIntegerComparison, SignedInt128ScalarOutsideInt64Range)
     }
 }
 
+TEST(WideIntegerComparison, UInt64WithWideScalar)
+{
+    using U64 = gint::integer<64, unsigned>;
+    constexpr unsigned __int128 high = static_cast<unsigned __int128>(1) << 64;
+    static_assert(U64(0) != high && high != U64(0), "preserve scalar high bits");
+    const U64 max = std::numeric_limits<U64>::max();
+    EXPECT_LT(max, high);
+    EXPECT_GT(high, max);
+    EXPECT_EQ(max, high - 1);
+    EXPECT_LT(__int128(-1), U64(0));
+    EXPECT_GT(max, __int128(-1));
+    EXPECT_NE(max, __int128(-1));
+}
+
 TEST(WideIntegerComparison, UnsignedBasic)
 {
     gint::integer<128, unsigned> a = 5;
