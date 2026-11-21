@@ -69,6 +69,8 @@ TEST(WideIntegerDivModUnchecked, ScalarZeroDivisor)
     EXPECT_EQ(u % u64_zero, u);
     EXPECT_EQ(u / int_zero, U512(0));
     EXPECT_EQ(u % int_zero, u);
+    EXPECT_EQ(u % false, u);
+    EXPECT_EQ(u % true, U512(0));
 
     const S512 s = -((S512(1) << 300) + S512(123));
     const std::int64_t i64_zero = 0;

@@ -2998,7 +2998,7 @@ public:
         if (needs_unsigned_signed_promotion(rhs))
             return truncate_promoted_signed(promote_signed_self(lhs) % promote_integral_value(rhs));
         // For unsigned integers, mimic native casts: reinterpret negative divisors as their two's complement magnitude.
-        if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && rhs < 0)
+        if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && static_cast<__int128>(rhs) < 0)
             return lhs % integer(rhs);
         if (sizeof(T) <= sizeof(limb_type)
             && (!detail::is_unsigned<T>::value || rhs <= static_cast<T>(std::numeric_limits<signed_limb_type>::max())))
@@ -3224,7 +3224,7 @@ public:
         if (is_int64_with_int128<T>())
             return static_cast<__int128>(lhs) < static_cast<signed_limb_type>(rhs.data_[0]);
         if (outside_uint64_operand_range(lhs))
-            return lhs < 0;
+            return detail::is_signed<T>::value && static_cast<__int128>(lhs) < 0;
         if (needs_unsigned_signed_promotion(lhs))
             return promote_integral_value(lhs) < promote_signed_self(rhs);
         return integer(lhs) < rhs;

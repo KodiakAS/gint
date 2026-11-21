@@ -15,6 +15,7 @@ TEST(WideIntegerDivMod, ZeroDivisor)
 
     EXPECT_THROW(value / 0, std::domain_error);
     EXPECT_THROW(value % 0, std::domain_error);
+    EXPECT_THROW(value % false, std::domain_error);
     EXPECT_THROW(value / 0.0, std::domain_error);
     EXPECT_THROW(value % 0.0, std::domain_error);
 
