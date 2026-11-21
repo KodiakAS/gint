@@ -128,7 +128,7 @@ endif()
 
 if(ENABLE_SANITIZERS)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        list(APPEND GINT_TEST_OPTIONS -fsanitize=address,undefined -fno-omit-frame-pointer)
+        list(APPEND GINT_TEST_OPTIONS -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
         list(APPEND GINT_TEST_LINK_OPTIONS -fsanitize=address,undefined)
     else()
         message(FATAL_ERROR "ENABLE_SANITIZERS requires GCC or Clang")

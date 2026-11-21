@@ -48,6 +48,7 @@ fi
     -Wall \
     -Wextra \
     -Werror \
+    -fno-sanitize-recover=undefined \
     -fsanitize=fuzzer,address,undefined \
     -Iinclude \
     tests/fuzz/gint_fuzz.cpp \
