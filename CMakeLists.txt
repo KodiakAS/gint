@@ -500,7 +500,7 @@ if(GINT_BUILD_TESTS)
         endforeach()
         target_compile_definitions(gint_divzero_checked_dso PRIVATE GINT_ENABLE_DIVZERO_CHECKS)
 
-        add_executable(gint_tests_divzero_dso tests/divzero_dso_loader_test.cpp)
+        add_executable(gint_tests_divzero_dso tests/divzero_dso_loader_test.cpp tests/consumer/cxx11_test_mode.cpp)
         target_compile_definitions(gint_tests_divzero_dso
             PRIVATE
                 GINT_DSO_CHECKED_PATH="$<TARGET_FILE:gint_divzero_checked_dso>"
