@@ -19,6 +19,23 @@ static_assert(6 > gint::integer<128, signed>(5), "mixed integer > should be cons
 static_assert(gint::integer<64, signed>(0) < 0x8000000000000005ULL, "promoted mixed comparison should be constexpr");
 #endif
 
+TEST(WideIntegerComparison, SignedInt128ScalarOutsideInt64Range)
+{
+    using S64 = gint::integer<64, signed>;
+    const __int128 large = __int128(1) << 64;
+    const S64 zero = 0;
+    for (const __int128 scalar : {large, -large})
+    {
+        SCOPED_TRACE(gint::to_string(gint::Int128(scalar)));
+        EXPECT_FALSE(zero == scalar);
+        EXPECT_TRUE(scalar != zero);
+        EXPECT_EQ(zero < scalar, scalar > 0);
+        EXPECT_EQ(scalar < zero, scalar < 0);
+        EXPECT_EQ(zero >= scalar, scalar < 0);
+        EXPECT_EQ(scalar >= zero, scalar > 0);
+    }
+}
+
 TEST(WideIntegerComparison, UnsignedBasic)
 {
     gint::integer<128, unsigned> a = 5;

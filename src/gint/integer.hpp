@@ -2689,6 +2689,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, T rhs)
     {
+        if (is_int64_with_int128<T>())
+            return divmod_int64_int128<false>(static_cast<signed_limb_type>(lhs.data_[0]), rhs);
         GINT_DIVZERO_CHECK(rhs == 0);
         if (needs_unsigned_signed_promotion(rhs))
             return truncate_promoted_signed(promote_signed_self(lhs) / promote_integral_value(rhs));
@@ -2701,6 +2703,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_HIDDEN_VISIBILITY integer operator/(T lhs, integer rhs)
     {
+        if (is_int64_with_int128<T>())
+            return divmod_int64_int128<false>(lhs, static_cast<signed_limb_type>(rhs.data_[0]));
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) / promote_signed_self(rhs));
         return integer(lhs) / rhs;
@@ -2732,6 +2736,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, T rhs)
     {
+        if (is_int64_with_int128<T>())
+            return divmod_int64_int128<true>(static_cast<signed_limb_type>(lhs.data_[0]), rhs);
         GINT_MODZERO_CHECK(rhs == 0);
         if (GINT_UNLIKELY(rhs == 0))
             return lhs;
@@ -2753,6 +2759,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_HIDDEN_VISIBILITY integer operator%(T lhs, integer rhs)
     {
+        if (is_int64_with_int128<T>())
+            return divmod_int64_int128<true>(lhs, static_cast<signed_limb_type>(rhs.data_[0]));
         if (needs_unsigned_signed_promotion(lhs))
             return truncate_promoted_signed(promote_integral_value(lhs) % promote_signed_self(rhs));
         return integer(lhs) % rhs;
@@ -2794,7 +2802,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend constexpr bool operator==(const integer & lhs, T rhs) noexcept
     {
-        return needs_unsigned_signed_promotion(rhs) ? false : lhs == integer(rhs);
+        return is_int64_with_int128<T>() ? static_cast<signed_limb_type>(lhs.data_[0]) == static_cast<__int128>(rhs)
+                                         : !needs_unsigned_signed_promotion(rhs) && lhs == integer(rhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
@@ -2943,6 +2952,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_CONSTEXPR14 bool operator<(const integer & lhs, T rhs) noexcept
     {
+        if (is_int64_with_int128<T>())
+            return static_cast<signed_limb_type>(lhs.data_[0]) < static_cast<__int128>(rhs);
         if (needs_unsigned_signed_promotion(rhs))
             return promote_signed_self(lhs) < promote_integral_value(rhs);
         return lhs < integer(rhs);
@@ -2951,6 +2962,8 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend GINT_CONSTEXPR14 bool operator<(T lhs, const integer & rhs) noexcept
     {
+        if (is_int64_with_int128<T>())
+            return static_cast<__int128>(lhs) < static_cast<signed_limb_type>(rhs.data_[0]);
         if (needs_unsigned_signed_promotion(lhs))
             return promote_integral_value(lhs) < promote_signed_self(rhs);
         return integer(lhs) < rhs;
@@ -3764,6 +3777,24 @@ private:
         for (size_t i = 1; i < limbs; ++i)
             high_or |= v.data_[i];
         return high_or == 0;
+    }
+
+    template <typename T>
+    static constexpr bool is_int64_with_int128() noexcept
+    {
+        return Bits == 64 && std::is_same<Signed, signed>::value && std::is_same<T, __int128>::value;
+    }
+
+    template <bool WantRemainder>
+    static integer divmod_int64_int128(__int128 lhs, __int128 rhs)
+    {
+        const signed_limb_type a = static_cast<signed_limb_type>(lhs);
+        const signed_limb_type b = static_cast<signed_limb_type>(rhs);
+        // For a zero divisor or -1, the low word of lhs determines the fixed-width result.
+        // Handling both here keeps the native 128-bit operations below defined at INT128_MIN.
+        if ((lhs == a && rhs == b) || rhs == 0 || rhs == -1)
+            return WantRemainder ? integer(a) % b : integer(a) / b;
+        return WantRemainder ? integer(lhs % rhs) : integer(lhs / rhs);
     }
 
     static constexpr size_t promoted_signed_bits = Bits < 256 ? 256 : Bits;

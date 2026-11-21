@@ -4,6 +4,14 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+TEST(WideIntegerDivZero, SignedInt128DividendKeepsLowWordOnModuloByZero)
+{
+    using S64 = gint::integer<64, signed>;
+    const __int128 dividend = (__int128(1) << 64) + 7;
+    EXPECT_EQ(dividend / S64(0), S64(0));
+    EXPECT_EQ(dividend % S64(0), S64(7));
+}
+
 TEST(WideIntegerDivModUnchecked, UnsignedIntegerZeroDivisor)
 {
     using U64 = gint::integer<64, unsigned>;

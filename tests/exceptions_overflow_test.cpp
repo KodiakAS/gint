@@ -25,6 +25,16 @@ TEST(WideIntegerDivMod, ZeroDivisor)
     EXPECT_THROW(sval % szero, std::domain_error);
 }
 
+TEST(WideIntegerDivMod, NonzeroSignedInt128DivisorWithZeroLowWord)
+{
+    using S64 = gint::integer<64, signed>;
+    const __int128 large = __int128(1) << 64;
+    EXPECT_EQ(S64(7) / large, S64(0));
+    EXPECT_EQ(S64(7) % large, S64(7));
+    EXPECT_THROW(large / S64(0), std::domain_error);
+    EXPECT_THROW(large % S64(0), std::domain_error);
+}
+
 TEST(WideIntegerExceptions, ConstructFromNegative)
 {
     gint::integer<128, unsigned> u = -1;
