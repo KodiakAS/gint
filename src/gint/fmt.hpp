@@ -111,15 +111,6 @@ struct formatter<gint::integer<Bits, Signed>>
             ++it;
         }
 
-        while (it != end && *it >= '0' && *it <= '9')
-        {
-            const unsigned digit = static_cast<unsigned>(*it - '0');
-            if (width > ((std::numeric_limits<unsigned>::max)() - digit) / 10u)
-                GINT_THROW(fmt::format_error("number is too big"));
-            width = width * 10u + digit;
-            ++it;
-        }
-
         if (it != end && *it == '{')
         {
             ++it;
@@ -161,6 +152,17 @@ struct formatter<gint::integer<Bits, Signed>>
                 ++it;
             }
         }
+        else
+        {
+            while (it != end && *it >= '0' && *it <= '9')
+            {
+                const unsigned digit = static_cast<unsigned>(*it - '0');
+                if (width > (static_cast<unsigned>((std::numeric_limits<int>::max)()) - digit) / 10u)
+                    GINT_THROW(fmt::format_error("number is too big"));
+                width = width * 10u + digit;
+                ++it;
+            }
+        }
 
         if (it != end && *it == 'L')
         {
@@ -187,9 +189,14 @@ struct formatter<gint::integer<Bits, Signed>>
         unsigned operator()(int value) const { return from_signed(value); }
         unsigned operator()(long value) const { return from_signed(value); }
         unsigned operator()(long long value) const { return from_signed(value); }
-        unsigned operator()(unsigned value) const { return value; }
-        unsigned operator()(unsigned long value) const { return from_unsigned(value); }
-        unsigned operator()(unsigned long long value) const { return from_unsigned(value); }
+        unsigned operator()(unsigned value) const { return checked_width(value); }
+        unsigned operator()(unsigned long value) const { return checked_width(value); }
+        unsigned operator()(unsigned long long value) const { return checked_width(value); }
+
+#    if FMT_USE_INT128
+        unsigned operator()(__int128 value) const { return from_signed(value); }
+        unsigned operator()(unsigned __int128 value) const { return checked_width(value); }
+#    endif
 
         template <typename T>
         unsigned operator()(const T &) const
@@ -203,13 +210,13 @@ struct formatter<gint::integer<Bits, Signed>>
         {
             if (value < 0)
                 GINT_THROW(fmt::format_error("negative width"));
-            return from_unsigned(static_cast<typename std::make_unsigned<T>::type>(value));
+            return checked_width(value);
         }
 
         template <typename T>
-        static unsigned from_unsigned(T value)
+        static unsigned checked_width(T value)
         {
-            if (value > static_cast<T>((std::numeric_limits<unsigned>::max)()))
+            if (value > static_cast<T>((std::numeric_limits<int>::max)()))
                 GINT_THROW(fmt::format_error("width is too large"));
             return static_cast<unsigned>(value);
         }
