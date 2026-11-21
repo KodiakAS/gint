@@ -1236,7 +1236,7 @@ static const auto & conversion_data()
 template <unsigned Base, bool Short>
 static void ToString_Nondecimal(benchmark::State & state)
 {
-    const auto & data = conversion_data<Short ? 8 : 0>();
+    const auto & data = conversion_data<(Short ? 8 : 0)>();
     size_t i = 0;
     for (auto _ : state)
     {
@@ -1249,7 +1249,7 @@ static void ToString_Nondecimal(benchmark::State & state)
 template <bool Exact>
 static void ToDouble(benchmark::State & state)
 {
-    const auto & data = conversion_data<Exact ? std::numeric_limits<double>::digits : 0>();
+    const auto & data = conversion_data<(Exact ? std::numeric_limits<double>::digits : 0)>();
     size_t i = 0;
     for (auto _ : state)
     {
