@@ -67,17 +67,8 @@ else()
     message(FATAL_ERROR "unknown consumer kind: ${GINT_CONSUMER_KIND}")
 endif()
 
-if(GINT_CONSUMER_GENERATOR)
-    list(APPEND configure_args -G "${GINT_CONSUMER_GENERATOR}")
-endif()
-if(GINT_CONSUMER_GENERATOR_PLATFORM)
-    list(APPEND configure_args -A "${GINT_CONSUMER_GENERATOR_PLATFORM}")
-endif()
-if(GINT_CONSUMER_GENERATOR_TOOLSET)
-    list(APPEND configure_args -T "${GINT_CONSUMER_GENERATOR_TOOLSET}")
-endif()
-
-list(APPEND configure_args
+include("${CMAKE_CURRENT_LIST_DIR}/consumer_generator.cmake")
+list(APPEND configure_args ${generator_args}
     -C "${GINT_BINARY_DIR}/consumer-toolchain.cmake"
     "-DGINT_COMPILER_CHECK=${GINT_BINARY_DIR}/consumer-compiler-check.cmake"
 )

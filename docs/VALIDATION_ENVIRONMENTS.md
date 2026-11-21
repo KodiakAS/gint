@@ -24,7 +24,7 @@ consumer/package 测试保留选定的 C++ 编译器、工具链和平台/sysroo
 
 自定义工具链输入按 CMake 的 `CMAKE_TRY_COMPILE_PLATFORM_VARIABLES` 声明传递，
 包括空值、布尔值和列表；工具链文件须能在不同源码/构建目录中重复使用。
-package 测试通过 `DESTDIR` 暂存安装树。配置绝对安装目录时，测试校验导出路径，再从暂存目录编译 consumer。
+每个 package 测试在自己的构建目录生成安装规则和清单，并通过 `DESTDIR` 暂存安装树。配置绝对安装目录时，测试校验导出路径，再从暂存目录编译 consumer。
 不复制整个父 cache、项目选项、查找结果、目标属性或任意环境变量。
 这不扩展 `SUPPORT.md` 的平台矩阵，也不承诺重放任意外部构建环境。
 

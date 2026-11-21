@@ -168,8 +168,11 @@ jobs:
       - name: Run package and header contracts
         run: |
           cd runs/ci/build-cmake-3.13
+          DESTDIR="$PWD/manual-install" cmake -DCMAKE_INSTALL_PREFIX=/manual-prefix -P cmake_install.cmake
+          cp install_manifest.txt expected-manifest.txt
           ctest -N -R '^consumer\.(package|header_contract)' | grep -Eq 'Total Tests: [1-9][0-9]*'
           ctest --output-on-failure -R '^consumer\.(package|header_contract)'
+          cmp expected-manifest.txt install_manifest.txt
           test ! -e /gint-validation/headers/gint/gint.h
 
   gcc-4-8-5:
