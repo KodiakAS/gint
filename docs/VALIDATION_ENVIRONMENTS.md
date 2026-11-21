@@ -33,6 +33,7 @@ consumer/package 测试保留选定的 C++ 编译器、工具链和平台/sysroo
 Debug 和 Release 主测试检查实际编译模式。GoogleTest 或 fmt 的传递依赖若将目标
 提升到更高标准，编译会报错。常规 CI 使用 GoogleTest 1.12.1，legacy 镜像使用
 1.10.0。本地可用 `-DGTest_DIR=<prefix>/lib/cmake/GTest` 选择已安装的兼容版本。
+启用 `GINT_BUILD_TESTS_CXX17` 后，可用 `ctest -R '^cxx17\.'` 单独运行 C++17 用例。
 
 ## 初始化当前环境
 

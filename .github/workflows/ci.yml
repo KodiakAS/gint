@@ -127,7 +127,7 @@ jobs:
       - name: Build C++17 tests
         run: cmake --build runs/ci/build-cxx17 --target gint_tests_cxx17 --config Debug --parallel
       - name: Run C++17 tests
-        run: ./runs/ci/build-cxx17/gint_tests_cxx17 --gtest_color=yes
+        run: ctest --test-dir runs/ci/build-cxx17 -R '^cxx17\.' --no-tests=error --output-on-failure
 
   cmake-3-13:
     name: package contract (CMake 3.13)
