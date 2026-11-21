@@ -6377,7 +6377,7 @@ struct formatter<gint::integer<Bits, Signed>>
     template <typename FormatArg>
     static unsigned visit_dynamic_width_arg(const FormatArg & arg)
     {
-#    if FMT_VERSION >= 120000
+#    if FMT_VERSION >= 110000
         return arg.visit(dynamic_width_visitor{});
 #    else
         return fmt::visit_format_arg(dynamic_width_visitor{}, arg);
