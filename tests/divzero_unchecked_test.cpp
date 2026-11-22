@@ -50,6 +50,15 @@ TEST(WideIntegerDivModUnchecked, SignedIntegerZeroDivisor)
     EXPECT_EQ(min128 / z128, S128(0));
     EXPECT_EQ(min128 % z128, min128);
 
+    const S128 negative = -((S128(1) << 100) + 7);
+    EXPECT_EQ(negative / z128, S128(0));
+    EXPECT_EQ(negative % z128, negative);
+    const auto result = gint::divmod(negative, z128);
+    EXPECT_EQ(result.quotient, S128(0));
+    EXPECT_EQ(result.remainder, negative);
+    EXPECT_EQ(negative / int64_t(0), S128(0));
+    EXPECT_EQ(negative % int64_t(0), negative);
+
     const S512 value = -((S512(1) << 300) + S512(123));
     const S512 z512 = 0;
     EXPECT_EQ(value / z512, S512(0));

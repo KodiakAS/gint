@@ -102,12 +102,45 @@ void expect_shift_matches_reference(const Int & value)
         EXPECT_EQ(value >> shift, reference_right_shift(value, shifts[i])) << "right shift " << shift;
     }
 }
+
+template <typename Int, typename Count>
+void expect_int128_shifts(const Int & value, Count shift, std::size_t effective_shift)
+{
+    SCOPED_TRACE(::testing::Message() << "shift=" << shift << ", value=" << gint::to_string(value));
+    const Int left = reference_left_shift(value, effective_shift);
+    const Int right = reference_right_shift(value, effective_shift);
+    EXPECT_EQ(value << shift, left);
+    EXPECT_EQ(value >> shift, right);
+    Int assigned = value;
+    assigned <<= shift;
+    EXPECT_EQ(assigned, left);
+    assigned = value;
+    assigned >>= shift;
+    EXPECT_EQ(assigned, right);
+}
 } // namespace
 
 #if __cplusplus >= 201402L
-static_assert((gint::UInt128(1) << 1u) == 2, "unsigned shift count in a constant expression");
-static_assert((gint::Int128(-4) >> 1u) == -2, "signed right shift in a constant expression");
-static_assert((gint::UInt128(1) << 127u) == (gint::UInt128(1) << 127), "retain the top bit");
+constexpr bool constexpr_int128_shift_boundaries()
+{
+    using gint::Int128;
+    using gint::UInt128;
+    using u128 = unsigned __int128;
+    const __int128 signed_value = -((static_cast<__int128>(1) << 100) + 7);
+    const u128 bits = static_cast<u128>(signed_value);
+    const unsigned shifts[] = {0, 1, 63, 64, 65, 127, 128, 192};
+    for (unsigned shift : shifts)
+    {
+        const u128 left = shift < 128 ? bits << shift : 0;
+        const u128 unsigned_right = shift < 128 ? bits >> shift : 0;
+        const __int128 signed_right = shift < 128 ? signed_value >> shift : -1;
+        if ((UInt128(bits) << shift) != UInt128(left) || (Int128(signed_value) << shift) != Int128(left)
+            || (UInt128(bits) >> shift) != UInt128(unsigned_right) || (Int128(signed_value) >> shift) != Int128(signed_right))
+            return false;
+    }
+    return true;
+}
+static_assert(constexpr_int128_shift_boundaries(), "128-bit shifts with unsigned counts must remain constexpr");
 
 constexpr gint::integer<512, unsigned> constexpr_shift_512 = gint::integer<512, unsigned>(1) << 511;
 constexpr gint::integer<1024, unsigned> constexpr_shift_1024 = gint::integer<1024, unsigned>(1) << 1000;
@@ -214,7 +247,7 @@ TEST(WideIntegerShift, ExactBoundaryBitCounts)
     EXPECT_EQ(minus_one >> 128, S128(-1));
 }
 
-TEST(WideIntegerShift, UInt128UnsignedShiftAmountMatchesReference)
+TEST(WideIntegerShift, Int128IntAndUnsignedShiftAmountsMatchReference)
 {
     using U128 = gint::integer<128, unsigned>;
     using S128 = gint::integer<128, signed>;
@@ -223,12 +256,17 @@ TEST(WideIntegerShift, UInt128UnsignedShiftAmountMatchesReference)
     S128 signed_value = patterned_value<S128>(0x13579bdf2468ace0ULL);
     TestAccess<S128>::limb(signed_value, S128::limbs - 1) |= uint64_t(1) << 63;
 
-    const unsigned shifts[] = {0, 1, 63, 64, 65, 73, 127, 128, 192};
-    for (std::size_t i = 0; i < sizeof(shifts) / sizeof(shifts[0]); ++i)
+    const int shifts[] = {-1, 0, 1, 63, 64, 65, 73, 127, 128, 192};
+    for (const int shift : shifts)
     {
-        const unsigned shift = shifts[i];
-        EXPECT_EQ(unsigned_value << shift, reference_left_shift(unsigned_value, shift)) << "unsigned left shift " << shift;
-        EXPECT_EQ(signed_value << shift, reference_left_shift(signed_value, shift)) << "signed left shift " << shift;
+        const auto effective_shift = static_cast<unsigned>(shift < 0 ? 0 : shift);
+        expect_int128_shifts(unsigned_value, shift, effective_shift);
+        expect_int128_shifts(signed_value, shift, effective_shift);
+        if (shift >= 0)
+        {
+            expect_int128_shifts(unsigned_value, effective_shift, effective_shift);
+            expect_int128_shifts(signed_value, effective_shift, effective_shift);
+        }
     }
 }
 

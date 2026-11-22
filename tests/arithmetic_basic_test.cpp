@@ -20,7 +20,21 @@ constexpr bool constexpr_add_sub_works()
 }
 
 static_assert(constexpr_add_sub_works(), "Add/Sub APIs should remain constexpr in C++14+");
+static_assert(gint::UInt128(-1) + gint::UInt128(1) == gint::UInt128(0), "UInt128 wide carry must wrap in constant expressions");
+static_assert(gint::UInt128(0) - gint::UInt128(1) == gint::UInt128(-1), "UInt128 wide borrow must wrap in constant expressions");
+static_assert(gint::Int128(-1) + gint::Int128(1) == gint::Int128(0), "Int128 wide carry must wrap in constant expressions");
+static_assert(gint::Int128(0) - gint::Int128(1) == gint::Int128(-1), "Int128 wide borrow must wrap in constant expressions");
 #endif
+
+TEST(WideIntegerArithmetic, Int128WideCarryBorrowWrap)
+{
+    using gint::Int128;
+    using gint::UInt128;
+    EXPECT_EQ(UInt128(-1) + UInt128(1), UInt128(0));
+    EXPECT_EQ(UInt128(0) - UInt128(1), UInt128(-1));
+    EXPECT_EQ(Int128(-1) + Int128(1), Int128(0));
+    EXPECT_EQ(Int128(0) - Int128(1), Int128(-1));
+}
 
 enum class ArithOp
 {
@@ -274,14 +288,14 @@ TEST(WideIntegerArithmetic, U64ScalarCarryBorrowAllWidths)
 }
 
 #if __cplusplus >= 201402L
+template <typename U, typename I>
 constexpr bool constexpr_u64_scalar_add_sub_works()
 {
-    using U = gint::UInt256;
-    using I = gint::Int256;
     const uint64_t one = 1;
     const U all = ~U(0);
     return all + one == U(0) && one + all == U(0) && U(0) - one == all && I(-1) + one == I(0) && one + I(-1) == I(0) && I(0) - one == I(-1)
-        && (U(1) << 192) - one == (all >> 64);
+        && (U(1) << (U::bits - 64)) - one == (all >> 64);
 }
-static_assert(constexpr_u64_scalar_add_sub_works(), "U64 scalar carry/borrow must remain constexpr");
+static_assert(constexpr_u64_scalar_add_sub_works<gint::UInt128, gint::Int128>(), "128-bit U64 scalar carry/borrow must remain constexpr");
+static_assert(constexpr_u64_scalar_add_sub_works<gint::UInt256, gint::Int256>(), "256-bit U64 scalar carry/borrow must remain constexpr");
 #endif

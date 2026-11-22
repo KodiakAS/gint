@@ -49,6 +49,18 @@ TEST(WideIntegerMultiplication, UInt128_WideTimesWide_Specialized)
     EXPECT_EQ(p, U128(expected));
 }
 
+TEST(WideIntegerMultiplication, Int128WideTimesU64TruncatesCarry)
+{
+    using gint::Int128;
+    using gint::UInt128;
+    using u128 = unsigned __int128;
+    const u128 bits = (u128(0x8123456789abcdefULL) << 64) | UINT64_MAX;
+    const uint64_t scalar = UINT64_MAX - 1;
+    const u128 expected = bits * scalar;
+    EXPECT_EQ(UInt128(bits) * scalar, UInt128(expected));
+    EXPECT_EQ(Int128(bits) * scalar, Int128(expected));
+}
+
 // 256-bit wide×wide multiplication (mul_limbs<4> Comba path)
 TEST(WideIntegerMultiplication, UInt256_WideTimesWide_Comba)
 {
