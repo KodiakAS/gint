@@ -141,14 +141,6 @@
 #    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 1
 #endif
 
-#ifndef GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR
-#    if GINT_GCC_TUNED_PATHS
-#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_NOINLINE
-#    else
-#        define GINT_AARCH64_INT128_NEGATIVE_ZERO_DIV_ATTR GINT_FORCE_INLINE
-#    endif
-#endif
-
 // Internal fast-path index and validation contract:
 // - Add/Sub: x86 carry/borrow intrinsics, AArch64 limb asm, and AArch64
 //   addcll/subcll builtins. Recheck Add/CarryChain64 and Sub/BorrowChain64.

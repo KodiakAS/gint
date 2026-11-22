@@ -9,6 +9,20 @@ namespace
 {
 using u128 = unsigned __int128;
 
+template <typename Int, typename Native, typename Divisor>
+void expect_native_128_divmod(Native dividend, const Divisor & divisor)
+{
+    const Int lhs = dividend;
+    const Int rhs(divisor);
+    const Native d = static_cast<Native>(divisor);
+    SCOPED_TRACE(::testing::Message() << "lhs=" << gint::to_string(lhs) << ", rhs=" << gint::to_string(rhs));
+    const Int q = lhs / divisor;
+    const Int r = lhs % divisor;
+    EXPECT_EQ(q, Int(dividend / d));
+    EXPECT_EQ(r, Int(dividend % d));
+    EXPECT_EQ(q * rhs + r, lhs);
+}
+
 u128 mulhi_u128_reference(u128 a, u128 b)
 {
     const u128 a0 = static_cast<uint64_t>(a);
@@ -293,15 +307,21 @@ TEST(WideIntegerDivision, SignedMinDividedByItself)
     EXPECT_EQ(min % min, S128(0));
 }
 
-TEST(WideIntegerDivision, SignedNegative128OverLargerNegativeIsZero)
+TEST(WideIntegerDivision, SignedNegative128EarlyReturns)
 {
-    using S128 = gint::integer<128, signed>;
-    const S128 min = std::numeric_limits<S128>::min();
-    const S128 lhs = min + S128(12345);
-    const S128 rhs = min + S128(7);
+    using gint::Int128;
+    const Int128 min = std::numeric_limits<Int128>::min();
+    const __int128 divisors[] = {-((__int128(1) << 80) + 7), static_cast<__int128>(min) + 7};
+    for (const __int128 rhs : divisors)
+    {
+        expect_native_128_divmod<Int128>(rhs + 12338, Int128(rhs));
+        expect_native_128_divmod<Int128>(rhs, Int128(rhs));
+    }
 
-    EXPECT_EQ(lhs / rhs, S128(0));
-    EXPECT_EQ(lhs % rhs, lhs);
+    EXPECT_EQ(min / Int128(-1), min);
+    EXPECT_EQ(min % Int128(-1), Int128(0));
+    EXPECT_EQ(min / int64_t(-1), min);
+    EXPECT_EQ(min % int64_t(-1), Int128(0));
 }
 
 TEST(WideIntegerDivision, SignedSmallDivisorInt64Min)
@@ -338,6 +358,103 @@ TEST(WideIntegerDivision, UInt128Operands)
     U128 q = lhs / rhs;
     unsigned __int128 expected = a / b;
     EXPECT_EQ(q, U128(expected));
+}
+
+TEST(WideIntegerDivision, Int128NormalizedTwoLimbQuotientCorrection)
+{
+    using gint::Int128;
+    using gint::UInt128;
+    for (unsigned high_bit = 0; high_bit < 62; ++high_bit)
+    {
+        SCOPED_TRACE(::testing::Message() << "normalization shift=" << 63 - high_bit);
+        const u128 power = u128(1) << (64 + high_bit);
+        const u128 d = power + 1;
+        // The normalized high word discards the +1, so both dividends give estimate 2.
+        const u128 dividends[] = {2 * power + 3, 2 * power};
+        for (unsigned correction = 0; correction < 2; ++correction)
+        {
+            SCOPED_TRACE(::testing::Message() << "correction=" << correction);
+            const u128 n = dividends[correction];
+            EXPECT_EQ(static_cast<uint64_t>(n / d), 2u - correction);
+            expect_native_128_divmod<UInt128>(n, UInt128(d));
+            expect_native_128_divmod<Int128>(-static_cast<__int128>(n), Int128(-static_cast<__int128>(d)));
+        }
+    }
+}
+
+TEST(WideIntegerDivision, TwoLimbDivisorBoundaries128)
+{
+    using gint::Int128;
+    using gint::UInt128;
+    const u128 low = (u128(1) << 64) + 1;
+    const u128 quarter = u128(1) << 126;
+    const u128 half = u128(1) << 127;
+    const u128 max = ~u128(0);
+    // Truncating the normalized low word gives the largest possible one-limb estimate.
+    EXPECT_EQ(UInt128(max) / UInt128(low), UInt128(UINT64_MAX));
+    expect_native_128_divmod<UInt128>(max, UInt128(low));
+    expect_native_128_divmod<UInt128>(max, UInt128(quarter - 1));
+    expect_native_128_divmod<UInt128>(low - 1, UInt128(low));
+    expect_native_128_divmod<UInt128>(low, UInt128(low));
+
+    const u128 large = quarter + 1;
+    for (unsigned q = 0; q < 4; ++q)
+        expect_native_128_divmod<UInt128>(q * large + 7, UInt128(large));
+
+    const __int128 signed_large = static_cast<__int128>(large);
+    expect_native_128_divmod<Int128>(signed_large + 7, Int128(signed_large));
+    expect_native_128_divmod<Int128>(-signed_large - 7, Int128(signed_large));
+
+    const u128 upper_divisors[] = {half + 1, max};
+    for (const u128 d : upper_divisors)
+    {
+        expect_native_128_divmod<UInt128>(d - 1, UInt128(d));
+        expect_native_128_divmod<UInt128>(max, UInt128(d));
+    }
+}
+
+TEST(WideIntegerDivision, Int128PowerOfTwoDivMod)
+{
+    using gint::Int128;
+    using gint::UInt128;
+    const __int128 min = -static_cast<__int128>((u128(1) << 127) - 1) - 1;
+    const __int128 value = (static_cast<__int128>(1) << 126) + (static_cast<__int128>(1) << 64) + 7;
+    const unsigned bits[] = {0, 1, 63, 64, 126};
+    for (const unsigned bit : bits)
+    {
+        const __int128 d = static_cast<__int128>(1) << bit;
+        expect_native_128_divmod<UInt128>(~u128(0), UInt128(d));
+        expect_native_128_divmod<Int128>(value, Int128(d));
+        expect_native_128_divmod<Int128>(value, Int128(-d));
+        expect_native_128_divmod<Int128>(-value, Int128(d));
+        expect_native_128_divmod<Int128>(-value, Int128(-d));
+    }
+    expect_native_128_divmod<UInt128>(~u128(0), UInt128(u128(1) << 127));
+    expect_native_128_divmod<Int128>(-value, Int128(min));
+    expect_native_128_divmod<Int128>(value, Int128(min));
+    expect_native_128_divmod<Int128>(min, Int128(static_cast<__int128>(1) << 126));
+}
+
+TEST(WideIntegerDivision, Int128SingleLimbDivMod)
+{
+    using gint::Int128;
+    using gint::UInt128;
+    const __int128 value = (static_cast<__int128>(1) << 100) + 0x123456789ULL;
+    const uint64_t divisors[] = {(uint64_t(1) << 31) + 3, (uint64_t(1) << 63) + 7};
+    for (const uint64_t d : divisors)
+    {
+        expect_native_128_divmod<UInt128>(~u128(0), UInt128(d));
+        expect_native_128_divmod<UInt128>(~u128(0), d);
+        expect_native_128_divmod<Int128>(value, Int128(d));
+        expect_native_128_divmod<Int128>(-value, Int128(d));
+        expect_native_128_divmod<Int128>(value, d);
+        expect_native_128_divmod<Int128>(-value, d);
+    }
+    const int64_t d = (int64_t(1) << 62) + 7;
+    expect_native_128_divmod<Int128>(value, d);
+    expect_native_128_divmod<Int128>(value, -d);
+    expect_native_128_divmod<Int128>(-value, d);
+    expect_native_128_divmod<Int128>(-value, -d);
 }
 
 TEST(WideIntegerDivision, SmallOperandsIn256Type)
