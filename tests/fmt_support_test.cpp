@@ -120,14 +120,64 @@ TEST(fmt_support, format_integer_width_and_alternate_specs)
 
 TEST(fmt_support, repeated_zero_flag_matches_native)
 {
-    for (const char * spec : {"{:00d}", "{:005d}", "{:>005d}"})
+    const char * widths[] = {
+        "00",
+        "005",
+        "0000000000",
+        "00000000000",
+        "000000000000",
+        "0000000004",
+        "00000000004",
+        "000000000004",
+        "0000000000004",
+    };
+    for (const char * width : widths)
+        for (const char * align : {"", ">"})
+        {
+            const std::string spec = std::string("{:") + align + width + "d}";
+            SCOPED_TRACE(spec);
+            std::string expected;
+            try
+            {
+                expected = fmt::format(fmt::runtime(spec), 42);
+            }
+            catch (const fmt::format_error &)
+            {
+                EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime(spec), gint::Int128(42))), fmt::format_error);
+                continue;
+            }
+            EXPECT_EQ(fmt::format(fmt::runtime(spec), gint::Int128(42)), expected);
+        }
+}
+
+TEST(fmt_support, static_width_limits_match_native)
+{
+    const int max_width = (std::numeric_limits<int>::max)();
+    const std::string specs[] = {
+        std::to_string(max_width) + "d}",
+        std::to_string(static_cast<unsigned>(max_width) + 1) + "d}",
+        "0" + std::to_string(max_width) + "d}",
+        "0" + std::to_string(static_cast<unsigned>(max_width) + 1) + "d}",
+        "00" + std::to_string(max_width) + "d}",
+    };
+    // Parse directly so an accepted INT_MAX width does not produce gigabytes of output.
+    for (const auto & spec : specs)
     {
-#if FMT_VERSION >= 100000
-        EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime(spec), 42)), fmt::format_error);
-        EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime(spec), gint::Int128(42))), fmt::format_error);
-#else
-        EXPECT_EQ(fmt::format(fmt::runtime(spec), gint::Int128(42)), fmt::format(fmt::runtime(spec), 42));
-#endif
+        SCOPED_TRACE(spec);
+        fmt::format_parse_context native_context(spec);
+        fmt::format_parse_context context(spec);
+        fmt::formatter<gint::Int128> formatter;
+        try
+        {
+            EXPECT_EQ(fmt::formatter<int>().parse(native_context), native_context.end() - 1);
+        }
+        catch (const fmt::format_error &)
+        {
+            EXPECT_THROW(formatter.parse(context), fmt::format_error);
+            continue;
+        }
+        EXPECT_EQ(formatter.parse(context), context.end() - 1);
+        EXPECT_EQ(formatter.width, static_cast<unsigned>(max_width));
     }
 }
 
@@ -305,7 +355,18 @@ TEST(fmt_support, locale_grouping_preserves_char_signedness)
 
 TEST(fmt_support, utf8_fill_matches_native)
 {
-    const char * fills[] = {"*", "é", "界", "😀"};
+    const char * fills[] = {
+        "*",
+        "é",
+        "界",
+        "😀",
+        "\xc2\x80",
+        "\xdf\xbf",
+        "\xe0\xa0\x80",
+        "\xed\x9f\xbf",
+        "\xf0\x90\x80\x80",
+        "\xf4\x8f\xbf\xbf",
+    };
     const char aligns[] = {'<', '>', '^'};
     for (const char * fill : fills)
         for (char align : aligns)
@@ -321,6 +382,35 @@ TEST(fmt_support, utf8_fill_matches_native)
                 }
     EXPECT_EQ(fmt::format(FMT_STRING("{:界>6}"), gint::Int128(42)), "界界界界42");
     EXPECT_EQ(fmt::format(FMT_STRING("{:😀^{}}"), gint::Int128(42), 7), fmt::format(FMT_STRING("{:😀^{}}"), 42, 7));
+}
+
+TEST(fmt_support, rejects_invalid_utf8_fill)
+{
+    const char * fills[] = {
+        "\xc2\x41",
+        "\xc0\xaf",
+        "\xc1\xbf",
+        "\xe0\x80\xaf",
+        "\xed\xa0\x80",
+        "\xf0\x8f\xbf\xbf",
+        "\xf4\x90\x80\x80",
+        "\xf5\x80\x80\x80",
+        "\x80",
+        "\xbf",
+        "\xfe",
+        "\xff",
+        "\xc2",
+        "\xe0\xa0",
+        "\xf0\x90\x80",
+        "\xe1\x80\x41",
+        "\xf1\x80\x80\x41",
+    };
+    for (const char * fill : fills)
+    {
+        const std::string spec = std::string("{:") + fill + ">3d}";
+        SCOPED_TRACE(::testing::PrintToString(spec));
+        EXPECT_THROW(static_cast<void>(fmt::format(fmt::runtime(spec), gint::Int128(42))), fmt::format_error);
+    }
 }
 
 TEST(fmt_support, utf8_fill_zero_flag_and_named_width)

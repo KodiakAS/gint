@@ -6026,6 +6026,32 @@ struct formatter<gint::integer<Bits, Signed>>
 
     static FMT_CONSTEXPR bool is_name_char(char ch) { return is_name_start(ch) || (ch >= '0' && ch <= '9'); }
 
+    static FMT_CONSTEXPR unsigned utf8_fill_size(const char * it, const char * end)
+    {
+        const unsigned char lead = static_cast<unsigned char>(*it);
+        if (lead < 0x80)
+            return 1;
+        if (lead < 0xc2 || lead > 0xf4)
+            return 0;
+
+        const unsigned size = lead < 0xe0 ? 2 : lead < 0xf0 ? 3 : 4;
+        if (end - it < size)
+            return 0;
+        for (unsigned i = 1; i < size; ++i)
+        {
+            const unsigned char unit = static_cast<unsigned char>(it[i]);
+            if (unit < 0x80 || unit > 0xbf)
+                return 0;
+        }
+
+        // These second-byte bounds exclude overlong encodings, surrogates, and values above U+10FFFF.
+        const unsigned char second = static_cast<unsigned char>(it[1]);
+        if ((lead == 0xe0 && second < 0xa0) || (lead == 0xed && second > 0x9f) || (lead == 0xf0 && second < 0x90)
+            || (lead == 0xf4 && second > 0x8f))
+            return 0;
+        return size;
+    }
+
     template <typename OutputIt>
     OutputIt write_fill(OutputIt out, size_t count) const
     {
@@ -6049,15 +6075,10 @@ struct formatter<gint::integer<Bits, Signed>>
         if (it == end || *it == '}')
             return it;
 
-        // Alignment follows one UTF-8 code point, which can occupy 1-4 bytes.
-        const unsigned char lead = static_cast<unsigned char>(*it);
-        const unsigned code_units = (lead >= 0xc0 && lead < 0xe0) ? 2u
-            : (lead >= 0xe0 && lead < 0xf0)                       ? 3u
-            : (lead >= 0xf0 && lead < 0xf8)                       ? 4u
-                                                                  : 1u;
-        auto next = it;
-        for (unsigned i = 0; i < code_units && next != end; ++i)
-            ++next;
+        const unsigned code_units = utf8_fill_size(it, end);
+        if (code_units == 0)
+            GINT_THROW(fmt::format_error("invalid fill character"));
+        const auto next = it + code_units;
         if (next != end && (*next == '<' || *next == '>' || *next == '^'))
         {
             if (*it == '{' || *it == '}')
@@ -6164,6 +6185,9 @@ struct formatter<gint::integer<Bits, Signed>>
         }
         else
         {
+#    if FMT_VERSION < 100000
+            const auto width_begin = it;
+#    endif
             while (it != end && *it >= '0' && *it <= '9')
             {
                 const unsigned digit = static_cast<unsigned>(*it - '0');
@@ -6172,6 +6196,11 @@ struct formatter<gint::integer<Bits, Signed>>
                 width = width * 10u + digit;
                 ++it;
             }
+#    if FMT_VERSION < 100000
+            // fmt 9 limits the width field's digits after consuming the zero flag.
+            if (it - width_begin > std::numeric_limits<int>::digits10 + 1)
+                GINT_THROW(fmt::format_error("number is too big"));
+#    endif
         }
 
         if (it != end && *it == 'L')
