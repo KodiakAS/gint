@@ -23,6 +23,14 @@ GOT_INDIRECT_SYMBOL = re.compile(
     re.IGNORECASE,
 )
 CONDITIONAL_BRANCH_MNEMONICS = frozenset(("cbz", "cbnz", "tbz", "tbnz"))
+AARCH64_DOTLESS_BRANCHES = frozenset(
+    ("beq", "bne", "bhs", "blo", "bcs", "bcc", "bmi", "bpl", "bvs",
+     "bvc", "bhi", "bls", "bge", "blt", "bgt", "ble", "bal", "bnv")
+)
+X86_INSTRUCTION_PREFIXES = frozenset(
+    ("notrack", "bnd", "rex64", "rex.w", "cs", "ds", "es", "fs", "gs", "ss",
+     "data16", "addr16", "addr32", "lock", "rep", "repe", "repne", "repz", "repnz")
+)
 TERMINAL_MNEMONICS = frozenset(
     ("br", "braa", "braaz", "brab", "brabz", "brk", "eret", "hlt", "ret", "retq", "retn", "trap", "ud2")
 )
@@ -48,12 +56,20 @@ def is_local_label(label, is_macho=False, target=None):
     return LOCAL_LABEL.match(label) is not None
 
 
-def transfer_operand(mnemonic, instruction):
+def split_instruction(instruction):
+    """Return the mnemonic and operands after any x86 instruction prefixes."""
+    parts = instruction.split(None, 1)
+    while parts:
+        mnemonic = parts[0].lower()
+        operands = parts[1] if len(parts) > 1 else ""
+        if mnemonic not in X86_INSTRUCTION_PREFIXES:
+            return mnemonic, operands
+        parts = operands.split(None, 1)
+    return "", ""
+
+
+def transfer_operand(mnemonic, operand_text):
     """Return the target operand of a transfer."""
-    operands = instruction.split(None, 1)
-    if len(operands) == 1:
-        return ""
-    operand_text = operands[1]
     if mnemonic in CONDITIONAL_BRANCH_MNEMONICS:
         operand_text = operand_text.rsplit(",", 1)[-1].strip()
     return operand_text.split(None, 1)[0].rstrip(",") if operand_text else ""
@@ -61,7 +77,8 @@ def transfer_operand(mnemonic, instruction):
 
 def extract_transfer_target(instruction):
     """Return the callee symbol for a direct or GOT-indirect transfer."""
-    operand = transfer_operand(instruction.split(None, 1)[0].lower(), instruction)
+    mnemonic, operands = split_instruction(instruction)
+    operand = transfer_operand(mnemonic, operands)
     if operand.startswith("*"):
         got_match = GOT_INDIRECT_SYMBOL.match(operand)
         return got_match.group(1) if got_match else ""
@@ -74,6 +91,7 @@ def is_direct_branch_mnemonic(mnemonic):
         mnemonic.startswith(("j", "loop", "b."))
         or mnemonic == "b"
         or mnemonic in CONDITIONAL_BRANCH_MNEMONICS
+        or mnemonic in AARCH64_DOTLESS_BRANCHES
     )
 
 
@@ -81,7 +99,7 @@ def is_unconditional_transfer(mnemonic):
     """Return whether execution cannot fall through to the next instruction."""
     return (
         mnemonic in TERMINAL_MNEMONICS
-        or mnemonic in ("b", "b.al", "b.n", "b.w")
+        or mnemonic in ("b", "bal", "b.al", "b.n", "b.w")
         or mnemonic.startswith("jmp")
     )
 
@@ -208,6 +226,7 @@ def parse_assembly(text, target=None):
     is_macho = is_macho_target(target)
     functions = {}
     active = None
+    in_cold_fragment = False
 
     for line_number, raw_line in enumerate(text.splitlines(), 1):
         line = raw_line.strip()
@@ -223,9 +242,11 @@ def parse_assembly(text, target=None):
                 entry = len(function["instructions"])
                 function["labels"][symbol] = [entry]
                 function["fragment_entries"].add(entry)
+                in_cold_fragment = True
                 continue
             match = FUNCTION_LABEL.match(line)
             active = match.group(1) if match else symbol
+            in_cold_fragment = False
             functions.setdefault(
                 active,
                 {
@@ -253,7 +274,7 @@ def parse_assembly(text, target=None):
         if not line or line[0] in ".#;" or line.startswith("//"):
             continue
 
-        mnemonic = line.split(None, 1)[0].lower()
+        mnemonic, operands = split_instruction(line)
         function = functions[active]
         function["mnemonics"].append(mnemonic)
         source_index = len(function["instructions"])
@@ -264,15 +285,18 @@ def parse_assembly(text, target=None):
                 "mnemonic": mnemonic,
             }
         )
+        call_site = {"line": line_number, "instruction": line}
+        if in_cold_fragment:
+            call_site["cold"] = True
         if mnemonic in CALL_MNEMONICS:
-            function["calls"].append({"line": line_number, "instruction": line})
+            function["calls"].append(call_site)
         elif mnemonic in INDIRECT_TAIL_BRANCH_MNEMONICS:
-            function["indirect_transfers"].append({"line": line_number, "instruction": line})
+            function["indirect_transfers"].append(call_site)
         elif is_direct_branch_mnemonic(mnemonic):
-            operand = transfer_operand(mnemonic, line)
+            operand = transfer_operand(mnemonic, operands)
             if operand.startswith("*"):
                 transfers = "calls" if GOT_INDIRECT_SYMBOL.match(operand) else "indirect_transfers"
-                function[transfers].append({"line": line_number, "instruction": line})
+                function[transfers].append(call_site)
                 continue
             function["branches"].append(
                 {
@@ -362,6 +386,22 @@ def inspect_call_tree(name, functions, external_budget, violations, is_macho=Fal
     return bodies, external_calls
 
 
+def count_disallowed_calls(calls, cold_call_budget):
+    """Count calls that lack a matching allowance in the cold partition."""
+    remaining = dict(cold_call_budget)
+    disallowed = 0
+    for call in calls:
+        if call.get("cold") and remaining:
+            instruction = call["instruction"]
+            mnemonic, _ = split_instruction(instruction)
+            target = extract_transfer_target(instruction)
+            if mnemonic in CALL_MNEMONICS and remaining.get(target, 0) > 0:
+                remaining[target] -= 1
+                continue
+        disallowed += 1
+    return disallowed
+
+
 def evaluate_contract(functions, contract, architecture, target=None):
     """Build a machine-readable report and return all violations."""
     is_macho = is_macho_target(target)
@@ -401,12 +441,15 @@ def evaluate_contract(functions, contract, architecture, target=None):
                     name, count, maximum
                 )
             )
-        if requirements.get("forbid_calls", False) and calls:
-            violations.append(
-                "{0}: contains {1} out-of-line call/transfer(s)".format(
-                    name, len(calls)
+        if requirements.get("forbid_calls", False):
+            cold_call_budget = requirements.get("allowed_cold_calls", {}).get(architecture, {})
+            disallowed = count_disallowed_calls(calls, cold_call_budget)
+            if disallowed:
+                violations.append(
+                    "{0}: contains {1} out-of-line call/transfer(s)".format(
+                        name, disallowed
+                    )
                 )
-            )
         if "max_calls" in requirements and len(calls) > requirements["max_calls"]:
             violations.append(
                 "{0}: {1} out-of-line calls exceeds budget {2}".format(

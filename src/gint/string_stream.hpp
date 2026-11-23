@@ -2,6 +2,10 @@
 
 #include "integer.hpp"
 
+#if GINT_DETAIL_EXCEPTIONS_ENABLED && defined(__GLIBCXX__)
+#    include <cxxabi.h>
+#endif
+
 // Decimal/base conversion, string parsing, and stream output for integers.
 
 namespace gint
@@ -173,12 +177,61 @@ inline bool write_stream_padding(std::streambuf & buffer, std::streamsize count,
     return true;
 }
 
+#if GINT_DETAIL_EXCEPTIONS_ENABLED
+inline void set_stream_badbit(std::ostream & out) noexcept
+{
+    if (out.bad())
+        return;
+    // Preserve the original exception, including with the old ABI failure
+    // type thrown by libstdc++ on GCC 5/6 with the new ABI (PR66145).
+    try
+    {
+        out.setstate(std::ios_base::badbit);
+    }
+    catch (...)
+    {
+    }
+}
+
+#    if defined(__GLIBCXX__)
+// A pthread cancellation is a foreign exception. GCC's null reference check
+// misdiagnoses its ABI catch binding even though the reference is never used.
+#        if !defined(__clang__) && __GNUC__ >= 8
+__attribute__((no_sanitize("null")))
+#        elif !defined(__clang__) && __GNUC__ >= 5
+__attribute__((no_sanitize_undefined))
+#        endif
+inline void
+rethrow_stream_cancellation()
+{
+    try
+    {
+        throw;
+    }
+    catch (__cxxabiv1::__forced_unwind &)
+    {
+        throw;
+    }
+    catch (...)
+    {
+    }
+}
+#    endif
+#endif
+
 inline std::ostream & write_formatted_string(std::ostream & out, const std::string & text)
 {
     const std::streamsize width = out.width(0);
     const std::streamsize size = static_cast<std::streamsize>(text.size());
 
 #if GINT_DETAIL_EXCEPTIONS_ENABLED
+    if (!out.good())
+    {
+        // Preserve the standard library's sentry behavior on entry to a failed stream.
+        const std::ostream::sentry sentry(out);
+        return out;
+    }
+
     try
     {
 #endif
@@ -196,17 +249,12 @@ inline std::ostream & write_formatted_string(std::ostream & out, const std::stri
     }
     catch (...)
     {
-        // Preserve the original exception if setstate throws, including the
-        // old ABI failure type thrown by libstdc++ on GCC 5/6 with the new ABI (PR66145).
-        try
-        {
-            out.setstate(std::ios_base::badbit);
-        }
-        catch (...)
-        {
-        }
+        set_stream_badbit(out);
         if (out.exceptions() & std::ios_base::badbit)
             throw;
+#    if defined(__GLIBCXX__)
+        rethrow_stream_cancellation();
+#    endif
     }
 #endif
     return out;

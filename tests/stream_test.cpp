@@ -4,6 +4,10 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+#if defined(__linux__) && defined(__GLIBCXX__)
+#    include <pthread.h>
+#endif
+
 TEST(WideIntegerStream, Output)
 {
     gint::integer<128, unsigned> v = 42;
@@ -220,6 +224,71 @@ TEST(WideIntegerStream, TiedFlushExceptionHonorsOutputMaskWithAndWithoutPadding)
         }
     }
 }
+
+#if defined(__GLIBCXX__)
+TEST(WideIntegerStream, FailedSentryHonorsFailbitMaskWithAndWithoutPadding)
+{
+    for (int width : {0, 8})
+    {
+        SCOPED_TRACE(::testing::Message() << "width=" << width);
+        std::ostream out(nullptr);
+        out.exceptions(std::ios_base::failbit);
+        out.width(width);
+#    if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 5 || __GNUC__ == 6) && defined(_GLIBCXX_USE_CXX11_ABI) \
+        && _GLIBCXX_USE_CXX11_ABI == 1
+        EXPECT_THROW(out << gint::UInt128(42), std::exception);
+#    else
+        EXPECT_THROW(out << gint::UInt128(42), std::ios_base::failure);
+#    endif
+        EXPECT_TRUE(out.fail());
+        EXPECT_EQ(out.width(), 0);
+    }
+}
+#endif
+
+#if defined(__linux__) && defined(__GLIBCXX__)
+TEST(WideIntegerStream, ThreadCancellationDuringWriteSetsBadbitAndUnwinds)
+{
+    struct canceling_buffer : std::streambuf
+    {
+        std::streamsize xsputn(const char *, std::streamsize count) override
+        {
+            if (pthread_cancel(pthread_self()) == 0)
+                pthread_testcancel();
+            return count;
+        }
+    };
+
+    for (int width : {0, 8})
+    {
+        for (auto mask : {std::ios_base::goodbit, std::ios_base::badbit})
+        {
+            SCOPED_TRACE(::testing::Message() << "width=" << width << ", exceptions=" << mask);
+            canceling_buffer buffer;
+            std::ostream out(&buffer);
+            out.width(width);
+            out.exceptions(mask);
+            pthread_t thread;
+            ASSERT_EQ(
+                pthread_create(
+                    &thread,
+                    nullptr,
+                    [](void * argument) -> void *
+                    {
+                        *static_cast<std::ostream *>(argument) << gint::UInt128(42);
+                        return nullptr;
+                    },
+                    &out),
+                0);
+            void * result = nullptr;
+            ASSERT_EQ(pthread_join(thread, &result), 0);
+            EXPECT_EQ(result, PTHREAD_CANCELED);
+            EXPECT_TRUE(out.bad());
+            EXPECT_EQ(out.width(), 0);
+        }
+    }
+}
+#endif
 
 TEST(WideIntegerStream, OutputAdditionalWidths)
 {
