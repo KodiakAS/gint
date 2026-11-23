@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "language_standard": "c++11",
-  "description": "Portable structural budgets for UInt256 hot-path wrappers compiled with GCC or Clang at -O3.",
+  "description": "Structural budgets for UInt256 hot paths compiled with GCC or Clang at -O3. Scalar division budgets include outlined bodies.",
   "functions": {
     "gint_perf_add256": {
       "max_instructions": {
@@ -108,25 +108,70 @@
     "gint_perf_div_u32": {
       "max_instructions": {
         "aarch64": 200,
-        "x86_64": 220
+        "x86_64": 125
       },
-      "max_calls": 6,
-      "allowed_call_substrings": [
-        "div_mod_small",
-        "__udivmodti4",
-        "__udivti3"
-      ]
+      "max_total_instructions": {
+        "aarch64": 480,
+        "x86_64": 125
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "max_calls": 1
     },
     "gint_perf_mod_u32": {
       "max_instructions": {
         "aarch64": 120,
-        "x86_64": 140
+        "x86_64": 60
       },
-      "max_calls": 6,
-      "allowed_call_substrings": [
-        "div_mod_small",
-        "__umodti3"
-      ]
+      "max_total_instructions": {
+        "aarch64": 470,
+        "x86_64": 60
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "max_calls": 1
+    },
+    "gint_perf_div_u64": {
+      "max_instructions": {
+        "aarch64": 140,
+        "x86_64": 75
+      },
+      "max_total_instructions": {
+        "aarch64": 475,
+        "x86_64": 75
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "max_calls": 1
+    },
+    "gint_perf_mod_u64": {
+      "max_instructions": {
+        "aarch64": 120,
+        "x86_64": 56
+      },
+      "max_total_instructions": {
+        "aarch64": 470,
+        "x86_64": 56
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "max_calls": 1
     }
   }
 }

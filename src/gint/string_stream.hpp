@@ -33,7 +33,11 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     while (!tmp.is_zero())
     {
         Int q;
+#if GINT_ARCH_X86_64
+        typename Int::limb_type rem = tmp.template div_mod_small_constant<base>(q);
+#else
         typename Int::limb_type rem = tmp.div_mod_small(base, q);
+#endif
         chunks[chunk_count++] = rem;
         tmp = q;
     }
