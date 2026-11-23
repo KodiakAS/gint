@@ -197,7 +197,8 @@ __attribute__((no_sanitize("null")))
 #        elif !defined(__clang__) && __GNUC__ >= 5
 __attribute__((no_sanitize_undefined))
 #        endif
-inline void rethrow_stream_cancellation()
+inline void
+rethrow_stream_cancellation()
 {
     try
     {
@@ -362,10 +363,11 @@ GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * be
                 }
                 else
                 {
-                    const unsigned inv_shift = 64u - shift;
+                    const unsigned partial_shift = shift == 64u ? 1u : shift;
+                    const unsigned inv_shift = 64u - partial_shift;
                     for (size_t i = Int::limbs; i-- > 1;)
-                        result.data_[i] = (result.data_[i] << shift) | (result.data_[i - 1] >> inv_shift);
-                    result.data_[0] = (result.data_[0] << shift) | chunk;
+                        result.data_[i] = (result.data_[i] << partial_shift) | (result.data_[i - 1] >> inv_shift);
+                    result.data_[0] = (result.data_[0] << partial_shift) | chunk;
                 }
             }
         }
