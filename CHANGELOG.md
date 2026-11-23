@@ -51,8 +51,8 @@
 
 - x86-64 GCC 与 AArch64 Clang 的 256-bit 整数加减 `limb_type` 标量改用固定长度
   进位/借位传播，保留 constexpr 与固定位宽回绕语义。
-- 不超过 64-bit 的无符号标量乘法（不含 `bool`）复用单 limb 路径，避免窄标量先扩成宽整数
-  再执行宽乘法；保留固定位宽回绕语义。
+- 不超过 64-bit 的内建整数（不含 `bool`）参与乘法时直接走标量路径。`*=` 原位更新，
+  负标量同样按固定位宽回绕，避免符号扩展后执行全宽乘法。
 - 正式支持范围限定为 GCC、LLVM Clang 和 AppleClang，最低语言标准保持 C++11；
   Linux x86_64 的 GCC 最低版本为 4.8.5，Linux AArch64 维护独立 baseline。
 - CMake 与 public header 对不满足 compiler/frontend 契约的配置 fail-closed；
