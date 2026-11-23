@@ -13,6 +13,8 @@
 
 ### 修复
 
+- 修复 Linux x86-64 上 GCC 5.5 和 6.3 将宽整数转换为内建整数时触发的 `-Wshift-count-overflow` 告警。
+- 修复 GCC 5/6 的 libstdc++ 双 ABI 环境下，设置流错误状态时覆盖 `streambuf` 原始写入异常的问题。
 - 修复 Linux x86-64 上 GCC 9 在 C++14 和 C++17 模式下包含 `<gint/gint.h>` 时的编译错误。
 - 修复 fmt 对可用原生整数表示的值忽略自定义 locale facet 的问题。超出范围的值继续使用
   `std::numpunct<char>` 分组，fmt 10.0 和 10.1 的非十进制格式也保留该分组方式。

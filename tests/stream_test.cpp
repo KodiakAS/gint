@@ -1,3 +1,4 @@
+#include <exception>
 #include <iomanip>
 #include <sstream>
 #include <gint/gint.h>
@@ -148,7 +149,13 @@ TEST(WideIntegerStream, PaddingConsumesWidthOnWriteFailure)
 
         out.clear();
         out.exceptions(std::ios_base::badbit);
+#if defined(__GLIBCXX__) && defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 5 || __GNUC__ == 6) \
+    && defined(_GLIBCXX_USE_CXX11_ABI) && _GLIBCXX_USE_CXX11_ABI == 1
+        // libstdc++ throws the old ABI failure type on GCC 5/6 (PR66145).
+        EXPECT_THROW(out << std::setw(9) << gint::Int128(21), std::exception);
+#else
         EXPECT_THROW(out << std::setw(9) << gint::Int128(21), std::ios_base::failure);
+#endif
         EXPECT_EQ(out.width(), 0);
     }
 }

@@ -196,12 +196,13 @@ inline std::ostream & write_formatted_string(std::ostream & out, const std::stri
     }
     catch (...)
     {
-        // setstate can throw ios_base::failure. Preserve the streambuf exception when requested.
+        // Preserve the original streambuf exception if setstate throws, including the
+        // old ABI failure type thrown by libstdc++ on GCC 5/6 with the new ABI (PR66145).
         try
         {
             out.setstate(std::ios_base::badbit);
         }
-        catch (const std::ios_base::failure &)
+        catch (...)
         {
         }
         if (out.exceptions() & std::ios_base::badbit)

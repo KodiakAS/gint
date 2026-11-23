@@ -95,6 +95,14 @@ differential。它不构建 C++17 benchmark，不承担 sanitizer、现代 codeg
 性能结论；这些证据由现代工具链环境提供。默认输出在 `runs/gcc48/`，可调参数以
 [`scripts/run-gcc48-validation.sh`](../scripts/run-gcc48-validation.sh)为准。
 
+## GCC 6.3 CI 环境
+
+`gcc-6-3` 在 Ubuntu 24.04 宿主机准备固定版本的 CMake 3.13.5、独立 Python 3.11.12、
+fmt 9.1.0 和 GoogleTest 1.10.0。固定 digest 的 GCC 6.3.0 x86_64 容器离线构建
+静态依赖，并用默认 libstdc++ ABI 运行 C++11 Debug、Release/O3 和 consumer/package
+测试。单独的 Debug 构建运行 ASan/UBSan 测试，关闭 LeakSanitizer。
+依赖版本和校验值见 [CI workflow](../.github/workflows/ci.yml)。
+
 ## CI coverage 工具链
 
 coverage lane 固定 Ubuntu 24.04，显式使用 GCC/G++ 13 与配套 `gcov-13`，

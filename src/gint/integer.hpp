@@ -1331,14 +1331,15 @@ public:
             value |= u128(data_[i]) << (i * 64);
 
         const unsigned wbits = static_cast<unsigned>(sizeof(T) * 8);
+        // Bound shift counts even in branches that older GCC versions diagnose before discarding.
         if (std::is_same<Signed, signed>::value && Bits < 128 && wbits > Bits && (data_[limbs - 1] >> 63))
-            value |= ~u128(0) << Bits;
+            value |= ~u128(0) << (Bits % 128);
         if (detail::is_unsigned<T>::value)
         {
             // Truncate to T's width and return
             if (wbits < 128)
             {
-                const u128 mask = (u128(1) << wbits) - 1;
+                const u128 mask = (u128(1) << (wbits % 128)) - 1;
                 value &= mask;
             }
             return static_cast<T>(value);
@@ -1348,12 +1349,12 @@ public:
             // Signed: perform explicit sign extension for widths < 128.
             if (wbits < 128)
             {
-                const u128 mask = (u128(1) << wbits) - 1;
+                const u128 mask = (u128(1) << (wbits % 128)) - 1;
                 value &= mask;
                 const bool neg = (value >> (wbits - 1)) & 1;
                 s128 s = static_cast<s128>(value);
                 if (neg)
-                    s -= static_cast<s128>(u128(1) << wbits);
+                    s -= static_cast<s128>(u128(1) << (wbits % 128));
                 return static_cast<T>(s);
             }
             // wbits == 128: rely on two's complement conversion on GCC/Clang
