@@ -184,6 +184,43 @@ TEST(WideIntegerStream, ExtremeWidthReachesThrowingBuffer)
     EXPECT_EQ(out.width(), 0);
 }
 
+TEST(WideIntegerStream, TiedFlushExceptionHonorsOutputMaskWithAndWithoutPadding)
+{
+    struct sync_error
+    {
+    };
+    struct throwing_buffer : std::stringbuf
+    {
+        int sync() override { throw sync_error(); }
+    };
+
+    for (int width : {0, 8})
+    {
+        for (auto mask : {std::ios_base::goodbit, std::ios_base::badbit})
+        {
+            SCOPED_TRACE(::testing::Message() << "width=" << width << ", exceptions=" << mask);
+            throwing_buffer buffer;
+            std::ostream tied(&buffer);
+            tied.exceptions(std::ios_base::badbit);
+            std::ostringstream out;
+            out.tie(&tied);
+            out.exceptions(mask);
+            out.width(width);
+
+            if (mask == std::ios_base::goodbit)
+            {
+                EXPECT_NO_THROW(out << gint::UInt128(42));
+            }
+            else
+            {
+                EXPECT_THROW(out << gint::UInt128(42), sync_error);
+            }
+            EXPECT_TRUE(out.bad());
+            EXPECT_EQ(out.width(), 0);
+        }
+    }
+}
+
 TEST(WideIntegerStream, OutputAdditionalWidths)
 {
     {

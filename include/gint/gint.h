@@ -450,7 +450,8 @@ GINT_FORCE_INLINE uint64_t divrem_u128_u64(uint64_t low, uint64_t divisor, uint6
     // The caller supplies a nonzero divisor and starts with remainder == 0.
     // Each step returns remainder < divisor, so the next dividend is below
     // divisor * 2^64 and its quotient fits in one limb.
-    __asm__("div{q %[divisor]| %[divisor]}" : "+a"(low), "+d"(remainder) : [divisor] "rm"(divisor) : "cc");
+    // A register operand supplies the size in Intel syntax and avoids a spill.
+    __asm__("div{q %[divisor]| %[divisor]}" : "+a"(low), "+d"(remainder) : [divisor] "r"(divisor) : "cc");
     return low;
 }
 #endif
@@ -5810,26 +5811,26 @@ inline std::ostream & write_formatted_string(std::ostream & out, const std::stri
 {
     const std::streamsize width = out.width(0);
     const std::streamsize size = static_cast<std::streamsize>(text.size());
-    if (width <= size)
-        return out.write(text.data(), size);
 
-    std::ostream::sentry sentry(out);
-    if (!sentry)
-        return out;
-    const std::streamsize before = stream_padding_offset(text, out.flags() & std::ios_base::adjustfield);
-    std::streambuf & buffer = *out.rdbuf();
 #if GINT_DETAIL_EXCEPTIONS_ENABLED
     try
     {
 #endif
-        if ((!before || buffer.sputn(text.data(), before) == before) && write_stream_padding(buffer, width - size, out.fill())
-            && (before == size || buffer.sputn(text.data() + before, size - before) == size - before))
+        std::ostream::sentry sentry(out);
+        if (!sentry)
             return out;
+
+        const std::streamsize padding = width > size ? width - size : 0;
+        const std::streamsize before = padding ? stream_padding_offset(text, out.flags() & std::ios_base::adjustfield) : 0;
+        std::streambuf & buffer = *out.rdbuf();
+        if ((before && buffer.sputn(text.data(), before) != before) || (padding && !write_stream_padding(buffer, padding, out.fill()))
+            || (before != size && buffer.sputn(text.data() + before, size - before) != size - before))
+            out.setstate(std::ios_base::badbit);
 #if GINT_DETAIL_EXCEPTIONS_ENABLED
     }
     catch (...)
     {
-        // Preserve the original streambuf exception if setstate throws, including the
+        // Preserve the original exception if setstate throws, including the
         // old ABI failure type thrown by libstdc++ on GCC 5/6 with the new ABI (PR66145).
         try
         {
@@ -5840,10 +5841,8 @@ inline std::ostream & write_formatted_string(std::ostream & out, const std::stri
         }
         if (out.exceptions() & std::ios_base::badbit)
             throw;
-        return out;
     }
 #endif
-    out.setstate(std::ios_base::badbit);
     return out;
 }
 

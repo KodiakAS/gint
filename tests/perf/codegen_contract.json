@@ -48,7 +48,8 @@
         "aarch64": 180,
         "x86_64": 180
       },
-      "forbid_calls": true,
+      "max_calls": 1,
+      "allowed_call_substrings": ["detail14mul_limbs4_u64EPmmm"],
       "max_back_edges": 0
     },
     "gint_perf_mul_u32": {
