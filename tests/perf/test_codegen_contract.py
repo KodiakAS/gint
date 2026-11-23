@@ -303,13 +303,15 @@ gint_perf_div_u32:
             ("x86_64", "jmp *%rax"),
             ("x86_64", "notrack jmp *%rax"),
             ("x86_64", "bnd rex64 jmp *%rax"),
+            ("x86_64", "rex64/jmp *%rax"),
+            ("x86_64", "rex64; jmp *%rax"),
             ("aarch64", "br x9"),
         )
         for architecture, transfer in transfers:
             target = architecture + "-linux-gnu"
             assembly = "gint_perf_div_u32:\n    " + transfer
             functions = CODEGEN.parse_assembly(assembly, target=target)
-            for call_limit in ({"forbid_calls": True}, {"max_calls": 1}):
+            for call_limit in ({"forbid_calls": True}, {"max_calls": 0}, {"max_calls": 1}):
                 with self.subTest(transfer=transfer, call_limit=call_limit):
                     requirements = dict(call_limit, max_instructions={architecture: 3})
                     contract = {"functions": {"gint_perf_div_u32": requirements}}
@@ -318,6 +320,26 @@ gint_perf_div_u32:
                     )
                     self.assertEqual(len(violations), 1)
                     self.assertIn("unresolved indirect transfer: " + transfer, violations[0])
+            _, violations = self.check_outlined_division(assembly, architecture, target=target)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("unresolved indirect transfer: " + transfer, violations[0])
+
+    def test_splits_semicolon_separated_x86_instructions(self):
+        target = "x86_64-linux-gnu"
+        assembly = "gint_perf_div_u32:\n    nop; jmp *%rax"
+        functions = CODEGEN.parse_assembly(assembly, target=target)
+        for call_limit in ({"forbid_calls": True}, {"max_calls": 0}):
+            with self.subTest(call_limit=call_limit):
+                requirements = dict(call_limit, max_instructions={"x86_64": 3})
+                contract = {"functions": {"gint_perf_div_u32": requirements}}
+                _, violations = CODEGEN.evaluate_contract(
+                    functions, contract, "x86_64", target=target
+                )
+                self.assertEqual(len(violations), 1)
+                self.assertIn("unresolved indirect transfer: jmp *%rax", violations[0])
+        _, violations = self.check_outlined_division(assembly, "x86_64", target=target)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("unresolved indirect transfer: jmp *%rax", violations[0])
 
     def test_checks_external_conditional_transfers_under_call_limits(self):
         cases = (
@@ -377,6 +399,30 @@ other_function:
         _, violations = CODEGEN.evaluate_contract(functions, contract, "aarch64", target=target)
         self.assertEqual(len(violations), 1)
         self.assertIn("back edge(s) exceeds budget", violations[0])
+
+    def test_treats_aarch64_bnv_and_b_nv_as_unconditional_transfers(self):
+        with open(os.path.join(ROOT, "tests", "perf", "codegen_contract.json")) as contract_file:
+            requirements = json.load(contract_file)["functions"]["gint_perf_mul256"]
+        contract = {"functions": {"gint_perf_mul256": requirements}}
+        target = "aarch64-linux-gnu"
+        for mnemonic in ("bnv", "b.nv"):
+            with self.subTest(mnemonic=mnemonic):
+                assembly = "\n".join(
+                    [
+                        "gint_perf_mul256:",
+                        "    " + mnemonic + " .Ldone",
+                        "    b gint_perf_mul256",
+                        ".Ldone:",
+                        "    ret",
+                        "    .cfi_endproc",
+                    ]
+                )
+                functions = CODEGEN.parse_assembly(assembly, target=target)
+                self.assertEqual(functions["gint_perf_mul256"]["back_edges"], [])
+                _, violations = CODEGEN.evaluate_contract(
+                    functions, contract, "aarch64", target=target
+                )
+                self.assertEqual(violations, [])
 
     def test_resolves_x86_prefixed_direct_transfers(self):
         assembly = """

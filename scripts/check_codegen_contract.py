@@ -31,6 +31,7 @@ X86_INSTRUCTION_PREFIXES = frozenset(
     ("notrack", "bnd", "rex64", "rex.w", "cs", "ds", "es", "fs", "gs", "ss",
      "data16", "addr16", "addr32", "lock", "rep", "repe", "repne", "repz", "repnz")
 )
+X86_PREFIX_TOKEN = re.compile(r"^([A-Za-z0-9_.]+)(?:\s*[;/]\s*|\s+)(.*)$")
 TERMINAL_MNEMONICS = frozenset(
     ("br", "braa", "braaz", "brab", "brabz", "brk", "eret", "hlt", "ret", "retq", "retn", "trap", "ud2")
 )
@@ -58,14 +59,40 @@ def is_local_label(label, is_macho=False, target=None):
 
 def split_instruction(instruction):
     """Return the mnemonic and operands after any x86 instruction prefixes."""
-    parts = instruction.split(None, 1)
-    while parts:
-        mnemonic = parts[0].lower()
-        operands = parts[1] if len(parts) > 1 else ""
-        if mnemonic not in X86_INSTRUCTION_PREFIXES:
-            return mnemonic, operands
-        parts = operands.split(None, 1)
+    text = instruction.strip()
+    while text:
+        match = X86_PREFIX_TOKEN.match(text)
+        if match and match.group(1).lower() in X86_INSTRUCTION_PREFIXES:
+            text = match.group(2).strip()
+            continue
+        if text.lower() in X86_INSTRUCTION_PREFIXES:
+            return "", ""
+        parts = text.split(None, 1)
+        return parts[0].lower(), parts[1] if len(parts) > 1 else ""
     return "", ""
+
+
+def split_x86_statements(line):
+    """Split semicolon-separated x86 statements while keeping prefix chains attached."""
+    code = line.split("#", 1)[0].split("//", 1)[0].strip()
+    if ";" not in code:
+        return [line]
+    statements = []
+    pending_prefixes = []
+    for part in code.split(";"):
+        statement = part.strip()
+        if not statement:
+            continue
+        if statement.lower() in X86_INSTRUCTION_PREFIXES:
+            pending_prefixes.append(statement)
+            continue
+        if pending_prefixes:
+            statement = "; ".join(pending_prefixes + [statement])
+            pending_prefixes = []
+        statements.append(statement)
+    if pending_prefixes:
+        statements.append("; ".join(pending_prefixes))
+    return statements
 
 
 def transfer_operand(mnemonic, operand_text):
@@ -99,7 +126,7 @@ def is_unconditional_transfer(mnemonic):
     """Return whether execution cannot fall through to the next instruction."""
     return (
         mnemonic in TERMINAL_MNEMONICS
-        or mnemonic in ("b", "bal", "b.al", "b.n", "b.w")
+        or mnemonic in ("b", "bal", "b.al", "bnv", "b.nv", "b.n", "b.w")
         or mnemonic.startswith("jmp")
     )
 
@@ -224,6 +251,7 @@ def find_cycle_branches(function):
 def parse_assembly(text, target=None):
     """Return instruction mnemonics and call sites for probes and their callees."""
     is_macho = is_macho_target(target)
+    is_x86 = bool(target) and target.split("-", 1)[0].lower() in ("amd64", "x86_64")
     functions = {}
     active = None
     in_cold_fragment = False
@@ -274,38 +302,40 @@ def parse_assembly(text, target=None):
         if not line or line[0] in ".#;" or line.startswith("//"):
             continue
 
-        mnemonic, operands = split_instruction(line)
-        function = functions[active]
-        function["mnemonics"].append(mnemonic)
-        source_index = len(function["instructions"])
-        function["instructions"].append(
-            {
-                "line": line_number,
-                "instruction": line,
-                "mnemonic": mnemonic,
-            }
-        )
-        call_site = {"line": line_number, "instruction": line}
-        if in_cold_fragment:
-            call_site["cold"] = True
-        if mnemonic in CALL_MNEMONICS:
-            function["calls"].append(call_site)
-        elif mnemonic in INDIRECT_TAIL_BRANCH_MNEMONICS:
-            function["indirect_transfers"].append(call_site)
-        elif is_direct_branch_mnemonic(mnemonic):
-            operand = transfer_operand(mnemonic, operands)
-            if operand.startswith("*"):
-                transfers = "calls" if GOT_INDIRECT_SYMBOL.match(operand) else "indirect_transfers"
-                function[transfers].append(call_site)
-                continue
-            function["branches"].append(
+        statements = split_x86_statements(line) if is_x86 else [line]
+        for statement in statements:
+            mnemonic, operands = split_instruction(statement)
+            function = functions[active]
+            function["mnemonics"].append(mnemonic)
+            source_index = len(function["instructions"])
+            function["instructions"].append(
                 {
                     "line": line_number,
-                    "instruction": line,
-                    "target": operand,
-                    "source_index": source_index,
+                    "instruction": statement,
+                    "mnemonic": mnemonic,
                 }
             )
+            call_site = {"line": line_number, "instruction": statement}
+            if in_cold_fragment:
+                call_site["cold"] = True
+            if mnemonic in CALL_MNEMONICS:
+                function["calls"].append(call_site)
+            elif mnemonic in INDIRECT_TAIL_BRANCH_MNEMONICS:
+                function["indirect_transfers"].append(call_site)
+            elif is_direct_branch_mnemonic(mnemonic):
+                operand = transfer_operand(mnemonic, operands)
+                if operand.startswith("*"):
+                    transfers = "calls" if GOT_INDIRECT_SYMBOL.match(operand) else "indirect_transfers"
+                    function[transfers].append(call_site)
+                    continue
+                function["branches"].append(
+                    {
+                        "line": line_number,
+                        "instruction": statement,
+                        "target": operand,
+                        "source_index": source_index,
+                    }
+                )
 
     for name, function in functions.items():
         local_branches = []

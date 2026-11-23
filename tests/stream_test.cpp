@@ -240,7 +240,7 @@ TEST(WideIntegerStream, FailedSentryHonorsFailbitMaskWithAndWithoutPadding)
 #    else
         EXPECT_THROW(out << gint::UInt128(42), std::ios_base::failure);
 #    endif
-        EXPECT_TRUE(out.fail());
+        EXPECT_NE(out.rdstate() & std::ios_base::failbit, 0);
         EXPECT_EQ(out.width(), 0);
     }
 }
