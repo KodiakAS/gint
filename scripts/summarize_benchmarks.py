@@ -24,6 +24,13 @@ def parse_assignment(value, option):
     return name, assigned_value
 
 
+def is_finite_nonnegative_number(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    except OverflowError:
+        return False
+
+
 def summarize_document(document):
     benchmarks = document.get("benchmarks")
     if not isinstance(benchmarks, list) or not benchmarks:
@@ -32,7 +39,13 @@ def summarize_document(document):
     cvs = {}
     for row in benchmarks:
         if row.get("aggregate_name") == "cv":
-            cvs[row["run_name"]] = row.get("real_time")
+            name = row["run_name"]
+            if name in cvs:
+                raise ValueError("duplicate CV row: {0}".format(name))
+            real_time = row.get("real_time")
+            if not is_finite_nonnegative_number(real_time):
+                raise ValueError("CV row has invalid measurements: {0}".format(name))
+            cvs[name] = real_time
 
     medians = []
     seen = set()
@@ -42,6 +55,10 @@ def summarize_document(document):
         name = row["run_name"]
         if name in seen:
             raise ValueError("duplicate median row: {0}".format(name))
+        if row.get("error_occurred") or row.get("skipped"):
+            raise ValueError("median row failed or was skipped: {0}".format(name))
+        if not all(is_finite_nonnegative_number(row.get(field)) for field in ("real_time", "cpu_time")):
+            raise ValueError("median row has invalid measurements: {0}".format(name))
         seen.add(name)
         medians.append(
             {
@@ -113,9 +130,8 @@ def validate_repetition_rows(name, benchmark_names, rows, expected_repetitions):
 
         iterations = row.get("iterations")
         times = (row.get("real_time"), row.get("cpu_time"))
-        if type(iterations) is not int or iterations <= 0 or any(
-            type(value) not in (int, float) or not math.isfinite(value) or value < 0
-            for value in times
+        if type(iterations) is not int or iterations <= 0 or not all(
+            is_finite_nonnegative_number(value) for value in times
         ):
             raise ValueError(
                 "{0}: {1} repetition {2} has invalid measurements".format(name, benchmark, index)
@@ -167,15 +183,15 @@ def validate_suite(
                     name, expected_repetitions, ", ".join(wrong_repetitions)
                 )
             )
-        missing_cv = [
+        invalid_cv = [
             row["name"]
             for row in suite["benchmarks"]
-            if not isinstance(row["real_time_cv"], (int, float))
+            if not is_finite_nonnegative_number(row.get("real_time_cv"))
         ]
-        if missing_cv:
+        if invalid_cv:
             raise ValueError(
-                "{0}: benchmark(s) are missing numeric CV rows: {1}".format(
-                    name, ", ".join(missing_cv)
+                "{0}: benchmark(s) have missing or invalid CV rows: {1}".format(
+                    name, ", ".join(invalid_cv)
                 )
             )
         validate_repetition_rows(name, names, raw_rows, expected_repetitions)

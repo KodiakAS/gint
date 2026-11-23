@@ -769,6 +769,7 @@ def build_amalgamation(
     input_path=DEFAULT_INPUT,
     header_manifest=None,
     role_dependencies=None,
+    source_headers=None,
 ):
     input_path = normalized_relative_path(input_path, "input path")
     graph = HeaderGraph(
@@ -812,15 +813,18 @@ def build_amalgamation(
                     "generated header retains an internal angle include at line {0}".format(line.number)
                 )
     conditional.finish("generated header")
+    if source_headers is not None:
+        source_headers.update(discovered_headers)
     return b"#pragma once\n\n" + content
 
 
-def build_project_amalgamation(root, input_path=DEFAULT_INPUT):
+def build_project_amalgamation(root, input_path=DEFAULT_INPUT, source_headers=None):
     return build_amalgamation(
         root,
         input_path,
         header_manifest=PROJECT_HEADER_MANIFEST,
         role_dependencies=PROJECT_ROLE_DEPENDENCIES,
+        source_headers=source_headers,
     )
 
 
@@ -836,7 +840,7 @@ def first_difference(expected, actual):
     return limit
 
 
-def validated_output_path(root, output_path):
+def validated_output_path(root, output_path, source_headers=None):
     output_path = normalized_relative_path(output_path, "output path")
     absolute_output = os.path.abspath(os.path.join(root, output_path))
     output_dir = os.path.dirname(absolute_output)
@@ -852,15 +856,19 @@ def validated_output_path(root, output_path):
                 "output directory must not contain symbolic-link components: {0}".format(output_path)
             )
 
+    if source_headers and absolute_output in source_headers.values():
+        raise AmalgamationError("output must not overwrite an internal header: {0}".format(output_path))
     if os.path.lexists(absolute_output):
-        output_mode = os.lstat(absolute_output).st_mode
-        if stat.S_ISLNK(output_mode) or not stat.S_ISREG(output_mode):
+        metadata = os.lstat(absolute_output)
+        if not stat.S_ISREG(metadata.st_mode):
             raise AmalgamationError("output must be a regular file, not a symbolic link: {0}".format(output_path))
+        if source_headers and (metadata.st_dev, metadata.st_ino) in source_headers:
+            raise AmalgamationError("output must not overwrite an internal header: {0}".format(output_path))
     return output_path, absolute_output
 
 
-def check_output(root, output_path, expected):
-    output_path, absolute_output = validated_output_path(root, output_path)
+def check_output(root, output_path, expected, source_headers=None):
+    output_path, absolute_output = validated_output_path(root, output_path, source_headers)
     try:
         with open(absolute_output, "rb") as output_file:
             actual = output_file.read()
@@ -883,12 +891,12 @@ def check_output(root, output_path, expected):
     return False
 
 
-def write_output(root, output_path, content):
-    output_path, absolute_output = validated_output_path(root, output_path)
+def write_output(root, output_path, content, source_headers=None):
+    output_path, absolute_output = validated_output_path(root, output_path, source_headers)
     output_dir = os.path.dirname(absolute_output)
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
-        output_path, absolute_output = validated_output_path(root, output_path)
+        output_path, absolute_output = validated_output_path(root, output_path, source_headers)
 
     current_mode = 0o644
     if os.path.lexists(absolute_output):
@@ -927,10 +935,11 @@ def main(argv=None):
     args = parse_args(argv)
     root = os.path.abspath(args.root)
     try:
-        content = build_project_amalgamation(root, args.input)
+        source_headers = {}
+        content = build_project_amalgamation(root, args.input, source_headers)
         if args.check:
-            return 0 if check_output(root, args.output, content) else 1
-        write_output(root, args.output, content)
+            return 0 if check_output(root, args.output, content, source_headers) else 1
+        write_output(root, args.output, content, source_headers)
         return 0
     except (AmalgamationError, OSError) as error:
         print("error: {0}".format(error), file=sys.stderr)

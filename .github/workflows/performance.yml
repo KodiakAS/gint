@@ -145,7 +145,7 @@ jobs:
       - name: Build benchmark targets
         run: |
           cmake --build "runs/performance-${{ matrix.name }}/build-bench" \
-            --target perf_benchmark_int256 perf_benchmark_int1024 perf_compare_int256 \
+            --target perf_benchmark_int128 perf_benchmark_int256 perf_benchmark_int1024 perf_compare_int256 \
             --parallel
       - name: Sample full benchmark matrices
         run: |
@@ -166,6 +166,10 @@ jobs:
           "$BUILD_DIR/perf_compare_int256" \
             "${COMMON_ARGS[@]}" \
             --benchmark_out="$RESULT_DIR/comparison.json"
+          "$BUILD_DIR/perf_benchmark_int128" \
+            "${COMMON_ARGS[@]}" \
+            '--benchmark_filter=^(Div|Mod|DivMod)/' \
+            --benchmark_out="$RESULT_DIR/narrow-divmod.json"
           "$BUILD_DIR/perf_benchmark_int1024" \
             "${COMMON_ARGS[@]}" \
             '--benchmark_filter=^FromString(CStr)?/(Short)?Base(2|8|10|16)/gint$' \
@@ -181,14 +185,16 @@ jobs:
           python3 scripts/summarize_benchmarks.py \
             --input "gint=$RESULT_DIR/gint.json" \
             --input "comparison=$RESULT_DIR/comparison.json" \
+            --input "narrow_divmod=$RESULT_DIR/narrow-divmod.json" \
             --input "wide_parser=$RESULT_DIR/wide-parser.json" \
             --input "wide_hotpaths=$RESULT_DIR/wide-hotpaths.json" \
             --expected-library-version v1.9.5 \
             --expected-repetitions 7 \
-            --expected-median-count gint=68 \
+            --expected-median-count gint=78 \
             --expected-median-count comparison=93 \
+            --expected-median-count narrow_divmod=17 \
             --expected-median-count wide_parser=16 \
-            --expected-median-count wide_hotpaths=19 \
+            --expected-median-count wide_hotpaths=24 \
             --require-benchmark gint=FromString/Base2/gint \
             --require-benchmark gint=FromString/Base8/gint \
             --require-benchmark gint=FromString/Base10/gint \
@@ -208,6 +214,14 @@ jobs:
             --require-benchmark gint=DivMod/SimilarMagnitudeSeparate/gint \
             --require-benchmark gint=DivMod/SignedMixed/gint \
             --require-benchmark gint=DivMod/ThreeLimbAddback/gint \
+            --require-benchmark narrow_divmod=Div/Pow2Divisor/gint \
+            --require-benchmark narrow_divmod=Div/LargeDivisor128/gint \
+            --require-benchmark narrow_divmod=Div/NativeU64/gint \
+            --require-benchmark narrow_divmod=Mod/NativeU64/gint \
+            --require-benchmark narrow_divmod=Mod/SimilarMagnitude/gint \
+            --require-benchmark narrow_divmod=DivMod/SimilarMagnitude/gint \
+            --require-benchmark narrow_divmod=DivMod/SignedMixed/gint \
+            --require-benchmark narrow_divmod=DivMod/DenseDivisor2/gint \
             --require-benchmark wide_hotpaths=MulAssign/U64Sparse/gint \
             --require-benchmark wide_hotpaths=MulAssign/U64Dense/gint \
             --require-benchmark wide_hotpaths=ToString/HexShort/gint \

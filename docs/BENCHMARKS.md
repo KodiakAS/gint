@@ -118,7 +118,7 @@ contract 失败后应先检查生成汇编，并在同编译器上运行受影�
 
 [`Performance` workflow](../.github/workflows/performance.yml) 在 PR 上运行现代
 GCC/Clang/AppleClang codegen contract；定时和手工任务保存 gint-only、三方
-comparison 与 1024-bit parser、定向热点的原始及规范化 JSON。
+comparison、128-bit 除模、1024-bit parser 与定向热点的原始及规范化 JSON。
 
 共享 runner 的绝对时间不阻断 PR。自动化样本用于发现趋势；真正的性能回归结论
 必须回到固定主机复测。GCC 4.8.5 lane 只验证 correctness/integration，不构建

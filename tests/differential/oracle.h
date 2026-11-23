@@ -258,8 +258,13 @@ void verify_wide_signed_division(
     require(result.quotient == dividend / divisor, "wide signed divmod quotient differs from operator/");
     require(result.remainder == dividend % divisor, "wide signed divmod remainder differs from operator%");
     require(result.quotient * divisor + result.remainder == dividend, "wide signed division identity failed");
-    if (result.remainder != Int(0))
-        require((result.remainder < Int(0)) == (dividend < Int(0)), "wide signed remainder has the wrong sign");
+    const bool remainder_negative = result.remainder < Int(0);
+    require(result.remainder == Int(0) || remainder_negative == ref_dividend.negative, "wide signed remainder has the wrong sign");
+    typedef gint::integer<Bits, unsigned> UInt;
+    // Compare unsigned magnitudes so the signed minimum divisor is representable.
+    const UInt remainder_magnitude = remainder_negative ? UInt(0) - UInt(result.remainder) : UInt(result.remainder);
+    const UInt divisor_magnitude = ref_divisor.negative ? UInt(0) - UInt(divisor) : UInt(divisor);
+    require(remainder_magnitude < divisor_magnitude, "wide signed remainder magnitude is not less than divisor magnitude");
 }
 
 template <size_t Bits>
@@ -292,6 +297,83 @@ void exercise_wide_signed_min_division()
 }
 
 template <size_t Bits>
+void verify_unsigned_division(
+    const gint::integer<Bits, unsigned> & dividend,
+    const gint::integer<Bits, unsigned> & divisor,
+    const reference_uint<Bits / 64> & ref_dividend,
+    const reference_uint<Bits / 64> & ref_divisor)
+{
+    const wide_reference_divmod_result<Bits / 64> expected = wide_reference_divmod(ref_dividend, ref_divisor);
+    const gint::divmod_result<gint::integer<Bits, unsigned>> result = gint::divmod(dividend, divisor);
+
+    require(equal_wide_unsigned_bits(result.quotient, expected.quotient), "unsigned division quotient differs from bitwise oracle");
+    require(equal_wide_unsigned_bits(result.remainder, expected.remainder), "unsigned division remainder differs from bitwise oracle");
+    require(result.quotient == dividend / divisor, "unsigned divmod quotient differs from operator/");
+    require(result.remainder == dividend % divisor, "unsigned divmod remainder differs from operator%");
+    require(result.quotient * divisor + result.remainder == dividend, "unsigned division identity failed");
+    require(result.remainder < divisor, "unsigned division remainder is not less than divisor");
+}
+
+inline gint::UInt128 uint128_from_reference(const reference_uint<2> & value)
+{
+    return (static_cast<uint128_t>(value.limbs[1]) << 64) | value.limbs[0];
+}
+
+inline void exercise_uint128_and_int128_division(const uint8_t * data, size_t size)
+{
+    const uint8_t control = input_byte(data, size, 1);
+    const uint64_t top_bit = uint64_t(1) << 63;
+    const uint64_t next_bit = top_bit >> 1;
+    reference_uint<2> dividend = wide_reference_from_input<2>(data, size, 2, 16);
+    reference_uint<2> divisor = wide_reference_from_input<2>(data, size, 18, 16);
+    switch (control & 7u)
+    {
+        case 0:
+            divisor.limbs[0] |= 1;
+            divisor.limbs[1] = 0;
+            break;
+        case 1: {
+            const unsigned bit = static_cast<unsigned>(divisor.limbs[0] & 127u);
+            divisor = reference_uint<2>();
+            wide_reference_set_bit(divisor, bit);
+            break;
+        }
+        case 2:
+        case 3:
+            divisor.limbs[1] = (divisor.limbs[1] & (next_bit - 1)) | 1;
+            break;
+        case 4:
+        case 5:
+            divisor.limbs[1] = (divisor.limbs[1] & (next_bit - 1)) | next_bit;
+            break;
+        default:
+            divisor.limbs[1] |= top_bit;
+            break;
+    }
+    verify_unsigned_division(uint128_from_reference(dividend), uint128_from_reference(divisor), dividend, divisor);
+
+    dividend.limbs[1] &= top_bit - 1;
+    bool divisor_negative = (control & 0x20u) != 0;
+    if (divisor.limbs[1] & top_bit)
+    {
+        // Int128::min() is the only signed value with magnitude at least 2^127.
+        divisor.limbs[0] = 0;
+        divisor.limbs[1] = top_bit;
+        divisor_negative = true;
+    }
+    const wide_signed_reference<128> signed_dividend = make_wide_signed_reference<128>(dividend, (control & 0x10u) != 0);
+    const wide_signed_reference<128> signed_divisor = make_wide_signed_reference<128>(divisor, divisor_negative);
+    verify_wide_signed_division(
+        gint::Int128(uint128_from_reference(wide_signed_reference_bits(signed_dividend))),
+        gint::Int128(uint128_from_reference(wide_signed_reference_bits(signed_divisor))),
+        signed_dividend,
+        signed_divisor);
+
+    if (control == 0xffu)
+        exercise_wide_signed_min_division<128>();
+}
+
+template <size_t Bits>
 void exercise_wide_division(const uint8_t * data, size_t size)
 {
     static_assert(Bits == 512 || Bits == 1024, "wide differential division only covers supported large widths");
@@ -314,14 +396,7 @@ void exercise_wide_division(const uint8_t * data, size_t size)
         ref_divisor.limbs[0] = 1;
     }
 
-    const wide_reference_divmod_result<Bits / 64> expected = wide_reference_divmod(ref_dividend, ref_divisor);
-    const gint::divmod_result<UInt> result = gint::divmod(dividend, divisor);
-    require(equal_wide_unsigned_bits(result.quotient, expected.quotient), "wide division quotient differs from bitwise oracle");
-    require(equal_wide_unsigned_bits(result.remainder, expected.remainder), "wide division remainder differs from bitwise oracle");
-    require(result.quotient == dividend / divisor, "wide divmod quotient differs from operator/");
-    require(result.remainder == dividend % divisor, "wide divmod remainder differs from operator%");
-    require(result.quotient * divisor + result.remainder == dividend, "wide division identity failed");
-    require(result.remainder < divisor, "wide division remainder is not less than divisor");
+    verify_unsigned_division(dividend, divisor, ref_dividend, ref_divisor);
 
     const UInt signed_dividend_magnitude = gint_from_input<UInt>(data, size, 2, value_bytes, true);
     UInt signed_divisor_magnitude = gint_from_input<UInt>(data, size, 2 + value_bytes, divisor_bytes, divisor_bytes == value_bytes);
@@ -355,23 +430,6 @@ void exercise_wide_division(const uint8_t * data, size_t size)
 
 using signed_reference = wide_signed_reference<256>;
 
-inline void verify_unsigned_division(
-    const gint::UInt256 & dividend,
-    const gint::UInt256 & divisor,
-    const uint256_reference & ref_dividend,
-    const uint256_reference & ref_divisor)
-{
-    const reference_divmod_result expected = wide_reference_divmod(ref_dividend, ref_divisor);
-    const gint::divmod_result<gint::UInt256> result = gint::divmod(dividend, divisor);
-
-    require(equal_wide_unsigned_bits(result.quotient, expected.quotient), "unsigned division quotient differs from bitwise oracle");
-    require(equal_wide_unsigned_bits(result.remainder, expected.remainder), "unsigned division remainder differs from bitwise oracle");
-    require(result.quotient == dividend / divisor, "unsigned divmod quotient differs from operator/");
-    require(result.remainder == dividend % divisor, "unsigned divmod remainder differs from operator%");
-    require(result.quotient * divisor + result.remainder == dividend, "unsigned division identity failed");
-    require(result.remainder < divisor, "unsigned division remainder is not less than divisor");
-}
-
 inline void verify_signed_division(
     const gint::Int256 & dividend,
     const gint::Int256 & divisor,
@@ -395,6 +453,7 @@ inline void verify_signed_division(
 
 inline void exercise_division(const uint8_t * data, size_t size)
 {
+    exercise_uint128_and_int128_division(data, size);
     const uint8_t control = input_byte(data, size, 1);
     const size_t divisor_bytes = (control & 3u) == 1u ? 8u : (control & 3u) == 2u ? 16u : 32u;
 

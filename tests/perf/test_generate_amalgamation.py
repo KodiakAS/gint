@@ -183,6 +183,7 @@ class GenerateAmalgamationTest(unittest.TestCase):
             AMALGAMATION.DEFAULT_INPUT,
             header_manifest=AMALGAMATION.PROJECT_HEADER_MANIFEST,
             role_dependencies=AMALGAMATION.PROJECT_ROLE_DEPENDENCIES,
+            source_headers=None,
         )
 
     def test_check_detects_stale_output_without_rewriting_it(self):
@@ -194,6 +195,34 @@ class GenerateAmalgamationTest(unittest.TestCase):
             self.assertFalse(AMALGAMATION.check_output(self.root, AMALGAMATION.DEFAULT_OUTPUT, content))
         with open(os.path.join(self.root, AMALGAMATION.DEFAULT_OUTPUT), "rb") as output_file:
             self.assertEqual(output_file.read(), b"stale\n")
+
+    def test_cli_rejects_internal_headers_as_output(self):
+        source_headers = {}
+        for header in AMALGAMATION.PROJECT_HEADER_MANIFEST:
+            path = "src/gint/" + header
+            with open(os.path.join(ROOT, path), "rb") as source:
+                source_headers[path] = source.read()
+            self.write_bytes(path, source_headers[path])
+
+        entry = AMALGAMATION.DEFAULT_INPUT
+        transitive = "src/gint/prelude.hpp"
+        hardlink = "include/gint/hardlink.h"
+        symlink = "include/gint/symlink.h"
+        os.link(os.path.join(self.root, transitive), os.path.join(self.root, hardlink))
+        os.symlink(os.path.join(self.root, transitive), os.path.join(self.root, symlink))
+
+        for output in (entry, transitive, hardlink, symlink):
+            for mode in ((), ("--check",)):
+                with self.subTest(output=output, mode=mode):
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+                        result = AMALGAMATION.main(("--root", self.root, "--output", output) + mode)
+                    self.assertEqual(result, 2, stderr.getvalue())
+                    self.assertRegex(stderr.getvalue(), "output.*(internal header|symbolic link)")
+                    for path, content in source_headers.items():
+                        with open(os.path.join(self.root, path), "rb") as source:
+                            self.assertEqual(source.read(), content)
+                    self.assertTrue(os.path.samefile(os.path.join(self.root, hardlink), os.path.join(self.root, transitive)))
 
     def test_check_treats_missing_empty_output_as_stale(self):
         stderr = io.StringIO()
