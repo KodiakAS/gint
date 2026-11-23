@@ -64,6 +64,67 @@ class SummarizeDocumentTest(unittest.TestCase):
                 {"benchmarks": [aggregate("Add/gint", "mean", 1.0)]}
             )
 
+    def test_rejects_invalid_median_measurements(self):
+        name = "Div/gint"
+        for field in ("real_time", "cpu_time"):
+            for value in (-1, float("nan"), float("inf"), True):
+                with self.subTest(field=field, value=value):
+                    row = aggregate(name, "median", 1.0)
+                    row[field] = value
+                    with self.assertRaisesRegex(ValueError, "median row.*invalid measurements"):
+                        SUMMARY.summarize_document({"benchmarks": [row]})
+
+    def test_rejects_failed_or_skipped_medians(self):
+        for flag in ("error_occurred", "skipped"):
+            with self.subTest(flag=flag, value=True):
+                row = aggregate("Div/gint", "median", 1.0)
+                row[flag] = True
+                with self.assertRaisesRegex(ValueError, "median row.*failed or was skipped"):
+                    SUMMARY.summarize_document({"benchmarks": [row]})
+            for invalid in (None, 0, ""):
+                with self.subTest(flag=flag, value=invalid):
+                    row = aggregate("Div/gint", "median", 1.0)
+                    row[flag] = invalid
+                    with self.assertRaisesRegex(ValueError, "median row.*invalid " + flag):
+                        SUMMARY.summarize_document({"benchmarks": [row]})
+
+    def test_rejects_invalid_cv_measurements(self):
+        name = "Div/gint"
+        median = aggregate(name, "median", 1.0)
+        for field in ("real_time", "cpu_time"):
+            with self.subTest(field=field, missing=True):
+                cv = aggregate(name, "cv", 0.01)
+                del cv[field]
+                with self.assertRaisesRegex(ValueError, "CV row.*invalid measurements"):
+                    SUMMARY.summarize_document({"benchmarks": [median, cv]})
+            for value in (-1, float("nan"), float("inf"), True, False):
+                with self.subTest(field=field, value=value):
+                    cv = aggregate(name, "cv", 0.01)
+                    cv[field] = value
+                    with self.assertRaisesRegex(ValueError, "CV row.*invalid measurements"):
+                        SUMMARY.summarize_document({"benchmarks": [median, cv]})
+
+    def test_rejects_duplicate_cv_rows(self):
+        name = "Div/gint"
+        with self.assertRaisesRegex(ValueError, "duplicate CV row.*Div/gint"):
+            SUMMARY.summarize_document(
+                {"benchmarks": [
+                    aggregate(name, "median", 1.0),
+                    aggregate(name, "cv", 0.01),
+                    aggregate(name, "cv", 0.09),
+                ]}
+            )
+
+    def test_rejects_orphan_cv_rows(self):
+        with self.assertRaisesRegex(ValueError, "CV row\\(s\\) without a median.*Ghost/gint"):
+            SUMMARY.summarize_document(
+                {"benchmarks": [
+                    aggregate("Div/gint", "median", 1.0),
+                    aggregate("Div/gint", "cv", 0.01),
+                    aggregate("Ghost/gint", "cv", 0.02),
+                ]}
+            )
+
     def test_validates_library_version_count_and_required_names(self):
         name = "FromString/Base16/gint"
         suite = SUMMARY.summarize_document(
@@ -94,9 +155,11 @@ class SummarizeDocumentTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             SUMMARY.validate_suite("gint", suite, required=["DivMod/SimilarMagnitude/gint"])
 
-        suite["benchmarks"][0]["real_time_cv"] = None
-        with self.assertRaisesRegex(ValueError, "missing numeric CV"):
-            SUMMARY.validate_suite("gint", suite, expected_repetitions=7, raw_rows=rows)
+        for value in (None, -1, float("nan"), float("inf"), True):
+            with self.subTest(value=value):
+                suite["benchmarks"][0]["real_time_cv"] = value
+                with self.assertRaisesRegex(ValueError, "missing or invalid CV"):
+                    SUMMARY.validate_suite("gint", suite, expected_repetitions=7, raw_rows=rows)
 
     def test_requires_each_successful_repetition_for_each_benchmark(self):
         medians = [
@@ -129,6 +192,9 @@ class SummarizeDocumentTest(unittest.TestCase):
         cases = (
             (iteration(name, 6, error_occurred=True), "failed or was skipped"),
             (iteration(name, 6, skipped=True), "failed or was skipped"),
+            (iteration(name, 6, error_occurred=None), "invalid error_occurred"),
+            (iteration(name, 6, skipped=0), "invalid skipped"),
+            (iteration(name, 6, error_occurred=""), "invalid error_occurred"),
             (iteration(name, 6, iterations=0), "invalid measurements"),
             (iteration(name, 6, real_time=float("nan")), "invalid measurements"),
             (iteration(name, 6, cpu_time=None), "invalid measurements"),

@@ -24,6 +24,24 @@ def parse_assignment(value, option):
     return name, assigned_value
 
 
+def is_finite_nonnegative_number(value):
+    try:
+        return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    except OverflowError:
+        return False
+
+
+def validate_status_flags(row, context):
+    for flag in ("error_occurred", "skipped"):
+        if flag not in row:
+            continue
+        value = row[flag]
+        if type(value) is not bool:
+            raise ValueError("{0} has invalid {1}={2!r}".format(context, flag, value))
+        if value:
+            raise ValueError("{0} failed or was skipped".format(context))
+
+
 def summarize_document(document):
     benchmarks = document.get("benchmarks")
     if not isinstance(benchmarks, list) or not benchmarks:
@@ -32,7 +50,13 @@ def summarize_document(document):
     cvs = {}
     for row in benchmarks:
         if row.get("aggregate_name") == "cv":
-            cvs[row["run_name"]] = row.get("real_time")
+            name = row["run_name"]
+            if name in cvs:
+                raise ValueError("duplicate CV row: {0}".format(name))
+            validate_status_flags(row, "CV row {0}".format(name))
+            if not all(is_finite_nonnegative_number(row.get(field)) for field in ("real_time", "cpu_time")):
+                raise ValueError("CV row has invalid measurements: {0}".format(name))
+            cvs[name] = row["real_time"]
 
     medians = []
     seen = set()
@@ -42,6 +66,9 @@ def summarize_document(document):
         name = row["run_name"]
         if name in seen:
             raise ValueError("duplicate median row: {0}".format(name))
+        validate_status_flags(row, "median row {0}".format(name))
+        if not all(is_finite_nonnegative_number(row.get(field)) for field in ("real_time", "cpu_time")):
+            raise ValueError("median row has invalid measurements: {0}".format(name))
         seen.add(name)
         medians.append(
             {
@@ -56,6 +83,10 @@ def summarize_document(document):
 
     if not medians:
         raise ValueError("benchmark document contains no median aggregate rows")
+
+    orphan_cvs = sorted(set(cvs) - seen)
+    if orphan_cvs:
+        raise ValueError("CV row(s) without a median: {0}".format(", ".join(orphan_cvs)))
 
     cv_values = [row["real_time_cv"] for row in medians if row["real_time_cv"] is not None]
     noisy = sorted(
@@ -106,16 +137,12 @@ def validate_repetition_rows(name, benchmark_names, rows, expected_repetitions):
             raise ValueError(
                 "{0}: {1} has duplicate repetition_index={2}".format(name, benchmark, index)
             )
-        if row.get("error_occurred") or row.get("skipped"):
-            raise ValueError(
-                "{0}: {1} repetition {2} failed or was skipped".format(name, benchmark, index)
-            )
+        validate_status_flags(row, "{0}: {1} repetition {2}".format(name, benchmark, index))
 
         iterations = row.get("iterations")
         times = (row.get("real_time"), row.get("cpu_time"))
-        if type(iterations) is not int or iterations <= 0 or any(
-            type(value) not in (int, float) or not math.isfinite(value) or value < 0
-            for value in times
+        if type(iterations) is not int or iterations <= 0 or not all(
+            is_finite_nonnegative_number(value) for value in times
         ):
             raise ValueError(
                 "{0}: {1} repetition {2} has invalid measurements".format(name, benchmark, index)
@@ -167,15 +194,15 @@ def validate_suite(
                     name, expected_repetitions, ", ".join(wrong_repetitions)
                 )
             )
-        missing_cv = [
+        invalid_cv = [
             row["name"]
             for row in suite["benchmarks"]
-            if not isinstance(row["real_time_cv"], (int, float))
+            if not is_finite_nonnegative_number(row.get("real_time_cv"))
         ]
-        if missing_cv:
+        if invalid_cv:
             raise ValueError(
-                "{0}: benchmark(s) are missing numeric CV rows: {1}".format(
-                    name, ", ".join(missing_cv)
+                "{0}: benchmark(s) have missing or invalid CV rows: {1}".format(
+                    name, ", ".join(invalid_cv)
                 )
             )
         validate_repetition_rows(name, names, raw_rows, expected_repetitions)

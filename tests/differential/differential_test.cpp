@@ -96,33 +96,37 @@ void verify_division_oracle_against_native()
     }
 }
 
-size_t verify_uint256_division_normalization()
+template <size_t Bits>
+size_t verify_unsigned_division_normalization()
 {
     using namespace gint_differential;
+    using UInt = gint::integer<Bits, unsigned>;
+    constexpr size_t limb_count = Bits / 64;
     std::mt19937_64 rng(0xd170d);
     size_t total = 0;
-    for (unsigned top = 0; top < 4; ++top)
+    for (size_t top = 0; top < limb_count; ++top)
         for (unsigned shift = 0; shift < 64; ++shift)
         {
-            uint256_reference dividend;
-            for (unsigned limb = 0; limb < 4; ++limb)
+            reference_uint<limb_count> dividend;
+            for (size_t limb = 0; limb < limb_count; ++limb)
                 dividend.limbs[limb] = rng();
-            uint256_reference divisor;
+            reference_uint<limb_count> divisor;
             divisor.limbs[top] = uint64_t(1) << shift;
             for (unsigned shape = 0; shape < 2; ++shape)
             {
                 if (shape == 1)
                 {
-                    for (unsigned limb = 0; limb < top; ++limb)
+                    for (size_t limb = 0; limb < top; ++limb)
                         divisor.limbs[limb] = rng();
-                    divisor.limbs[0] |= 3;
+                    // Setting lower bits must preserve the highest set bit.
+                    divisor.limbs[0] |= (top != 0 || shift > 1) ? 3u : 1u;
                 }
-                gint::UInt256 actual_dividend = 0;
-                gint::UInt256 actual_divisor = 0;
-                for (unsigned limb = 0; limb < 4; ++limb)
+                UInt actual_dividend = 0;
+                UInt actual_divisor = 0;
+                for (size_t limb = 0; limb < limb_count; ++limb)
                 {
-                    gint_integer_access<gint::UInt256>::limb(actual_dividend, limb) = dividend.limbs[limb];
-                    gint_integer_access<gint::UInt256>::limb(actual_divisor, limb) = divisor.limbs[limb];
+                    gint_integer_access<UInt>::limb(actual_dividend, limb) = dividend.limbs[limb];
+                    gint_integer_access<UInt>::limb(actual_divisor, limb) = divisor.limbs[limb];
                 }
                 try
                 {
@@ -130,9 +134,10 @@ size_t verify_uint256_division_normalization()
                 }
                 catch (const std::exception & error)
                 {
-                    std::cerr << "division normalization failure: bits=256, seed=0xd170d, divisor_limbs=" << top + 1 << ", shift=" << shift
-                              << ", shape=" << (shape == 0 ? "power-of-two" : "mixed") << ", dividend=" << gint::to_string(actual_dividend)
-                              << ", divisor=" << gint::to_string(actual_divisor) << ", reason=" << error.what() << '\n';
+                    std::cerr << "division normalization failure: bits=" << Bits << ", seed=0xd170d, divisor_limbs=" << top + 1
+                              << ", shift=" << shift << ", shape=" << (shape == 0 ? "power-of-two" : "mixed")
+                              << ", dividend=" << gint::to_string(actual_dividend) << ", divisor=" << gint::to_string(actual_divisor)
+                              << ", reason=" << error.what() << '\n';
                     throw;
                 }
                 ++total;
@@ -412,7 +417,7 @@ int main(int argc, char ** argv)
     {
         const size_t iterations_per_seed = argc > 1 ? parse_iterations(argv[1]) : 512;
         verify_division_oracle_against_native();
-        const size_t division_cases = verify_uint256_division_normalization();
+        const size_t division_cases = verify_unsigned_division_normalization<128>() + verify_unsigned_division_normalization<256>();
         verify_float_oracle_against_native();
         verify_deterministic_float_boundaries();
         verify_uint1024_parser_boundaries();
