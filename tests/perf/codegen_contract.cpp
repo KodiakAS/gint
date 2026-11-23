@@ -80,6 +80,19 @@ GINT_PERF_NOINLINE std::uint32_t gint_perf_mod_u32(const gint::UInt256 * dividen
     return static_cast<std::uint32_t>(*dividend % divisor);
 }
 
+GINT_PERF_NOINLINE void gint_perf_div_u64(gint::UInt256 * quotient, const gint::UInt256 * dividend, std::uint64_t divisor)
+{
+    // Keep the non-power-of-two divisor in the positive signed-limb range.
+    divisor = (divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL;
+    *quotient = *dividend / divisor;
+}
+
+GINT_PERF_NOINLINE std::uint64_t gint_perf_mod_u64(const gint::UInt256 * dividend, std::uint64_t divisor)
+{
+    divisor = (divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL;
+    return static_cast<std::uint64_t>(*dividend % divisor);
+}
+
 GINT_PERF_NOINLINE unsigned gint_perf_hex_digit(unsigned char value)
 {
     return gint::detail::hexadecimal_digit_value(value);

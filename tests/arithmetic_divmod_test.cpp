@@ -1028,21 +1028,21 @@ TEST(WideIntegerDivision, DivModSmall64GenericU512)
 {
     using U512 = gint::integer<512, unsigned>;
     U512 lhs = (U512(1) << 510) + (U512(1) << 384) + U512(123456789ULL);
-    uint64_t div = (1ULL << 63) + 123ULL; // > 32-bit -> 64-bit reciprocal branch
+    uint64_t div = (1ULL << 63) + 123ULL;
 
-    U512 q = lhs / div; // goes through integer(rhs) -> small divisor -> div_mod_small generic
+    U512 q = lhs / div;
     U512 r = lhs % div;
     EXPECT_EQ(q * U512(div) + r, lhs);
 }
 
-// 32-bit boundary: div = 2^32-1 (32-bit path) vs div = 2^32 (64-bit path)
+// 32-bit boundary: non-power-of-two divisor 2^32-1 and power-of-two divisor 2^32.
 TEST(WideIntegerDivision, DivModSmall_32bitBoundary)
 {
     using U256 = gint::integer<256, unsigned>;
     U256 a = (U256(1) << 200) + (U256(1) << 120) + U256(0xDEADBEEFULL);
 
-    const uint64_t d32max = 0xFFFFFFFFULL; // triggers 32-bit reciprocal branch
-    const uint64_t d32plus = 0x100000000ULL; // triggers 64-bit reciprocal branch
+    const uint64_t d32max = 0xFFFFFFFFULL;
+    const uint64_t d32plus = 0x100000000ULL;
 
     // div = 2^32-1
     U256 q1 = a / d32max;
@@ -1057,7 +1057,6 @@ TEST(WideIntegerDivision, DivModSmall_32bitBoundary)
     EXPECT_LT(static_cast<uint64_t>(U256(r2)), d32plus);
 }
 
-// Div/mod by UINT64_MAX exercises 64-bit small-divisor reciprocal path
 TEST(WideIntegerDivision, DivModSmall_U64Max)
 {
     using U256 = gint::integer<256, unsigned>;
@@ -1067,6 +1066,72 @@ TEST(WideIntegerDivision, DivModSmall_U64Max)
     U256 r = a % d;
     EXPECT_EQ(q * d + r, a);
     EXPECT_LT(static_cast<uint64_t>(U256(r)), d);
+}
+
+namespace
+{
+template <typename Int, typename Divisor>
+void expect_maximum_quotient_limbs(Divisor divisor)
+{
+    const Int expected_quotient = std::numeric_limits<Int>::max() >> 64;
+    const Int expected_remainder(divisor - 1);
+    // After the highest limb, every step divides (divisor - 1) * 2^64
+    // + UINT64_MAX, giving the largest possible quotient limb.
+    const Int dividend = (expected_remainder << (Int::bits - 64)) | expected_quotient;
+    SCOPED_TRACE(::testing::Message() << "bits=" << Int::bits << ", divisor bits=" << sizeof(Divisor) * 8 << ", divisor=" << divisor);
+    EXPECT_EQ(dividend / divisor, expected_quotient);
+    EXPECT_EQ(dividend % divisor, expected_remainder);
+    const auto both = gint::divmod(dividend, Int(divisor));
+    EXPECT_EQ(both.quotient, expected_quotient);
+    EXPECT_EQ(both.remainder, expected_remainder);
+}
+
+template <typename Int>
+void expect_maximum_decimal_chunks()
+{
+    const uint64_t base = 10000000000000000000ULL;
+    Int power = 1;
+    for (size_t i = 0; i < Int::limbs; ++i)
+        power *= base;
+    SCOPED_TRACE(::testing::Message() << "bits=" << Int::bits);
+    EXPECT_EQ(gint::to_string(power - Int(1)), std::string(19 * Int::limbs, '9'));
+}
+} // namespace
+
+TEST(WideIntegerDivision, SingleLimbMaximumQuotientDigit)
+{
+    for (uint32_t divisor : {uint32_t(1), uint32_t(2), uint32_t(3), UINT32_MAX})
+    {
+        expect_maximum_quotient_limbs<gint::UInt256>(divisor);
+        expect_maximum_quotient_limbs<gint::integer<512, unsigned>>(divisor);
+        expect_maximum_quotient_limbs<gint::integer<1024, unsigned>>(divisor);
+    }
+
+    const uint64_t divisors[] = {0x100000000ULL, 0x100000001ULL, 10000000000000000000ULL, UINT64_MAX};
+    for (uint64_t divisor : divisors)
+    {
+        expect_maximum_quotient_limbs<gint::UInt256>(divisor);
+        expect_maximum_quotient_limbs<gint::integer<512, unsigned>>(divisor);
+        expect_maximum_quotient_limbs<gint::integer<1024, unsigned>>(divisor);
+    }
+}
+
+TEST(WideIntegerDivision, WideSignedScalarRemainderKeepsDividendSign)
+{
+    using Int = gint::integer<1024, signed>;
+    const Int dividend = (Int(1) << 900) + Int(7);
+    EXPECT_EQ(dividend % int64_t(-3), Int(2));
+    EXPECT_EQ((-dividend) % int32_t(3), Int(-2));
+    EXPECT_EQ((-dividend) % int64_t(-3), Int(-2));
+    EXPECT_EQ((-dividend) % std::numeric_limits<int64_t>::min(), Int(-7));
+    EXPECT_EQ(dividend % true, Int(0));
+}
+
+TEST(WideIntegerDivision, SingleLimbMaximumDecimalChunks)
+{
+    expect_maximum_decimal_chunks<gint::UInt256>();
+    expect_maximum_decimal_chunks<gint::integer<512, unsigned>>();
+    expect_maximum_decimal_chunks<gint::integer<1024, unsigned>>();
 }
 
 // Three-limb divisor: specialized fast path must match generic Knuth-D path

@@ -15,14 +15,53 @@ FUNCTION_LABEL = re.compile(r"^_?(gint_perf_[A-Za-z0-9_]+):(?:\s|$)")
 ASSEMBLY_LABEL = re.compile(r"^([.$A-Za-z_0-9]+):(?:\s|$)")
 CALL_MNEMONICS = frozenset(("bl", "blr", "call", "calll", "callq"))
 TAIL_TRANSFER_MNEMONICS = frozenset(("b", "jmp", "jmpl", "jmpq"))
+INDIRECT_TAIL_BRANCH_MNEMONICS = frozenset(("br", "braa", "braaz", "brab", "brabz"))
+ELF_LOCAL_LABEL = re.compile(r"^(?:\.L.*|[0-9]+[fb]?)$")
 LOCAL_LABEL = re.compile(r"^(?:\.L.*|LBB.*|Ltmp.*|Lloh.*|[0-9]+[fb]?)$")
+MACHO_LOCAL_LABEL = re.compile(r"^L[A-Za-z0-9_$.]+$")
+GOT_INDIRECT_SYMBOL = re.compile(
+    r"^\*([.$A-Za-z_][.$A-Za-z_0-9]*)@GOT[A-Za-z0-9_]*\([^)]*\)$",
+    re.IGNORECASE,
+)
 CONDITIONAL_BRANCH_MNEMONICS = frozenset(("cbz", "cbnz", "tbz", "tbnz"))
 TERMINAL_MNEMONICS = frozenset(
-    ("br", "brk", "eret", "hlt", "ret", "retq", "retn", "trap", "ud2")
+    ("br", "braa", "braaz", "brab", "brabz", "brk", "eret", "hlt", "ret", "retq", "retn", "trap", "ud2")
 )
 
 
-def is_out_of_line_transfer(mnemonic, instruction):
+def is_macho_target(target):
+    """Return whether a target triple uses Mach-O assembly conventions."""
+    if not target:
+        return False
+    lowered = target.lower()
+    return "darwin" in lowered or "apple" in lowered
+
+
+def is_local_label(label, is_macho=False, target=None):
+    """Return whether a label is function-local rather than a new symbol."""
+    if is_macho:
+        return (
+            ELF_LOCAL_LABEL.match(label) is not None
+            or MACHO_LOCAL_LABEL.match(label) is not None
+        )
+    if target is not None:
+        return ELF_LOCAL_LABEL.match(label) is not None
+    return LOCAL_LABEL.match(label) is not None
+
+
+def extract_transfer_target(instruction):
+    """Return the callee symbol for a direct or GOT-indirect transfer."""
+    operands = instruction.split(None, 1)
+    if len(operands) == 1:
+        return ""
+    operand = operands[1].split(None, 1)[0].rstrip(",")
+    if operand.startswith("*"):
+        got_match = GOT_INDIRECT_SYMBOL.match(operand)
+        return got_match.group(1) if got_match else ""
+    return operand.split("@", 1)[0]
+
+
+def is_out_of_line_transfer(mnemonic, instruction, is_macho=False, target=None):
     """Return whether an instruction can leave the current function."""
     if mnemonic in CALL_MNEMONICS:
         return True
@@ -31,13 +70,28 @@ def is_out_of_line_transfer(mnemonic, instruction):
     operands = instruction.split(None, 1)
     if len(operands) == 1:
         return True
-    target = operands[1].split(None, 1)[0].rstrip(",")
-    if target.startswith("*"):
+    operand = operands[1].split(None, 1)[0].rstrip(",")
+    if operand.startswith("*"):
+        return GOT_INDIRECT_SYMBOL.match(operand) is not None
+    if "@" in operand:
+        return True
+    return not is_local_label(operand, is_macho=is_macho, target=target)
+
+
+def is_unresolved_indirect_transfer(mnemonic, instruction):
+    """Return whether an instruction is an indirect tail transfer without a named symbol."""
+    if mnemonic in INDIRECT_TAIL_BRANCH_MNEMONICS:
+        return True
+    if mnemonic not in TAIL_TRANSFER_MNEMONICS:
         return False
-    return LOCAL_LABEL.match(target) is None
+    operands = instruction.split(None, 1)
+    if len(operands) == 1:
+        return False
+    operand = operands[1].split(None, 1)[0].rstrip(",")
+    return operand.startswith("*") and GOT_INDIRECT_SYMBOL.match(operand) is None
 
 
-def local_branch_target(mnemonic, instruction):
+def local_branch_target(mnemonic, instruction, is_macho=False, target=None):
     """Return the direct local-label operand for a branch, if any."""
     operands = instruction.split(None, 1)
     if len(operands) == 1:
@@ -49,12 +103,14 @@ def local_branch_target(mnemonic, instruction):
         or mnemonic == "b"
         or mnemonic.startswith("b.")
     ):
-        target = operand_text.split(None, 1)[0].rstrip(",")
+        operand = operand_text.split(None, 1)[0].rstrip(",")
     elif mnemonic in CONDITIONAL_BRANCH_MNEMONICS:
-        target = operand_text.rsplit(",", 1)[-1].strip().split(None, 1)[0]
+        operand = operand_text.rsplit(",", 1)[-1].strip().split(None, 1)[0]
     else:
         return None
-    return target if LOCAL_LABEL.match(target) else None
+    if "@" in operand:
+        return None
+    return operand if is_local_label(operand, is_macho=is_macho, target=target) else None
 
 
 def is_unconditional_transfer(mnemonic):
@@ -182,21 +238,26 @@ def find_cycle_branches(function):
     return cycle_branches
 
 
-def parse_assembly(text):
-    """Return instruction mnemonics and call sites for contract functions."""
+def parse_assembly(text, target=None):
+    """Return instruction mnemonics and call sites for probes and their callees."""
+    is_macho = is_macho_target(target)
     functions = {}
     active = None
 
     for line_number, raw_line in enumerate(text.splitlines(), 1):
         line = raw_line.strip()
-        match = FUNCTION_LABEL.match(line)
-        if match:
-            active = match.group(1)
+        label_match = ASSEMBLY_LABEL.match(line)
+        if label_match and not is_local_label(
+            label_match.group(1), is_macho=is_macho, target=target
+        ):
+            match = FUNCTION_LABEL.match(line)
+            active = match.group(1) if match else label_match.group(1)
             functions.setdefault(
                 active,
                 {
                     "mnemonics": [],
                     "calls": [],
+                    "indirect_transfers": [],
                     "labels": {},
                     "branches": [],
                     "instructions": [],
@@ -209,7 +270,6 @@ def parse_assembly(text):
         if line.startswith(".cfi_endproc"):
             active = None
             continue
-        label_match = ASSEMBLY_LABEL.match(line)
         if label_match:
             functions[active]["labels"].setdefault(label_match.group(1), []).append(
                 len(functions[active]["instructions"])
@@ -228,25 +288,31 @@ def parse_assembly(text):
                 "mnemonic": mnemonic,
             }
         )
-        target = local_branch_target(mnemonic, line)
-        if target is not None:
+        branch_target = local_branch_target(
+            mnemonic, line, is_macho=is_macho, target=target
+        )
+        if branch_target is not None:
             functions[active]["branches"].append(
                 {
                     "line": line_number,
                     "instruction": line,
-                    "target": target,
+                    "target": branch_target,
                     "source_index": source_index,
                 }
             )
-        if is_out_of_line_transfer(mnemonic, line):
+        if is_out_of_line_transfer(mnemonic, line, is_macho=is_macho, target=target):
             functions[active]["calls"].append(
                 {"line": line_number, "instruction": line}
             )
+        elif is_unresolved_indirect_transfer(mnemonic, line):
+            functions[active]["indirect_transfers"].append(
+                {"line": line_number, "instruction": line}
+            )
 
-    for function in functions.values():
-        # Keep the report/contract field name for compatibility. These are now
-        # cycle-forming branches, not branches selected by textual direction.
-        function["back_edges"] = find_cycle_branches(function)
+    for name, function in functions.items():
+        if name.startswith("gint_perf_"):
+            # Keep the report/contract field name for compatibility.
+            function["back_edges"] = find_cycle_branches(function)
     return functions
 
 
@@ -259,8 +325,62 @@ def normalize_architecture(target):
     raise ValueError("unsupported code-generation target: {0}".format(target))
 
 
-def evaluate_contract(functions, contract, architecture):
+def inspect_call_tree(name, functions, external_budget, violations, is_macho=False):
+    """Inspect each emitted body once and check every external call site."""
+    bodies = {}
+    external_calls = []
+    counts = {}
+    pending = [name]
+    while pending:
+        symbol = pending.pop()
+        if symbol in bodies:
+            continue
+
+        function = functions[symbol]
+        bodies[symbol] = len(function["mnemonics"])
+        indirect_transfers = function.get("indirect_transfers", [])
+        if not function["calls"] and not indirect_transfers:
+            continue
+        graph, _ = build_control_flow_graph(function)
+        cycle_lines = {
+            function["instructions"][index]["line"]
+            for component in cyclic_components(graph)
+            for index in component
+        }
+        for call in function["calls"]:
+            instruction = call["instruction"]
+            line = call["line"]
+            target = extract_transfer_target(instruction)
+            if target.startswith("_gint_perf_"):
+                target = target[1:]
+            location = "{0}: {1} at line {2}".format(name, symbol, line)
+            if line in cycle_lines:
+                violations.append("{0}: call inside a loop: {1}".format(location, instruction))
+            if target in functions and functions[target]["mnemonics"]:
+                pending.append(target)
+                continue
+
+            # Mach-O adds one leading underscore to C symbols.
+            if is_macho and target.startswith("_"):
+                target = target[1:]
+            external_calls.append({"function": symbol, "line": line, "instruction": instruction})
+            counts[target] = counts.get(target, 0) + 1
+            if counts[target] > external_budget.get(target, 0):
+                violations.append("{0}: unexpected external call: {1}".format(location, instruction))
+        for transfer in indirect_transfers:
+            instruction = transfer["instruction"]
+            line = transfer["line"]
+            location = "{0}: {1} at line {2}".format(name, symbol, line)
+            if line in cycle_lines:
+                violations.append("{0}: call inside a loop: {1}".format(location, instruction))
+            external_calls.append({"function": symbol, "line": line, "instruction": instruction})
+            violations.append("{0}: unresolved indirect transfer: {1}".format(location, instruction))
+    return bodies, external_calls
+
+
+def evaluate_contract(functions, contract, architecture, target=None):
     """Build a machine-readable report and return all violations."""
+    is_macho = is_macho_target(target)
     results = {}
     violations = []
 
@@ -325,6 +445,23 @@ def evaluate_contract(functions, contract, architecture):
                         name, call["line"], call["instruction"]
                     )
                 )
+        if "max_total_instructions" in requirements:
+            total_maximum = requirements["max_total_instructions"][architecture]
+            external_budget = requirements["external_call_budget"][architecture]
+            bodies, external_calls = inspect_call_tree(
+                name, functions, external_budget, violations, is_macho=is_macho
+            )
+            total_count = sum(bodies.values())
+            results[name].update(
+                total_instruction_count=total_count,
+                max_total_instructions=total_maximum,
+                callee_instruction_counts={symbol: size for symbol, size in bodies.items() if symbol != name},
+                external_calls=external_calls,
+            )
+            if total_count > total_maximum:
+                violations.append(
+                    "{0}: {1} total instructions exceeds budget {2}".format(name, total_count, total_maximum)
+                )
 
     return results, violations
 
@@ -342,12 +479,14 @@ def parse_args(argv):
 def main(argv=None):
     args = parse_args(argv)
     with open(args.assembly, "r") as assembly_file:
-        functions = parse_assembly(assembly_file.read())
+        functions = parse_assembly(assembly_file.read(), target=args.target)
     with open(args.contract, "r") as contract_file:
         contract = json.load(contract_file)
 
     architecture = normalize_architecture(args.target)
-    results, violations = evaluate_contract(functions, contract, architecture)
+    results, violations = evaluate_contract(
+        functions, contract, architecture, target=args.target
+    )
     report = {
         "schema_version": 1,
         "status": "fail" if violations else "pass",
@@ -371,15 +510,18 @@ def main(argv=None):
     print("target: {0}".format(args.target))
     for name in sorted(results):
         result = results[name]
-        print(
-            "{0}: {1}/{2} instructions, calls={3}, back_edges={4}".format(
-                name,
-                result["instruction_count"],
-                result["max_instructions"],
-                len(result["calls"]),
-                len(result["back_edges"]),
-            )
+        summary = "{0}: {1}/{2} instructions, calls={3}, back_edges={4}".format(
+            name,
+            result["instruction_count"],
+            result["max_instructions"],
+            len(result["calls"]),
+            len(result["back_edges"]),
         )
+        if "total_instruction_count" in result:
+            summary += ", {0}/{1} total instructions, external calls={2}".format(
+                result["total_instruction_count"], result["max_total_instructions"], len(result["external_calls"])
+            )
+        print(summary)
     if violations:
         for violation in violations:
             print("error: {0}".format(violation), file=sys.stderr)
