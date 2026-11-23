@@ -14,7 +14,6 @@ import sys
 FUNCTION_LABEL = re.compile(r"^_?(gint_perf_[A-Za-z0-9_]+):(?:\s|$)")
 ASSEMBLY_LABEL = re.compile(r"^([.$A-Za-z_0-9]+):(?:\s|$)")
 CALL_MNEMONICS = frozenset(("bl", "blr", "call", "calll", "callq"))
-TAIL_TRANSFER_MNEMONICS = frozenset(("b", "jmp", "jmpl", "jmpq"))
 INDIRECT_TAIL_BRANCH_MNEMONICS = frozenset(("br", "braa", "braaz", "brab", "brabz"))
 ELF_LOCAL_LABEL = re.compile(r"^(?:\.L.*|[0-9]+[fb]?)$")
 LOCAL_LABEL = re.compile(r"^(?:\.L.*|LBB.*|Ltmp.*|Lloh.*|[0-9]+[fb]?)$")
@@ -24,6 +23,15 @@ GOT_INDIRECT_SYMBOL = re.compile(
     re.IGNORECASE,
 )
 CONDITIONAL_BRANCH_MNEMONICS = frozenset(("cbz", "cbnz", "tbz", "tbnz"))
+AARCH64_DOTLESS_BRANCHES = frozenset(
+    ("beq", "bne", "bhs", "blo", "bcs", "bcc", "bmi", "bpl", "bvs",
+     "bvc", "bhi", "bls", "bge", "blt", "bgt", "ble", "bal", "bnv")
+)
+X86_INSTRUCTION_PREFIXES = frozenset(
+    ("notrack", "bnd", "rex64", "rex.w", "cs", "ds", "es", "fs", "gs", "ss",
+     "data16", "addr16", "addr32", "lock", "rep", "repe", "repne", "repz", "repnz")
+)
+X86_PREFIX_TOKEN = re.compile(r"^([A-Za-z0-9_.]+)(?:\s*[;/]\s*|\s+)(.*)$")
 TERMINAL_MNEMONICS = frozenset(
     ("br", "braa", "braaz", "brab", "brabz", "brk", "eret", "hlt", "ret", "retq", "retn", "trap", "ud2")
 )
@@ -49,75 +57,76 @@ def is_local_label(label, is_macho=False, target=None):
     return LOCAL_LABEL.match(label) is not None
 
 
+def split_instruction(instruction):
+    """Return the mnemonic and operands after any x86 instruction prefixes."""
+    text = instruction.strip()
+    while text:
+        match = X86_PREFIX_TOKEN.match(text)
+        if match and match.group(1).lower() in X86_INSTRUCTION_PREFIXES:
+            text = match.group(2).strip()
+            continue
+        if text.lower() in X86_INSTRUCTION_PREFIXES:
+            return "", ""
+        parts = text.split(None, 1)
+        return parts[0].lower(), parts[1] if len(parts) > 1 else ""
+    return "", ""
+
+
+def split_x86_statements(line):
+    """Split semicolon-separated x86 statements while keeping prefix chains attached."""
+    code = line.split("#", 1)[0].split("//", 1)[0].strip()
+    if ";" not in code:
+        return [line]
+    statements = []
+    pending_prefixes = []
+    for part in code.split(";"):
+        statement = part.strip()
+        if not statement:
+            continue
+        if statement.lower() in X86_INSTRUCTION_PREFIXES:
+            pending_prefixes.append(statement)
+            continue
+        if pending_prefixes:
+            statement = "; ".join(pending_prefixes + [statement])
+            pending_prefixes = []
+        statements.append(statement)
+    if pending_prefixes:
+        statements.append("; ".join(pending_prefixes))
+    return statements
+
+
+def transfer_operand(mnemonic, operand_text):
+    """Return the target operand of a transfer."""
+    if mnemonic in CONDITIONAL_BRANCH_MNEMONICS:
+        operand_text = operand_text.rsplit(",", 1)[-1].strip()
+    return operand_text.split(None, 1)[0].rstrip(",") if operand_text else ""
+
+
 def extract_transfer_target(instruction):
     """Return the callee symbol for a direct or GOT-indirect transfer."""
-    operands = instruction.split(None, 1)
-    if len(operands) == 1:
-        return ""
-    operand = operands[1].split(None, 1)[0].rstrip(",")
+    mnemonic, operands = split_instruction(instruction)
+    operand = transfer_operand(mnemonic, operands)
     if operand.startswith("*"):
         got_match = GOT_INDIRECT_SYMBOL.match(operand)
         return got_match.group(1) if got_match else ""
     return operand.split("@", 1)[0]
 
 
-def is_out_of_line_transfer(mnemonic, instruction, is_macho=False, target=None):
-    """Return whether an instruction can leave the current function."""
-    if mnemonic in CALL_MNEMONICS:
-        return True
-    if mnemonic not in TAIL_TRANSFER_MNEMONICS:
-        return False
-    operands = instruction.split(None, 1)
-    if len(operands) == 1:
-        return True
-    operand = operands[1].split(None, 1)[0].rstrip(",")
-    if operand.startswith("*"):
-        return GOT_INDIRECT_SYMBOL.match(operand) is not None
-    if "@" in operand:
-        return True
-    return not is_local_label(operand, is_macho=is_macho, target=target)
-
-
-def is_unresolved_indirect_transfer(mnemonic, instruction):
-    """Return whether an instruction is an indirect tail transfer without a named symbol."""
-    if mnemonic in INDIRECT_TAIL_BRANCH_MNEMONICS:
-        return True
-    if mnemonic not in TAIL_TRANSFER_MNEMONICS:
-        return False
-    operands = instruction.split(None, 1)
-    if len(operands) == 1:
-        return False
-    operand = operands[1].split(None, 1)[0].rstrip(",")
-    return operand.startswith("*") and GOT_INDIRECT_SYMBOL.match(operand) is None
-
-
-def local_branch_target(mnemonic, instruction, is_macho=False, target=None):
-    """Return the direct local-label operand for a branch, if any."""
-    operands = instruction.split(None, 1)
-    if len(operands) == 1:
-        return None
-    operand_text = operands[1].strip()
-    if (
-        mnemonic.startswith("j")
-        or mnemonic.startswith("loop")
+def is_direct_branch_mnemonic(mnemonic):
+    """Return whether the mnemonic can branch to a label."""
+    return (
+        mnemonic.startswith(("j", "loop", "b."))
         or mnemonic == "b"
-        or mnemonic.startswith("b.")
-    ):
-        operand = operand_text.split(None, 1)[0].rstrip(",")
-    elif mnemonic in CONDITIONAL_BRANCH_MNEMONICS:
-        operand = operand_text.rsplit(",", 1)[-1].strip().split(None, 1)[0]
-    else:
-        return None
-    if "@" in operand:
-        return None
-    return operand if is_local_label(operand, is_macho=is_macho, target=target) else None
+        or mnemonic in CONDITIONAL_BRANCH_MNEMONICS
+        or mnemonic in AARCH64_DOTLESS_BRANCHES
+    )
 
 
 def is_unconditional_transfer(mnemonic):
     """Return whether execution cannot fall through to the next instruction."""
     return (
         mnemonic in TERMINAL_MNEMONICS
-        or mnemonic in ("b", "b.al", "b.n", "b.w")
+        or mnemonic in ("b", "bal", "b.al", "bnv", "b.nv", "b.n", "b.w")
         or mnemonic.startswith("jmp")
     )
 
@@ -142,6 +151,7 @@ def build_control_flow_graph(function):
     instruction_count = len(function["instructions"])
     graph = [set() for _ in range(instruction_count)]
     branch_by_source = {}
+    fragment_entries = function["fragment_entries"]
 
     for branch in function["branches"]:
         target = resolve_branch_target(function["labels"], branch)
@@ -152,7 +162,7 @@ def build_control_flow_graph(function):
             )
 
     for index, instruction in enumerate(function["instructions"]):
-        if index + 1 >= instruction_count:
+        if index + 1 >= instruction_count or index + 1 in fragment_entries:
             continue
         if not is_unconditional_transfer(instruction["mnemonic"]):
             graph[index].add(index + 1)
@@ -241,8 +251,10 @@ def find_cycle_branches(function):
 def parse_assembly(text, target=None):
     """Return instruction mnemonics and call sites for probes and their callees."""
     is_macho = is_macho_target(target)
+    is_x86 = bool(target) and target.split("-", 1)[0].lower() in ("amd64", "x86_64")
     functions = {}
     active = None
+    in_cold_fragment = False
 
     for line_number, raw_line in enumerate(text.splitlines(), 1):
         line = raw_line.strip()
@@ -250,15 +262,27 @@ def parse_assembly(text, target=None):
         if label_match and not is_local_label(
             label_match.group(1), is_macho=is_macho, target=target
         ):
+            symbol = label_match.group(1)
+            # GCC emits a second symbol and CFI range when partitioning a function.
+            if symbol.endswith(".cold") and symbol[:-5] in functions:
+                active = symbol[:-5]
+                function = functions[active]
+                entry = len(function["instructions"])
+                function["labels"][symbol] = [entry]
+                function["fragment_entries"].add(entry)
+                in_cold_fragment = True
+                continue
             match = FUNCTION_LABEL.match(line)
-            active = match.group(1) if match else label_match.group(1)
+            active = match.group(1) if match else symbol
+            in_cold_fragment = False
             functions.setdefault(
                 active,
                 {
                     "mnemonics": [],
                     "calls": [],
                     "indirect_transfers": [],
-                    "labels": {},
+                    "labels": {symbol: [0]},
+                    "fragment_entries": set(),
                     "branches": [],
                     "instructions": [],
                 },
@@ -278,38 +302,52 @@ def parse_assembly(text, target=None):
         if not line or line[0] in ".#;" or line.startswith("//"):
             continue
 
-        mnemonic = line.split(None, 1)[0].lower()
-        functions[active]["mnemonics"].append(mnemonic)
-        source_index = len(functions[active]["instructions"])
-        functions[active]["instructions"].append(
-            {
-                "line": line_number,
-                "instruction": line,
-                "mnemonic": mnemonic,
-            }
-        )
-        branch_target = local_branch_target(
-            mnemonic, line, is_macho=is_macho, target=target
-        )
-        if branch_target is not None:
-            functions[active]["branches"].append(
+        statements = split_x86_statements(line) if is_x86 else [line]
+        for statement in statements:
+            mnemonic, operands = split_instruction(statement)
+            function = functions[active]
+            function["mnemonics"].append(mnemonic)
+            source_index = len(function["instructions"])
+            function["instructions"].append(
                 {
                     "line": line_number,
-                    "instruction": line,
-                    "target": branch_target,
-                    "source_index": source_index,
+                    "instruction": statement,
+                    "mnemonic": mnemonic,
                 }
             )
-        if is_out_of_line_transfer(mnemonic, line, is_macho=is_macho, target=target):
-            functions[active]["calls"].append(
-                {"line": line_number, "instruction": line}
-            )
-        elif is_unresolved_indirect_transfer(mnemonic, line):
-            functions[active]["indirect_transfers"].append(
-                {"line": line_number, "instruction": line}
-            )
+            call_site = {"line": line_number, "instruction": statement}
+            if in_cold_fragment:
+                call_site["cold"] = True
+            if mnemonic in CALL_MNEMONICS:
+                function["calls"].append(call_site)
+            elif mnemonic in INDIRECT_TAIL_BRANCH_MNEMONICS:
+                function["indirect_transfers"].append(call_site)
+            elif is_direct_branch_mnemonic(mnemonic):
+                operand = transfer_operand(mnemonic, operands)
+                if operand.startswith("*"):
+                    transfers = "calls" if GOT_INDIRECT_SYMBOL.match(operand) else "indirect_transfers"
+                    function[transfers].append(call_site)
+                    continue
+                function["branches"].append(
+                    {
+                        "line": line_number,
+                        "instruction": statement,
+                        "target": operand,
+                        "source_index": source_index,
+                    }
+                )
 
     for name, function in functions.items():
+        local_branches = []
+        for branch in function["branches"]:
+            if resolve_branch_target(function["labels"], branch) is None:
+                function["calls"].append(
+                    {"line": branch["line"], "instruction": branch["instruction"]}
+                )
+            else:
+                local_branches.append(branch)
+        function["branches"] = local_branches
+        function["calls"].sort(key=lambda call: call["line"])
         if name.startswith("gint_perf_"):
             # Keep the report/contract field name for compatibility.
             function["back_edges"] = find_cycle_branches(function)
@@ -378,6 +416,22 @@ def inspect_call_tree(name, functions, external_budget, violations, is_macho=Fal
     return bodies, external_calls
 
 
+def count_disallowed_calls(calls, cold_call_budget):
+    """Count calls that lack a matching allowance in the cold partition."""
+    remaining = dict(cold_call_budget)
+    disallowed = 0
+    for call in calls:
+        if call.get("cold") and remaining:
+            instruction = call["instruction"]
+            mnemonic, _ = split_instruction(instruction)
+            target = extract_transfer_target(instruction)
+            if mnemonic in CALL_MNEMONICS and remaining.get(target, 0) > 0:
+                remaining[target] -= 1
+                continue
+        disallowed += 1
+    return disallowed
+
+
 def evaluate_contract(functions, contract, architecture, target=None):
     """Build a machine-readable report and return all violations."""
     is_macho = is_macho_target(target)
@@ -417,18 +471,31 @@ def evaluate_contract(functions, contract, architecture, target=None):
                     name, count, maximum
                 )
             )
-        if requirements.get("forbid_calls", False) and calls:
-            violations.append(
-                "{0}: contains {1} out-of-line call/transfer(s)".format(
-                    name, len(calls)
+        if requirements.get("forbid_calls", False):
+            cold_call_budget = requirements.get("allowed_cold_calls", {}).get(architecture, {})
+            disallowed = count_disallowed_calls(calls, cold_call_budget)
+            if disallowed:
+                violations.append(
+                    "{0}: contains {1} out-of-line call/transfer(s)".format(
+                        name, disallowed
+                    )
                 )
-            )
         if "max_calls" in requirements and len(calls) > requirements["max_calls"]:
             violations.append(
                 "{0}: {1} out-of-line calls exceeds budget {2}".format(
                     name, len(calls), requirements["max_calls"]
                 )
             )
+        # Call tree inspection already rejects unresolved transfers when enabled.
+        if "max_total_instructions" not in requirements and (
+            requirements.get("forbid_calls", False) or "max_calls" in requirements
+        ):
+            for transfer in parsed.get("indirect_transfers", []):
+                violations.append(
+                    "{0} at line {1}: unresolved indirect transfer: {2}".format(
+                        name, transfer["line"], transfer["instruction"]
+                    )
+                )
         if "max_back_edges" in requirements and len(back_edges) > requirements["max_back_edges"]:
             violations.append(
                 "{0}: {1} back edge(s) exceeds budget {2}".format(

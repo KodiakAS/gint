@@ -49,6 +49,11 @@
         "x86_64": 180
       },
       "forbid_calls": true,
+      "allowed_cold_calls": {
+        "x86_64": {
+          "_ZN4gint21config_d0_g1_c0_a0_e16detail14mul_limbs4_u64EPmmm": 1
+        }
+      },
       "max_back_edges": 0
     },
     "gint_perf_mul_u32": {

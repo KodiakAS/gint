@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import importlib.util
+import json
 import os
 import unittest
 
@@ -55,6 +56,7 @@ LBB0_1:
     jmpq *__udivti3@GOTPCREL(%rip)
     jmpq *(%rax,%rcx,8)
     br x16
+LBB0_2:
 .Ldone:
     ret
     .cfi_endproc
@@ -79,6 +81,26 @@ Lfunc_end0:
         self.assertEqual(functions["gint_perf_add256"]["mnemonics"], ["ret"])
         self.assertNotIn("Lfunc_begin0", functions)
         self.assertNotIn("Lfunc_end0", functions)
+
+    def test_counts_calls_in_gcc_cold_partition_of_the_same_function(self):
+        assembly = """
+gint_perf_mul256:
+    je .Lcold
+.Ldone:
+    ret
+    .cfi_endproc
+    .section .text.unlikely
+gint_perf_mul256.cold:
+.Lcold:
+    callq mul_limbs4_u64
+    jmp .Ldone
+    .cfi_endproc
+"""
+        functions = CODEGEN.parse_assembly(assembly, target="x86_64-linux-gnu")
+        function = functions["gint_perf_mul256"]
+        self.assertEqual(function["mnemonics"], ["je", "ret", "callq", "jmp"])
+        self.assertEqual([call["instruction"] for call in function["calls"]], ["callq mul_limbs4_u64"])
+        self.assertEqual(function["back_edges"], [])
 
     def test_does_not_treat_backward_common_tail_branches_as_loops(self):
         assembly = """
@@ -276,6 +298,170 @@ gint_perf_div_u32:
         self.assertEqual(len(violations), 1)
         self.assertIn("unresolved indirect transfer: br x16", violations[0])
 
+    def test_rejects_unresolved_indirect_transfers_under_call_limits(self):
+        transfers = (
+            ("x86_64", "jmp *%rax"),
+            ("x86_64", "notrack jmp *%rax"),
+            ("x86_64", "bnd rex64 jmp *%rax"),
+            ("x86_64", "rex64/jmp *%rax"),
+            ("x86_64", "rex64; jmp *%rax"),
+            ("aarch64", "br x9"),
+        )
+        for architecture, transfer in transfers:
+            target = architecture + "-linux-gnu"
+            assembly = "gint_perf_div_u32:\n    " + transfer
+            functions = CODEGEN.parse_assembly(assembly, target=target)
+            for call_limit in ({"forbid_calls": True}, {"max_calls": 0}, {"max_calls": 1}):
+                with self.subTest(transfer=transfer, call_limit=call_limit):
+                    requirements = dict(call_limit, max_instructions={architecture: 3})
+                    contract = {"functions": {"gint_perf_div_u32": requirements}}
+                    _, violations = CODEGEN.evaluate_contract(
+                        functions, contract, architecture, target=target
+                    )
+                    self.assertEqual(len(violations), 1)
+                    self.assertIn("unresolved indirect transfer: " + transfer, violations[0])
+            _, violations = self.check_outlined_division(assembly, architecture, target=target)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("unresolved indirect transfer: " + transfer, violations[0])
+
+    def test_splits_semicolon_separated_x86_instructions(self):
+        target = "x86_64-linux-gnu"
+        assembly = "gint_perf_div_u32:\n    nop; jmp *%rax"
+        functions = CODEGEN.parse_assembly(assembly, target=target)
+        for call_limit in ({"forbid_calls": True}, {"max_calls": 0}):
+            with self.subTest(call_limit=call_limit):
+                requirements = dict(call_limit, max_instructions={"x86_64": 3})
+                contract = {"functions": {"gint_perf_div_u32": requirements}}
+                _, violations = CODEGEN.evaluate_contract(
+                    functions, contract, "x86_64", target=target
+                )
+                self.assertEqual(len(violations), 1)
+                self.assertIn("unresolved indirect transfer: jmp *%rax", violations[0])
+        _, violations = self.check_outlined_division(assembly, "x86_64", target=target)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("unresolved indirect transfer: jmp *%rax", violations[0])
+
+    def test_checks_external_conditional_transfers_under_call_limits(self):
+        cases = (
+            ("x86_64-linux-gnu", "jne .Ldone", "jne helper"),
+            ("aarch64-linux-gnu", "b.ne .Ldone", "b.ne helper"),
+            ("aarch64-linux-gnu", "bne .Ldone", "beq helper"),
+            ("arm64-apple-darwin", "cbnz x0, LBB0_1", "cbnz x0, _helper"),
+            ("aarch64-linux-gnu", "tbz x0, #0, 1f", "tbz x0, #0, .Loutside"),
+        )
+        for target, local_branch, external_branch in cases:
+            with self.subTest(target=target, external_branch=external_branch):
+                assembly = """
+gint_perf_div_u32:
+    {local}
+    {external}
+1:
+.Ldone:
+{macho_label}    ret
+    .cfi_endproc
+other_function:
+.Loutside:
+    ret
+""".format(
+                    local=local_branch,
+                    external=external_branch,
+                    macho_label="LBB0_1:\n" if "apple" in target else "",
+                )
+                architecture = CODEGEN.normalize_architecture(target)
+                functions = CODEGEN.parse_assembly(assembly, target=target)
+                calls = functions["gint_perf_div_u32"]["calls"]
+                self.assertEqual([call["instruction"] for call in calls], [external_branch])
+                for call_limit in ({"forbid_calls": True}, {"max_calls": 0}):
+                    requirements = dict(call_limit, max_instructions={architecture: 3})
+                    contract = {"functions": {"gint_perf_div_u32": requirements}}
+                    _, violations = CODEGEN.evaluate_contract(
+                        functions, contract, architecture, target=target
+                    )
+                    self.assertEqual(len(violations), 1)
+                    self.assertIn("out-of-line", violations[0])
+                _, violations = self.check_outlined_division(assembly, architecture, target=target)
+                self.assertEqual(len(violations), 1)
+                self.assertIn("unexpected external call: " + external_branch, violations[0])
+
+    def test_checks_aarch64_dotless_conditional_loops(self):
+        target = "aarch64-linux-gnu"
+        assembly = "gint_perf_div_u32:\n.Lspin:\n    subs x0, x0, #1\n    bne .Lspin\n    ret"
+        contract = {
+            "functions": {
+                "gint_perf_div_u32": {
+                    "max_instructions": {"aarch64": 3},
+                    "max_back_edges": 0,
+                    "forbid_calls": True,
+                }
+            }
+        }
+        functions = CODEGEN.parse_assembly(assembly, target=target)
+        _, violations = CODEGEN.evaluate_contract(functions, contract, "aarch64", target=target)
+        self.assertEqual(len(violations), 1)
+        self.assertIn("back edge(s) exceeds budget", violations[0])
+
+    def test_treats_aarch64_bnv_and_b_nv_as_unconditional_transfers(self):
+        with open(os.path.join(ROOT, "tests", "perf", "codegen_contract.json")) as contract_file:
+            requirements = json.load(contract_file)["functions"]["gint_perf_mul256"]
+        contract = {"functions": {"gint_perf_mul256": requirements}}
+        target = "aarch64-linux-gnu"
+        for mnemonic in ("bnv", "b.nv"):
+            with self.subTest(mnemonic=mnemonic):
+                assembly = "\n".join(
+                    [
+                        "gint_perf_mul256:",
+                        "    " + mnemonic + " .Ldone",
+                        "    b gint_perf_mul256",
+                        ".Ldone:",
+                        "    ret",
+                        "    .cfi_endproc",
+                    ]
+                )
+                functions = CODEGEN.parse_assembly(assembly, target=target)
+                self.assertEqual(functions["gint_perf_mul256"]["back_edges"], [])
+                _, violations = CODEGEN.evaluate_contract(
+                    functions, contract, "aarch64", target=target
+                )
+                self.assertEqual(violations, [])
+
+    def test_resolves_x86_prefixed_direct_transfers(self):
+        assembly = """
+gint_perf_div_u32:
+    data16 cs jmp .Ldone
+.Ldone:
+    ds callq helper@PLT
+    ret
+helper:
+    ret
+"""
+        results, violations = self.check_outlined_division(assembly)
+        self.assertEqual(violations, [])
+        self.assertEqual(results["gint_perf_div_u32"]["callee_instruction_counts"], {"helper": 1})
+
+    def test_allows_only_one_x86_64_cold_multiplication_helper(self):
+        with open(os.path.join(ROOT, "tests", "perf", "codegen_contract.json")) as contract_file:
+            requirements = json.load(contract_file)["functions"]["gint_perf_mul256"]
+        contract = {"functions": {"gint_perf_mul256": requirements}}
+        helper = "_ZN4gint21config_d0_g1_c0_a0_e16detail14mul_limbs4_u64EPmmm"
+        cases = (
+            ("x86_64", "", ["callq " + helper], True),
+            ("x86_64", "callq " + helper, [], False),
+            ("x86_64", "", ["callq " + helper] * 2, False),
+            ("x86_64", "", ["callq " + helper + ".other"], False),
+            ("x86_64", "", ["callq other # " + helper], False),
+            ("aarch64", "", ["bl " + helper], False),
+        )
+        for architecture, hot_call, cold_calls, allowed in cases:
+            with self.subTest(architecture=architecture, hot_call=hot_call, cold_calls=cold_calls):
+                assembly = "\n".join(
+                    ["gint_perf_mul256:", hot_call, "ret", ".cfi_endproc",
+                     "gint_perf_mul256.cold:"] + cold_calls + ["ret", ".cfi_endproc"]
+                )
+                target = architecture + "-linux-gnu"
+                functions = CODEGEN.parse_assembly(assembly, target=target)
+                _, violations = CODEGEN.evaluate_contract(functions, contract, architecture, target=target)
+                self.assertEqual(not violations, allowed)
+
     def test_rejects_a_missing_outlined_body(self):
         _, violations = self.check_outlined_division("gint_perf_div_u32:\n    jmp _div_mod_small")
         self.assertEqual(len(violations), 1)
@@ -301,7 +487,7 @@ LBB1_1:
         self.assertEqual(violations, [])
 
         _, elf_violations = self.check_outlined_division(
-            assembly, "aarch64", target="aarch64-unknown-linux-gnu"
+            assembly.replace("LBB1_1", ".LBB1_1"), "aarch64", target="aarch64-unknown-linux-gnu"
         )
         self.assertEqual(len(elf_violations), 1)
         self.assertIn("unexpected external call: bl ___udivti3", elf_violations[0])

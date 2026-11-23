@@ -207,7 +207,8 @@ GINT_FORCE_INLINE uint64_t divrem_u128_u64(uint64_t low, uint64_t divisor, uint6
     // The caller supplies a nonzero divisor and starts with remainder == 0.
     // Each step returns remainder < divisor, so the next dividend is below
     // divisor * 2^64 and its quotient fits in one limb.
-    __asm__("div{q %[divisor]| %[divisor]}" : "+a"(low), "+d"(remainder) : [divisor] "rm"(divisor) : "cc");
+    // A register operand supplies the size in Intel syntax and avoids a spill.
+    __asm__("div{q %[divisor]| %[divisor]}" : "+a"(low), "+d"(remainder) : [divisor] "r"(divisor) : "cc");
     return low;
 }
 #endif

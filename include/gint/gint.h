@@ -450,7 +450,8 @@ GINT_FORCE_INLINE uint64_t divrem_u128_u64(uint64_t low, uint64_t divisor, uint6
     // The caller supplies a nonzero divisor and starts with remainder == 0.
     // Each step returns remainder < divisor, so the next dividend is below
     // divisor * 2^64 and its quotient fits in one limb.
-    __asm__("div{q %[divisor]| %[divisor]}" : "+a"(low), "+d"(remainder) : [divisor] "rm"(divisor) : "cc");
+    // A register operand supplies the size in Intel syntax and avoids a spill.
+    __asm__("div{q %[divisor]| %[divisor]}" : "+a"(low), "+d"(remainder) : [divisor] "r"(divisor) : "cc");
     return low;
 }
 #endif
@@ -5635,6 +5636,10 @@ struct hash<gint::integer<Bits, Signed>>
 
 // String conversion and stream output.
 
+#if GINT_DETAIL_EXCEPTIONS_ENABLED && defined(__GLIBCXX__)
+#    include <cxxabi.h>
+#endif
+
 // Decimal/base conversion, string parsing, and stream output for integers.
 
 namespace gint
@@ -5806,44 +5811,86 @@ inline bool write_stream_padding(std::streambuf & buffer, std::streamsize count,
     return true;
 }
 
+#if GINT_DETAIL_EXCEPTIONS_ENABLED
+inline void set_stream_badbit(std::ostream & out) noexcept
+{
+    if (out.bad())
+        return;
+    // Preserve the original exception, including with the old ABI failure
+    // type thrown by libstdc++ on GCC 5/6 with the new ABI (PR66145).
+    try
+    {
+        out.setstate(std::ios_base::badbit);
+    }
+    catch (...)
+    {
+    }
+}
+
+#    if defined(__GLIBCXX__)
+// A pthread cancellation is a foreign exception. GCC's null reference check
+// misdiagnoses its ABI catch binding even though the reference is never used.
+#        if !defined(__clang__) && __GNUC__ >= 8
+__attribute__((no_sanitize("null")))
+#        elif !defined(__clang__) && __GNUC__ >= 5
+__attribute__((no_sanitize_undefined))
+#        endif
+inline void
+rethrow_stream_cancellation()
+{
+    try
+    {
+        throw;
+    }
+    catch (__cxxabiv1::__forced_unwind &)
+    {
+        throw;
+    }
+    catch (...)
+    {
+    }
+}
+#    endif
+#endif
+
 inline std::ostream & write_formatted_string(std::ostream & out, const std::string & text)
 {
     const std::streamsize width = out.width(0);
     const std::streamsize size = static_cast<std::streamsize>(text.size());
-    if (width <= size)
-        return out.write(text.data(), size);
 
-    std::ostream::sentry sentry(out);
-    if (!sentry)
-        return out;
-    const std::streamsize before = stream_padding_offset(text, out.flags() & std::ios_base::adjustfield);
-    std::streambuf & buffer = *out.rdbuf();
 #if GINT_DETAIL_EXCEPTIONS_ENABLED
+    if (!out.good())
+    {
+        // Preserve the standard library's sentry behavior on entry to a failed stream.
+        const std::ostream::sentry sentry(out);
+        return out;
+    }
+
     try
     {
 #endif
-        if ((!before || buffer.sputn(text.data(), before) == before) && write_stream_padding(buffer, width - size, out.fill())
-            && (before == size || buffer.sputn(text.data() + before, size - before) == size - before))
+        std::ostream::sentry sentry(out);
+        if (!sentry)
             return out;
+
+        const std::streamsize padding = width > size ? width - size : 0;
+        const std::streamsize before = padding ? stream_padding_offset(text, out.flags() & std::ios_base::adjustfield) : 0;
+        std::streambuf & buffer = *out.rdbuf();
+        if ((before && buffer.sputn(text.data(), before) != before) || (padding && !write_stream_padding(buffer, padding, out.fill()))
+            || (before != size && buffer.sputn(text.data() + before, size - before) != size - before))
+            out.setstate(std::ios_base::badbit);
 #if GINT_DETAIL_EXCEPTIONS_ENABLED
     }
     catch (...)
     {
-        // Preserve the original streambuf exception if setstate throws, including the
-        // old ABI failure type thrown by libstdc++ on GCC 5/6 with the new ABI (PR66145).
-        try
-        {
-            out.setstate(std::ios_base::badbit);
-        }
-        catch (...)
-        {
-        }
+        set_stream_badbit(out);
         if (out.exceptions() & std::ios_base::badbit)
             throw;
-        return out;
+#    if defined(__GLIBCXX__)
+        rethrow_stream_cancellation();
+#    endif
     }
 #endif
-    out.setstate(std::ios_base::badbit);
     return out;
 }
 

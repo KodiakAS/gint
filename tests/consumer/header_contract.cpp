@@ -15,6 +15,23 @@ static_assert(GINT_VERSION_MINOR == 9, "unexpected gint minor version");
 static_assert(GINT_VERSION_PATCH == 0, "unexpected gint patch version");
 static_assert(GINT_VERSION == 900, "unexpected encoded gint version");
 
+#ifdef GINT_TEST_INTEL_ASM
+gint::UInt256 intel_asm_divide(const gint::UInt256 & dividend, std::uint64_t divisor)
+{
+    return dividend / divisor;
+}
+
+gint::UInt256 intel_asm_remainder(const gint::UInt256 & dividend, std::uint64_t divisor)
+{
+    return dividend % divisor;
+}
+
+gint::divmod_result<gint::UInt256> intel_asm_divmod(const gint::UInt256 & dividend, std::uint64_t divisor)
+{
+    return gint::divmod(dividend, gint::UInt256(divisor));
+}
+#endif
+
 int main()
 {
     const gint::UInt128 value = 42;

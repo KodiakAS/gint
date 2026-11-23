@@ -286,6 +286,28 @@ if(GINT_BUILD_TESTS)
     add_gint_consumer_test(gint_consumer_odr_cxx11 "${GINT_ODR_STATIC_SOURCES}" 11)
     add_gint_consumer_test(gint_consumer_odr_cxx14 "${GINT_ODR_STATIC_SOURCES}" 14)
     add_gint_consumer_test(gint_consumer_header_contract tests/consumer/header_contract.cpp 11)
+
+    # Use the configured compiler target, including toolchain and architecture flags.
+    # The object build exercises the assembler, where Intel operand-size errors surface.
+    include(CheckCXXSourceCompiles)
+    check_cxx_source_compiles("
+#ifndef __x86_64__
+#error x86-64 target required
+#endif
+int main() { return 0; }
+" GINT_TARGET_IS_X86_64)
+    if(GINT_TARGET_IS_X86_64)
+        add_library(gint_consumer_header_contract_intel OBJECT tests/consumer/header_contract.cpp)
+        set_target_properties(gint_consumer_header_contract_intel PROPERTIES
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+        )
+        target_link_libraries(gint_consumer_header_contract_intel PRIVATE gint::gint)
+        target_compile_definitions(gint_consumer_header_contract_intel PRIVATE GINT_TEST_INTEL_ASM)
+        target_compile_options(gint_consumer_header_contract_intel PRIVATE -O3 -Wall -Wextra -Werror -masm=intel)
+    endif()
+
     foreach(standard IN ITEMS 14 17)
         if(cxx_std_${standard} IN_LIST CMAKE_CXX_COMPILE_FEATURES)
             add_gint_consumer_test(gint_consumer_header_contract_cxx${standard} tests/consumer/header_contract.cpp ${standard})
