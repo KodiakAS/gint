@@ -157,6 +157,10 @@ GCC 4.8.5 缺少较新的 carry/borrow intrinsic，x86_64 兼容路径使用
 `unsigned __int128` 标量实现。正式支持边界由[支持策略](SUPPORT.md)定义，不能
 从某个内部 fallback 推导额外平台承诺。
 
+x86-64 的 128-bit XOR 在 C++14 起需要检测到常量求值 builtin 才能使用 SSE2
+intrinsic。GCC 9 缺少用于检测的 `__has_builtin`，因此在 C++14 和 C++17 下走
+逐 limb 的标量路径。
+
 影响行为或代码生成的策略进入 inline namespace，防止不同配置的 header-only
 定义通过 COMDAT/weak inline 链接顺序相互替代。配置一致性要求见
 [集成指南](INTEGRATION.md)。

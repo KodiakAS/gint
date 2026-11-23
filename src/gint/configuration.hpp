@@ -133,9 +133,11 @@
 #    define GINT_DETAIL_X86_64_CARRY_INTRINSICS (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG)
 #endif
 
-// GCC before 9 rejects intrinsics inside C++17 constexpr functions even when
-// guarded by __builtin_is_constant_evaluated().
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9 && __cplusplus < 202002L
+// In C++14 and later, non-constexpr intrinsics need a constant-evaluation
+// fallback in the constexpr function. Keep the existing legacy GCC restriction.
+#if __cplusplus >= 201402L && !GINT_HAS_IS_CONSTANT_EVALUATED
+#    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 0
+#elif defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9 && __cplusplus < 202002L
 #    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 0
 #else
 #    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 1

@@ -18,5 +18,8 @@ static_assert(GINT_VERSION == 900, "unexpected encoded gint version");
 int main()
 {
     const gint::UInt128 value = 42;
-    return value == gint::UInt128(42) && gint::to_string(value) == "42" ? 0 : 1;
+    const gint::UInt128 lhs = (static_cast<unsigned __int128>(0x1234) << 64) | 0x5678;
+    const gint::UInt128 rhs = (static_cast<unsigned __int128>(0x12ab) << 64) | 0x9abc;
+    const gint::UInt128 expected = (static_cast<unsigned __int128>(0x009f) << 64) | 0xccc4;
+    return value == gint::UInt128(42) && gint::to_string(value) == "42" && (lhs ^ rhs) == expected ? 0 : 1;
 }
