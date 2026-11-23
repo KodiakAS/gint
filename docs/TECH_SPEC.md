@@ -109,8 +109,9 @@ C++14 起，128 位整数使用 `unsigned` 位移量的左移与右移支持常�
 - `gint::from_string<Int>(text, base)`：解析 `std::string` 或 C 字符串；
 - `operator<<`：遵循 `std::hex`、`std::oct`、`std::showbase`、符号、宽度、填充
   和对齐等整数 stream 标志；
-- 定义 `GINT_ENABLE_FMT` 后提供 `fmt::formatter`，填充支持单个 UTF-8 字符，
-  可配合左、右、居中对齐。静态和动态宽度二选一，宽度范围为 `0..INT_MAX`；
+- 定义 `GINT_ENABLE_FMT` 后提供 `fmt::formatter`，填充须为单个有效的 UTF-8 编码的
+  Unicode 标量值，且不能为 `{` 或 `}`，可配合左、右、居中对齐。静态和动态宽度
+  二选一，宽度范围为 `0..INT_MAX`；
   fmt 启用原生 128 位整数时也接受该类型的动态宽度。数字参数编号遵循 fmt 的
   十进制编号语法，只有编号 0 可用 0 开头。重复的零填充标志按所用 fmt 版本的
   原生整数规则处理。`L` 对所选进制的数字应用 locale 分组，不会改变进制。
