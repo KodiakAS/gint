@@ -179,25 +179,40 @@ TEST(WideIntegerMultiplication, UInt256_AdditionCarryChain)
 namespace
 {
 template <typename Int, typename Scalar>
-void check_unsigned_scalar_products(std::mt19937_64 & rng, const char * scalar_type)
+void expect_scalar_product(const Int & value, Scalar scalar, const Int & expected)
+{
+    EXPECT_EQ(value * scalar, expected);
+    EXPECT_EQ(scalar * value, expected);
+    Int assigned = value;
+    EXPECT_EQ(&(assigned *= scalar), &assigned);
+    EXPECT_EQ(assigned, expected);
+}
+
+template <typename Int, typename Scalar, size_t N>
+void check_limb_scalar_products(const Int (&values)[N], const char * scalar_type)
 {
     SCOPED_TRACE(::testing::Message() << "scalar_type=" << scalar_type);
-    const Scalar scalars[]
-        = {Scalar(0), Scalar(1), Scalar(2), std::numeric_limits<Scalar>::max(), Scalar(std::numeric_limits<Scalar>::max() / 2)};
-    for (unsigned sample = 0; sample < 12; ++sample)
+    const Scalar scalars[] = {
+        Scalar(0),
+        Scalar(1),
+        Scalar(2),
+        Scalar(-1),
+        Scalar(-2),
+        std::numeric_limits<Scalar>::min(),
+        std::numeric_limits<Scalar>::max(),
+        Scalar(std::numeric_limits<Scalar>::max() / 2),
+    };
+    for (size_t sample = 0; sample < N; ++sample)
     {
-        Int value = sample == 0 ? Int(-1) : Int(0);
-        if (sample != 0)
-            for (unsigned limb = 0; limb < sizeof(Int) / sizeof(uint64_t); ++limb)
-                value = (value << 64) + Int(rng());
+        const Int & value = values[sample];
         SCOPED_TRACE(::testing::Message() << "sample=" << sample << ", value=" << gint::to_string(value));
         for (Scalar scalar : scalars)
         {
-            SCOPED_TRACE(::testing::Message() << "scalar=" << static_cast<uint64_t>(scalar));
-            // Independent shift/add oracle, including carry chains and fixed-width wraparound.
+            uint64_t remaining = static_cast<uint64_t>(scalar);
+            SCOPED_TRACE(::testing::Message() << "scalar_bits=" << remaining);
+            // Shift/add the low bits, then account for the negative scalar's sign extension.
             Int expected = 0;
             Int shifted = value;
-            uint64_t remaining = static_cast<uint64_t>(scalar);
             while (remaining != 0)
             {
                 if (remaining & 1)
@@ -205,15 +220,9 @@ void check_unsigned_scalar_products(std::mt19937_64 & rng, const char * scalar_t
                 shifted <<= 1;
                 remaining >>= 1;
             }
-            EXPECT_EQ(value * scalar, expected);
-            EXPECT_EQ(scalar * value, expected);
-            // Compound assignment uses wide multiplication; one wraparound smoke is sufficient here.
-            if (sample == 0)
-            {
-                Int assigned = value;
-                assigned *= scalar;
-                EXPECT_EQ(assigned, expected);
-            }
+            if (static_cast<__int128>(scalar) < 0)
+                expected -= value << 64;
+            expect_scalar_product(value, scalar, expected);
         }
     }
 }
@@ -224,21 +233,41 @@ void check_scalar_widths()
     using Int = gint::integer<Bits, Signed>;
     SCOPED_TRACE(::testing::Message() << "bits=" << Bits << ", signed=" << std::is_signed<Signed>::value);
     std::mt19937_64 rng(0x55324d554cULL + Bits);
-    check_unsigned_scalar_products<Int, unsigned char>(rng, "unsigned char");
-    check_unsigned_scalar_products<Int, unsigned short>(rng, "unsigned short");
-    check_unsigned_scalar_products<Int, unsigned int>(rng, "unsigned int");
-    check_unsigned_scalar_products<Int, unsigned long>(rng, "unsigned long");
-    check_unsigned_scalar_products<Int, unsigned long long>(rng, "unsigned long long");
+    Int values[19] = {
+        Int(0),
+        Int(UINT64_MAX - 1),
+        Int(UINT64_MAX),
+        Int(uint64_t(1) << 63),
+        Int(-1),
+        std::numeric_limits<Int>::min(),
+        std::numeric_limits<Int>::max(),
+    };
+    for (size_t sample = 7; sample < 19; ++sample)
+        for (size_t limb = 0; limb < Bits / 64; ++limb)
+            values[sample] = (values[sample] << 64) + Int(rng());
+
+    check_limb_scalar_products<Int, signed char>(values, "signed char");
+    check_limb_scalar_products<Int, unsigned char>(values, "unsigned char");
+    check_limb_scalar_products<Int, short>(values, "short");
+    check_limb_scalar_products<Int, unsigned short>(values, "unsigned short");
+    check_limb_scalar_products<Int, int>(values, "int");
+    check_limb_scalar_products<Int, unsigned int>(values, "unsigned int");
+    check_limb_scalar_products<Int, long>(values, "long");
+    check_limb_scalar_products<Int, unsigned long>(values, "unsigned long");
+    check_limb_scalar_products<Int, long long>(values, "long long");
+    check_limb_scalar_products<Int, unsigned long long>(values, "unsigned long long");
+
     const Int value = (Int(1) << (Bits - 1)) + Int(7);
-    EXPECT_EQ(value * int32_t(-3), -(value + value + value));
-    EXPECT_EQ(int32_t(-3) * value, -(value + value + value));
     const unsigned __int128 large = (static_cast<unsigned __int128>(1) << 100) + 3;
-    EXPECT_EQ(value * large, (value << 100) + value + value + value);
-    EXPECT_EQ(large * value, (value << 100) + value + value + value);
+    const Int expected = (value << 100) + value + value + value;
+    expect_scalar_product(value, large, expected);
+    expect_scalar_product(value, -static_cast<__int128>(large), -expected);
+    expect_scalar_product(value, false, Int(0));
+    expect_scalar_product(value, true, value);
 }
 } // namespace
 
-TEST(WideIntegerMultiplication, UnsignedScalarDispatchAllWidths)
+TEST(WideIntegerMultiplication, ScalarDispatchAllWidths)
 {
     check_scalar_widths<64, signed>();
     check_scalar_widths<64, unsigned>();

@@ -1029,6 +1029,21 @@ GINT_FORCE_INLINE void mul_limb<2>(uint64_t * lhs, uint64_t rhs) noexcept
     store_u128(lhs, load_u128(lhs) * rhs);
 }
 
+#if GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
+GINT_FORCE_INLINE void mul_limbs4_by_u64_in_place(uint64_t * lhs, uint64_t rhs) noexcept
+{
+    using u128 = unsigned __int128;
+    const u128 p0 = u128(lhs[0]) * rhs;
+    const u128 p1 = u128(lhs[1]) * rhs;
+    const u128 p2 = u128(lhs[2]) * rhs;
+    // Add the aligned product halves with a single carry chain.
+    const uint64_t low[] = {static_cast<uint64_t>(p1), static_cast<uint64_t>(p2), lhs[3] * rhs};
+    const uint64_t high[] = {static_cast<uint64_t>(p0 >> 64), static_cast<uint64_t>(p1 >> 64), static_cast<uint64_t>(p2 >> 64)};
+    lhs[0] = static_cast<uint64_t>(p0);
+    add_limbs_copy_runtime<3>(lhs + 1, low, high);
+}
+#endif
+
 template <>
 GINT_FORCE_INLINE void mul_limb<4>(uint64_t * lhs, uint64_t rhs) noexcept
 {
@@ -1113,6 +1128,12 @@ private:
     {
     };
     explicit integer(uninitialized_tag) noexcept { }
+
+    template <typename T>
+    struct is_limb_scalar
+        : std::integral_constant<bool, detail::is_integral<T>::value && !std::is_same<T, bool>::value && sizeof(T) <= sizeof(limb_type)>
+    {
+    };
 
     template <size_t OtherBits, typename OtherSigned>
     GINT_CONSTEXPR14 void assign_integer(const integer<OtherBits, OtherSigned> & other) noexcept
@@ -1350,6 +1371,13 @@ public:
     integer & operator*=(const integer & rhs) noexcept
     {
         *this = *this * rhs;
+        return *this;
+    }
+
+    template <typename T, typename std::enable_if<is_limb_scalar<T>::value, int>::type = 0>
+    integer & operator*=(T rhs) noexcept
+    {
+        multiply_limb_scalar(rhs, std::is_signed<T>{});
         return *this;
     }
 
@@ -2376,7 +2404,7 @@ public:
 
     friend integer operator*(integer lhs, limb_type rhs) noexcept
     {
-        detail::mul_limb<limbs>(lhs.data_, rhs);
+        lhs *= rhs;
         return lhs;
     }
 
@@ -2385,16 +2413,22 @@ public:
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator*(integer lhs, T rhs) noexcept
     {
-        if (detail::is_unsigned<T>::value && !std::is_same<T, bool>::value && sizeof(T) <= sizeof(limb_type))
-            return lhs * static_cast<limb_type>(rhs);
+        if (is_limb_scalar<T>::value)
+        {
+            lhs *= rhs;
+            return lhs;
+        }
         return lhs * integer(rhs);
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
     friend integer operator*(T lhs, integer rhs) noexcept
     {
-        if (detail::is_unsigned<T>::value && !std::is_same<T, bool>::value && sizeof(T) <= sizeof(limb_type))
-            return rhs * static_cast<limb_type>(lhs);
+        if (is_limb_scalar<T>::value)
+        {
+            rhs *= lhs;
+            return rhs;
+        }
         return integer(lhs) * rhs;
     }
 
@@ -3065,6 +3099,49 @@ public:
     friend integer<OtherBits, OtherSigned> detail::parse_power_of_two_range(const char * begin, const char * end);
 
 private:
+    template <typename T>
+    GINT_FORCE_INLINE void multiply_limb_scalar(T rhs, std::false_type) noexcept
+    {
+#if GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
+        if (limbs == 4 && sizeof(T) == sizeof(limb_type))
+        {
+            detail::mul_limbs4_by_u64_in_place(data_, rhs);
+            return;
+        }
+#endif
+        detail::mul_limb<limbs>(data_, rhs);
+    }
+
+    GINT_FORCE_INLINE void multiply_limb_scalar(int64_t rhs, std::true_type) noexcept
+    {
+        if (limbs == 1)
+            data_[0] *= static_cast<limb_type>(rhs);
+        else if (limbs == 2)
+            detail::store_u128(data_, detail::load_u128(data_) * static_cast<unsigned __int128>(rhs));
+        else
+        {
+            if (limbs > 4 && GINT_UNLIKELY(detail::limbs_zero_above<limbs>(data_, 1)))
+            {
+                // An unsigned limb times a signed 64-bit scalar fits in 128 bits.
+                const auto product = static_cast<unsigned __int128>(data_[0]) * static_cast<unsigned __int128>(rhs);
+                detail::store_u128(data_, product);
+                if (rhs < 0)
+                {
+                    const limb_type fill = limb_type(0) - static_cast<limb_type>(product >> 127);
+                    for (size_t i = 2; i < limbs; ++i)
+                        data_[i] = fill;
+                }
+                return;
+            }
+            const limb_type bits = static_cast<limb_type>(rhs);
+            // Taking the magnitude in the unsigned domain also handles INT64_MIN.
+            const limb_type magnitude = rhs < 0 ? limb_type(0) - bits : bits;
+            multiply_limb_scalar(magnitude, std::false_type{});
+            if (rhs < 0)
+                negate_in_place(*this);
+        }
+    }
+
     GINT_FORCE_INLINE void mul_add_limb(limb_type multiplier, limb_type addend) noexcept
     {
         unsigned __int128 carry = addend;

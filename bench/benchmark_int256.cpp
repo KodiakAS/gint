@@ -1120,6 +1120,40 @@ static void MulAssign_U64(benchmark::State & state)
     }
 }
 
+template <int Sign, bool Sparse, bool Assign>
+static void Mul_I64(benchmark::State & state)
+{
+    static const auto data = []
+    {
+        std::array<std::pair<WInt, int64_t>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x4d554c4153534947ULL);
+        for (auto & value : values)
+        {
+            const WInt lhs = Sparse ? WInt(rng()) : random_full_width(rng);
+            const int64_t magnitude = static_cast<int64_t>(rng() >> 1) | 1;
+            const int64_t rhs = Sign < 0 ? -magnitude : (Sign > 0 ? magnitude : std::numeric_limits<int64_t>::min());
+            value = {lhs, rhs};
+        }
+        return values;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        if constexpr (Assign)
+        {
+            WInt value = p.first;
+            value *= p.second;
+            benchmark::DoNotOptimize(value);
+        }
+        else
+        {
+            benchmark::DoNotOptimize(p.first * p.second);
+        }
+    }
+}
+
 template <typename Int>
 static void run_gint_divmod(benchmark::State & state, const std::array<std::pair<Int, Int>, kDataN> & data)
 {
@@ -1351,6 +1385,16 @@ int main(int argc, char ** argv)
         benchmark::RegisterBenchmark("Mod/NativeU64/gint", &Native_Division<uint64_t, true>);
         benchmark::RegisterBenchmark("MulAssign/U64Sparse/gint", &MulAssign_U64<true>);
         benchmark::RegisterBenchmark("MulAssign/U64Dense/gint", &MulAssign_U64<false>);
+        benchmark::RegisterBenchmark("Mul/I64PositiveDense/gint", &Mul_I64<1, false, false>);
+        benchmark::RegisterBenchmark("Mul/I64PositiveSparse/gint", &Mul_I64<1, true, false>);
+        benchmark::RegisterBenchmark("Mul/I64NegativeDense/gint", &Mul_I64<-1, false, false>);
+        benchmark::RegisterBenchmark("Mul/I64MinDense/gint", &Mul_I64<0, false, false>);
+        benchmark::RegisterBenchmark("Mul/I64NegativeSparse/gint", &Mul_I64<-1, true, false>);
+        benchmark::RegisterBenchmark("MulAssign/I64PositiveDense/gint", &Mul_I64<1, false, true>);
+        benchmark::RegisterBenchmark("MulAssign/I64PositiveSparse/gint", &Mul_I64<1, true, true>);
+        benchmark::RegisterBenchmark("MulAssign/I64NegativeDense/gint", &Mul_I64<-1, false, true>);
+        benchmark::RegisterBenchmark("MulAssign/I64MinDense/gint", &Mul_I64<0, false, true>);
+        benchmark::RegisterBenchmark("MulAssign/I64NegativeSparse/gint", &Mul_I64<-1, true, true>);
         benchmark::RegisterBenchmark("DivMod/SignedMixed/gint", &DivMod_SignedMixed);
         benchmark::RegisterBenchmark("DivMod/DenseDivisor2/gint", &DivMod_DenseDivisor<2>);
         if constexpr (kBenchLimbs >= 4)
