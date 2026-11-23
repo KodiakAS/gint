@@ -22,13 +22,17 @@
 | [`gint.hpp`](../src/gint/gint.hpp) | 显式组合完整接口，最后清理私有宏 | integer、standard、string_stream、fmt、cleanup |
 | [`prelude.hpp`](../src/gint/prelude.hpp) | 编译器要求、版本和公共标准库头 | 无 |
 | [`configuration.hpp`](../src/gint/configuration.hpp) | 功能策略、编译器属性和配置 namespace | prelude |
-| [`integer.hpp`](../src/gint/integer.hpp) | 整数声明、traits、limb 运算、整数类及全部算术内核 | configuration |
+| [`limb_ops.hpp`](../src/gint/limb_ops.hpp) | 整数前置声明、traits、定长 limb 运算 | configuration |
+| [`integer_type.hpp`](../src/gint/integer_type.hpp) | 整数布局、转换、运算符和通用辅助函数 | limb_ops |
+| [`integer_division.hpp`](../src/gint/integer_division.hpp) | `detail::division_ops` 的除模内核、公开 `divmod` | integer_type |
+| [`integer.hpp`](../src/gint/integer.hpp) | 整数入口、静态成员定义和测试适配 | integer_division |
 | [`standard.hpp`](../src/gint/standard.hpp) | `std::numeric_limits`、`std::hash` 特化 | integer |
 | [`string_stream.hpp`](../src/gint/string_stream.hpp) | 字符串解析、进制转换和 stream 输出 | integer |
 | [`fmt.hpp`](../src/gint/fmt.hpp) | 可选 fmt 适配，复用文本转换函数 | string_stream |
 | [`cleanup.hpp`](../src/gint/cleanup.hpp) | 清理私有实现宏 | 无 |
 
-生成器将 prelude、configuration、integer、standard 依次归入 core 角色，
+生成器将 prelude、configuration、limb_ops、integer_type、integer_division、integer、
+standard 依次归入 core 角色，
 string_stream、fmt 依次归入 IO 角色；同角色只能依赖较早模块，IO 可依赖 core。
 完整入口属于 distribution，可直接依赖 core、IO 和 cleanup；cleanup 不依赖其他模块。
 标准库适配和字符串/stream 是整数实现之上的并列模块，fmt 的外部头由 `fmt.hpp`
@@ -40,13 +44,15 @@ string_stream、fmt 依次归入 IO 角色；同角色只能依赖较早模块�
 分组，保留可读顺序并避免格式化工具把清理头提前。
 
 内部模块不是公共入口；单独解析中间模块时会保留后续定义需要的实现宏，只有完整
-入口承诺清理。内部图测试覆盖直接包含完整入口，以及先使用字符串/stream、fmt
-模块再包含完整入口的顺序，并检查标准库适配和宏清理仍然完整。
+入口承诺清理。内部图测试覆盖直接包含完整入口，以及先使用整数层、字符串/stream
+或 fmt 模块再包含完整入口的顺序，并检查标准库适配和宏清理仍然完整。
 
 ### 整数实现的阅读路径
 
-`integer.hpp` 依次包含类型声明、traits、limb 工具、文本接口声明、整数类、
-公共运算符和私有算术内核。按运算符可找到除法、移位、浮点转换与平台特化。
+从 `integer_type.hpp` 的整数类查看布局、文本接口声明和运算符分派。底层加减、
+乘法和位运算可沿调用进入 `limb_ops.hpp`。运算符通过依赖模板
+`detail::division_ops<Bits, Signed>` 调用 `integer_division.hpp` 中的静态内核，
+友元声明允许内核访问 limb 布局。需要完整整数实现时包含 `integer.hpp`。
 文本接口的定义位于 `string_stream.hpp`，`fmt.hpp` 复用文本转换。
 
 ### 生成器输入与处理契约
@@ -102,8 +108,8 @@ include；分发头仅保留一个 `#pragma once`。条件表达式和 C++ 宏�
 - 512/1024-bit 使用 O(n²) 学校乘法。
 - 不超过 64-bit 的内建整数（不含 `bool`）在两种乘法操作数顺序和 `*=` 中都走
   标量路径。`*=` 原位更新各 limb。64/128-bit 宽整数使用原生无符号乘法，
-  有符号标量按结果位宽转换。更宽的整数逐 limb 乘以标量幅值，负标量再对结果
-  取补码。幅值在无符号域计算，覆盖 `INT64_MIN`。AArch64 Clang 上，256-bit 整数乘以
+  有符号标量按结果位宽转换。更宽的整数逐 limb 乘以标量幅值，负标量对结果取补码。
+  幅值在无符号域计算，覆盖 `INT64_MIN`。AArch64 Clang 上，256-bit 整数乘以
   64-bit 无符号标量或有符号标量的幅值时，用一条进位链累加对齐的部分积。
   512/1024-bit 只有低 limb 非零或所有 limb 为零时，乘以有符号标量可直接计算原生
   128-bit 乘积，负标量再向高位符号扩展。`bool` 和原生 128-bit 标量先构造宽整数。
@@ -134,14 +140,20 @@ include；分发头仅保留一个 `#pragma once`。条件表达式和 C++ 宏�
 
 - 2 的幂转为移位和掩码；
 - 64-bit 和 128-bit 被除数分别使用原生 64/64 和 128/64 运算；
-  非 x86-64 上，256-bit 及以上使用 32/64-bit 倒数估商路径；
+  非 x86-64 上，256-bit 及以上使用 32/64-bit 倒数估商路径。求商和单独求余
+  共用每步估商和一次修正，单独求余只读取被除数；
 - x86-64 上，256-bit 及以上整数对运行时单 limb 除数逐 limb 使用 `divq`。
   除零和 2 的幂由前置路径处理，因此进入循环时除数至少为 3。初始余数为零，
   每一步的余数都小于除数，所以下一个 128-bit 被除数严格小于除数乘以 `2^64`，
   商可放入一个 limb。标量取模的单 limb 路径直接读取被除数，负数先转换为幅值。
+  3-limb 除数的估商步骤在分子最高 limb 小于除数最高 limb 时也使用 `divq`。
   十进制输出按 `10^19` 分块。256/512-bit 使用编译期倒数和一次修正，
   1024-bit 使用同一硬件除法循环。
-- 常见 2/3-limb 和 256-bit 满宽场景使用定长热点内核；
+- 常见 2/3-limb 和 256-bit 满宽场景使用定长热点内核。2-limb 除数的规范化高 limb
+  等于 `2^63` 时，直接用移位估商，省略倒数计算。满宽 256-bit 求商和求余
+  共用规范化、估商和乘减链。规范化最多左移一位时，估商最多为三，可用比较与减法
+  得到。生成余数时，修正后的规范化余数严格小于 `2^256`，低四个 limb 反移位即得
+  最终余数；
 - 其他多 limb 情况使用规范化的 Knuth Algorithm D。
 
 `divmod` 对 UInt256 复用单 limb 或定长除法内核的商与余数，2 的幂直接使用移位和
@@ -151,8 +163,9 @@ include；分发头仅保留一个 `#pragma once`。条件表达式和 C++ 宏�
 
 ### 文本与浮点
 
-- 十进制输出按 `10^19` 分块，避免逐字符头插造成的重复移动。
-- 2/8/16 进制解析按 digit chunk 打包；其他进制使用分块乘加。
+- 十进制输出按 `10^19` 分块，收集余数后从缓冲区末尾写入各块，最后一次构造字符串。
+- 2/8/16 进制解析逐位校验并打包成单 limb 块。至多 256-bit 时，移位后拼入下一块。
+  更宽的整数按块的位偏移写入目标 limb。其他进制使用分块乘加。
 - 浮点比较按指数和有效位对齐，不把宽整数整体降精度为 `long double`。
 - 宽整数转浮点时，有效位数不超过目标精度的单 limb 幅值直接转换。需要舍入时使用
   guard/sticky bits，避免逐 limb 累加的二次舍入。

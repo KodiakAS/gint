@@ -34,6 +34,20 @@ struct formatter<gint::integer<Bits, Signed>>
 
     static FMT_CONSTEXPR bool is_name_char(char ch) { return is_name_start(ch) || (ch >= '0' && ch <= '9'); }
 
+    template <typename Iterator>
+    static FMT_CONSTEXPR unsigned parse_decimal(Iterator & it, Iterator end, unsigned value)
+    {
+        while (it != end && *it >= '0' && *it <= '9')
+        {
+            const unsigned digit = static_cast<unsigned>(*it - '0');
+            if (value > (static_cast<unsigned>((std::numeric_limits<int>::max)()) - digit) / 10u)
+                GINT_THROW(fmt::format_error("number is too big"));
+            value = value * 10u + digit;
+            ++it;
+        }
+        return value;
+    }
+
     static FMT_CONSTEXPR unsigned utf8_fill_size(const char * it, const char * end)
     {
         const unsigned char lead = static_cast<unsigned char>(*it);
@@ -170,18 +184,9 @@ struct formatter<gint::integer<Bits, Signed>>
             {
                 if (it != end && *it == '0' && it + 1 != end && it[1] != '}')
                     GINT_THROW(fmt::format_error("invalid argument index"));
-                int arg_id = 0;
-                bool has_arg_id = false;
-                while (it != end && *it >= '0' && *it <= '9')
-                {
-                    has_arg_id = true;
-                    const int digit = static_cast<int>(*it - '0');
-                    if (arg_id > ((std::numeric_limits<int>::max)() - digit) / 10)
-                        GINT_THROW(fmt::format_error("number is too big"));
-                    arg_id = arg_id * 10 + digit;
-                    ++it;
-                }
-                if (!has_arg_id || it == end || *it != '}')
+                const auto id_begin = it;
+                const int arg_id = static_cast<int>(parse_decimal(it, end, 0));
+                if (it == id_begin || it == end || *it != '}')
                     GINT_THROW(fmt::format_error("invalid format specifier for gint::integer"));
                 ctx.check_arg_id(arg_id);
 #    if FMT_VERSION >= 90100
@@ -196,14 +201,7 @@ struct formatter<gint::integer<Bits, Signed>>
 #    if FMT_VERSION < 100000
             const auto width_begin = it;
 #    endif
-            while (it != end && *it >= '0' && *it <= '9')
-            {
-                const unsigned digit = static_cast<unsigned>(*it - '0');
-                if (width > (static_cast<unsigned>((std::numeric_limits<int>::max)()) - digit) / 10u)
-                    GINT_THROW(fmt::format_error("number is too big"));
-                width = width * 10u + digit;
-                ++it;
-            }
+            width = parse_decimal(it, end, width);
 #    if FMT_VERSION < 100000
             // fmt 9 limits the width field's digits after consuming the zero flag.
             if (it - width_begin > std::numeric_limits<int>::digits10 + 1)
