@@ -5550,13 +5550,30 @@ inline std::string format_stream_value(const integer<Bits, Signed> & value, cons
     return text;
 }
 
+template <size_t Limbs, unsigned Shift>
+GINT_FORCE_INLINE void append_power_of_two_chunk(uint64_t * data, uint64_t chunk, std::true_type) noexcept
+{
+    for (size_t i = Limbs; i-- > 1;)
+        data[i] = data[i - 1];
+    data[0] = chunk;
+}
+
+template <size_t Limbs, unsigned Shift>
+GINT_FORCE_INLINE void append_power_of_two_chunk(uint64_t * data, uint64_t chunk, std::false_type) noexcept
+{
+    const unsigned inv_shift = 64u - Shift;
+    for (size_t i = Limbs; i-- > 1;)
+        data[i] = (data[i] << Shift) | (data[i - 1] >> inv_shift);
+    data[0] = (data[0] << Shift) | chunk;
+}
+
 template <unsigned BitsPerDigit, size_t Bits, typename Signed>
 GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end)
 {
     using Int = integer<Bits, Signed>;
     using limb_type = typename Int::limb_type;
     const unsigned base = 1u << BitsPerDigit;
-    const size_t chunk_digits = 64u / BitsPerDigit;
+    constexpr size_t chunk_digits = 64u / BitsPerDigit;
 
     Int result;
     const char * cursor = begin;
@@ -5588,21 +5605,8 @@ GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * be
             }
             else
             {
-                const unsigned shift = static_cast<unsigned>(chunk_digits * BitsPerDigit);
-                if (shift == 64u)
-                {
-                    for (size_t i = Int::limbs; i-- > 1;)
-                        result.data_[i] = result.data_[i - 1];
-                    result.data_[0] = chunk;
-                }
-                else
-                {
-                    const unsigned partial_shift = shift == 64u ? 1u : shift;
-                    const unsigned inv_shift = 64u - partial_shift;
-                    for (size_t i = Int::limbs; i-- > 1;)
-                        result.data_[i] = (result.data_[i] << partial_shift) | (result.data_[i - 1] >> inv_shift);
-                    result.data_[0] = (result.data_[0] << partial_shift) | chunk;
-                }
+                constexpr unsigned shift = static_cast<unsigned>(chunk_digits * BitsPerDigit);
+                append_power_of_two_chunk<Int::limbs, shift>(result.data_, chunk, std::integral_constant<bool, (shift == 64u)>{});
             }
         }
         else if (digits_left <= Bits / BitsPerDigit)
