@@ -53,11 +53,7 @@ inline std::string to_string(const integer<Bits, Signed> & v)
     while (!tmp.is_zero())
     {
         Int q;
-#if GINT_ARCH_X86_64
         const typename Int::limb_type rem = Division::template div_mod_small_constant<base>(tmp, q);
-#else
-        const typename Int::limb_type rem = Division::div_mod_small(tmp, base, q);
-#endif
         chunks[chunk_count++] = rem;
         tmp = q;
     }

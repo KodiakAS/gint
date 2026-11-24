@@ -233,31 +233,76 @@ GINT_CONSTEXPR14 inline void add_limbs_copy_scalar(uint64_t * dst, const uint64_
     }
 }
 
+// With no builtin in C++14 or later, the scalar path also serves runtime calls.
+GINT_FORCE_INLINE constexpr bool use_constexpr_limb_path() noexcept
+{
+#if __cplusplus < 201402L
+    return false;
+#elif GINT_HAS_IS_CONSTANT_EVALUATED
+    return __builtin_is_constant_evaluated();
+#else
+    return true;
+#endif
+}
+
+#if GINT_DETAIL_X86_64_CARRY_INTRINSICS
+using limb_carry_type = unsigned char;
+
+GINT_FORCE_INLINE uint64_t add_with_carry(uint64_t lhs, uint64_t rhs, limb_carry_type & carry) noexcept
+{
+    unsigned long long result;
+    carry = _addcarry_u64(carry, lhs, rhs, &result);
+    return result;
+}
+
+GINT_FORCE_INLINE uint64_t sub_with_borrow(uint64_t lhs, uint64_t rhs, limb_carry_type & borrow) noexcept
+{
+    unsigned long long result;
+    borrow = _subborrow_u64(borrow, lhs, rhs, &result);
+    return result;
+}
+#elif GINT_DETAIL_AARCH64_CLANG_CARRY_BUILTINS
+using limb_carry_type = unsigned long long;
+
+GINT_FORCE_INLINE uint64_t add_with_carry(uint64_t lhs, uint64_t rhs, limb_carry_type & carry) noexcept
+{
+    return __builtin_addcll(lhs, rhs, carry, &carry);
+}
+
+GINT_FORCE_INLINE uint64_t sub_with_borrow(uint64_t lhs, uint64_t rhs, limb_carry_type & borrow) noexcept
+{
+    return __builtin_subcll(lhs, rhs, borrow, &borrow);
+}
+#else
+using limb_carry_type = unsigned __int128;
+
+GINT_FORCE_INLINE uint64_t add_with_carry(uint64_t lhs, uint64_t rhs, limb_carry_type & carry) noexcept
+{
+    const unsigned __int128 sum = static_cast<unsigned __int128>(lhs) + rhs + carry;
+    carry = sum >> 64;
+    return static_cast<uint64_t>(sum);
+}
+
+GINT_FORCE_INLINE uint64_t sub_with_borrow(uint64_t lhs, uint64_t rhs, limb_carry_type & borrow) noexcept
+{
+    const unsigned __int128 subtrahend = static_cast<unsigned __int128>(rhs) + borrow;
+    borrow = lhs < subtrahend;
+    return static_cast<uint64_t>(lhs - subtrahend);
+}
+#endif
+
+template <size_t L, bool Subtract>
+GINT_FORCE_INLINE void add_sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+    limb_carry_type carry = 0;
+    for (size_t i = 0; i < L; ++i)
+        dst[i] = Subtract ? sub_with_borrow(lhs[i], rhs[i], carry) : add_with_carry(lhs[i], rhs[i], carry);
+}
+
 template <size_t L>
 GINT_FORCE_INLINE void add_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_DETAIL_X86_64_CARRY_INTRINSICS
-    unsigned char carry = 0;
-    for (size_t i = 0; i < L; ++i)
-    {
-        unsigned long long r;
-        carry = _addcarry_u64(carry, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
-        dst[i] = static_cast<uint64_t>(r);
-    }
-    return;
-#elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
-    unsigned long long carry = 0;
-    for (size_t i = 0; i < L; ++i)
-    {
-        unsigned long long carry_out;
-        const unsigned long long r
-            = __builtin_addcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), carry, &carry_out);
-        dst[i] = static_cast<uint64_t>(r);
-        carry = carry_out;
-    }
-    return;
-#endif
-    add_limbs_copy_scalar<L>(dst, lhs, rhs);
+    add_sub_limbs_copy_runtime<L, false>(dst, lhs, rhs);
 }
 
 template <>
@@ -324,18 +369,10 @@ GINT_FORCE_INLINE void add_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
 template <size_t L>
 GINT_CONSTEXPR14 inline void add_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
-    if (__builtin_is_constant_evaluated())
-    {
+    if (use_constexpr_limb_path())
         add_limbs_copy_scalar<L>(dst, lhs, rhs);
-        return;
-    }
-    add_limbs_copy_runtime<L>(dst, lhs, rhs);
-#elif __cplusplus >= 201402L
-    add_limbs_copy_scalar<L>(dst, lhs, rhs);
-#else
-    add_limbs_copy_runtime<L>(dst, lhs, rhs);
-#endif
+    else
+        add_limbs_copy_runtime<L>(dst, lhs, rhs);
 }
 
 template <size_t L>
@@ -360,28 +397,7 @@ GINT_CONSTEXPR14 inline void sub_limbs_copy_scalar(uint64_t * dst, const uint64_
 template <size_t L>
 GINT_FORCE_INLINE void sub_limbs_copy_runtime(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_DETAIL_X86_64_CARRY_INTRINSICS
-    unsigned char borrow = 0;
-    for (size_t i = 0; i < L; ++i)
-    {
-        unsigned long long r;
-        borrow = _subborrow_u64(borrow, static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), &r);
-        dst[i] = static_cast<uint64_t>(r);
-    }
-    return;
-#elif GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
-    unsigned long long borrow = 0;
-    for (size_t i = 0; i < L; ++i)
-    {
-        unsigned long long borrow_out;
-        const unsigned long long r
-            = __builtin_subcll(static_cast<unsigned long long>(lhs[i]), static_cast<unsigned long long>(rhs[i]), borrow, &borrow_out);
-        dst[i] = static_cast<uint64_t>(r);
-        borrow = borrow_out;
-    }
-    return;
-#endif
-    sub_limbs_copy_scalar<L>(dst, lhs, rhs);
+    add_sub_limbs_copy_runtime<L, true>(dst, lhs, rhs);
 }
 
 template <>
@@ -442,18 +458,10 @@ GINT_FORCE_INLINE void sub_limbs_copy_runtime<4>(uint64_t * dst, const uint64_t 
 template <size_t L>
 GINT_CONSTEXPR14 inline void sub_limbs_copy(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
-    if (__builtin_is_constant_evaluated())
-    {
+    if (use_constexpr_limb_path())
         sub_limbs_copy_scalar<L>(dst, lhs, rhs);
-        return;
-    }
-    sub_limbs_copy_runtime<L>(dst, lhs, rhs);
-#elif __cplusplus >= 201402L
-    sub_limbs_copy_scalar<L>(dst, lhs, rhs);
-#else
-    sub_limbs_copy_runtime<L>(dst, lhs, rhs);
-#endif
+    else
+        sub_limbs_copy_runtime<L>(dst, lhs, rhs);
 }
 
 template <size_t L>
@@ -518,22 +526,8 @@ template <>
 GINT_CONSTEXPR14 GINT_FORCE_INLINE void
 bit_xor_limbs<2>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
 {
-#if GINT_HAS_IS_CONSTANT_EVALUATED && __cplusplus >= 201402L
-    if (__builtin_is_constant_evaluated())
-    {
-        dst[0] = lhs[0] ^ rhs[0];
-        dst[1] = lhs[1] ^ rhs[1];
-        return;
-    }
-#endif
-#if GINT_ARCH_X86_64 && defined(__SSE2__) && GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE
-    const __m128i l = _mm_loadu_si128(reinterpret_cast<const __m128i *>(lhs));
-    const __m128i r = _mm_loadu_si128(reinterpret_cast<const __m128i *>(rhs));
-    _mm_storeu_si128(reinterpret_cast<__m128i *>(dst), _mm_xor_si128(l, r));
-#else
     dst[0] = lhs[0] ^ rhs[0];
     dst[1] = lhs[1] ^ rhs[1];
-#endif
 }
 
 template <>
@@ -545,30 +539,6 @@ bit_xor_limbs<4>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lh
     dst[2] = lhs[2] ^ rhs[2];
     dst[3] = lhs[3] ^ rhs[3];
 }
-
-#if GINT_DETAIL_AARCH64_CLANG
-template <>
-GINT_CONSTEXPR14 GINT_FORCE_INLINE void
-bit_xor_limbs<16>(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, const uint64_t * GINT_RESTRICT rhs) noexcept
-{
-    dst[0] = lhs[0] ^ rhs[0];
-    dst[1] = lhs[1] ^ rhs[1];
-    dst[2] = lhs[2] ^ rhs[2];
-    dst[3] = lhs[3] ^ rhs[3];
-    dst[4] = lhs[4] ^ rhs[4];
-    dst[5] = lhs[5] ^ rhs[5];
-    dst[6] = lhs[6] ^ rhs[6];
-    dst[7] = lhs[7] ^ rhs[7];
-    dst[8] = lhs[8] ^ rhs[8];
-    dst[9] = lhs[9] ^ rhs[9];
-    dst[10] = lhs[10] ^ rhs[10];
-    dst[11] = lhs[11] ^ rhs[11];
-    dst[12] = lhs[12] ^ rhs[12];
-    dst[13] = lhs[13] ^ rhs[13];
-    dst[14] = lhs[14] ^ rhs[14];
-    dst[15] = lhs[15] ^ rhs[15];
-}
-#endif
 
 enum class bitwise_op
 {
@@ -592,7 +562,6 @@ bitwise_limbs(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT lhs, 
 GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const uint64_t * GINT_RESTRICT lhs, uint64_t rhs) noexcept
 {
     using u128 = unsigned __int128;
-#if GINT_GCC_TUNED_PATHS && !GINT_ARCH_X86_64
     u128 cur = u128(lhs[0]) * rhs;
     res[0] = static_cast<uint64_t>(cur);
     cur = u128(lhs[1]) * rhs + (cur >> 64);
@@ -601,15 +570,6 @@ GINT_FORCE_INLINE void mul_limbs4_by_limb(uint64_t * GINT_RESTRICT res, const ui
     res[2] = static_cast<uint64_t>(cur);
     cur = u128(lhs[3]) * rhs + (cur >> 64);
     res[3] = static_cast<uint64_t>(cur);
-#else
-    u128 carry = 0;
-    for (size_t i = 0; i < 4; ++i)
-    {
-        u128 cur = u128(lhs[i]) * rhs + carry;
-        res[i] = static_cast<uint64_t>(cur);
-        carry = cur >> 64;
-    }
-#endif
 }
 
 GINT_FORCE_INLINE void
@@ -657,17 +617,9 @@ add_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT 
     const uint64_t r0 = lhs[0] + rhs;
     uint64_t carry = r0 < lhs[0];
     const uint64_t r1 = lhs[1] + carry;
-#if defined(__apple_build_version__)
-    carry = carry && r1 == 0;
-#else
     carry = r1 < carry;
-#endif
     const uint64_t r2 = lhs[2] + carry;
-#if defined(__apple_build_version__)
-    carry = carry && r2 == 0;
-#else
     carry = r2 < carry;
-#endif
     const uint64_t r3 = lhs[3] + carry;
     dst[0] = r0;
     dst[1] = r1;
@@ -689,6 +641,37 @@ sub_limbs4_by_limb(uint64_t * GINT_RESTRICT dst, const uint64_t * GINT_RESTRICT 
     dst[1] = r1;
     dst[2] = r2;
     dst[3] = r3;
+}
+
+template <size_t L>
+constexpr bool use_fixed_limb_add_sub() noexcept
+{
+    return L == 4 && (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG);
+}
+
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void sub_limbs4_by_limb_for_scalar(uint64_t * dst, const uint64_t * lhs, uint64_t rhs) noexcept
+{
+#if GINT_DETAIL_AARCH64_CLANG && !GINT_DETAIL_APPLE_CLANG
+    const auto low = load_u128(lhs);
+    const auto high = load_u128(lhs + 2);
+    store_u128(dst, low - rhs);
+    store_u128(dst + 2, high - (low < rhs));
+#else
+    sub_limbs4_by_limb(dst, lhs, rhs);
+#endif
+}
+
+template <size_t L>
+GINT_CONSTEXPR14 GINT_FORCE_INLINE void sub_limbs_copy_disjoint(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+{
+#if GINT_DETAIL_X86_64_GCC
+    if (L == 4 && (rhs[1] | rhs[2] | rhs[3]) == 0)
+    {
+        sub_limbs4_by_limb(dst, lhs, rhs[0]);
+        return;
+    }
+#endif
+    sub_limbs_copy<L>(dst, lhs, rhs);
 }
 
 GINT_FORCE_INLINE
@@ -720,39 +703,28 @@ bool mul_limbs4_try_small_operand(
     }
     if ((lhs[2] | lhs[3] | rhs[2] | rhs[3]) == 0)
     {
-        if ((lhs[1] | rhs[1]) == 0)
-        {
-            u128 p = u128(lhs[0]) * rhs[0];
-            res[0] = static_cast<uint64_t>(p);
-            res[1] = static_cast<uint64_t>(p >> 64);
-            res[2] = 0;
-            res[3] = 0;
-        }
-        else
-        {
-            const u128 a0 = lhs[0];
-            const u128 a1 = lhs[1];
-            const u128 b0 = rhs[0];
-            const u128 b1 = rhs[1];
+        const u128 a0 = lhs[0];
+        const u128 a1 = lhs[1];
+        const u128 b0 = rhs[0];
+        const u128 b1 = rhs[1];
 
-            u128 p00 = a0 * b0;
-            u128 p01 = a0 * b1;
-            u128 p10 = a1 * b0;
-            u128 p11 = a1 * b1;
+        u128 p00 = a0 * b0;
+        u128 p01 = a0 * b1;
+        u128 p10 = a1 * b0;
+        u128 p11 = a1 * b1;
 
-            res[0] = static_cast<uint64_t>(p00);
-            u128 sum = (p00 >> 64) + static_cast<uint64_t>(p01) + static_cast<uint64_t>(p10);
-            res[1] = static_cast<uint64_t>(sum);
-            u128 carry = sum >> 64;
+        res[0] = static_cast<uint64_t>(p00);
+        u128 sum = (p00 >> 64) + static_cast<uint64_t>(p01) + static_cast<uint64_t>(p10);
+        res[1] = static_cast<uint64_t>(sum);
+        u128 carry = sum >> 64;
 
-            u128 high = p11;
-            high += (p01 >> 64);
-            high += (p10 >> 64);
-            high += carry;
+        u128 high = p11;
+        high += (p01 >> 64);
+        high += (p10 >> 64);
+        high += carry;
 
-            res[2] = static_cast<uint64_t>(high);
-            res[3] = static_cast<uint64_t>(high >> 64);
-        }
+        res[2] = static_cast<uint64_t>(high);
+        res[3] = static_cast<uint64_t>(high >> 64);
         return true;
     }
 #else
@@ -1031,7 +1003,7 @@ GINT_FORCE_INLINE void mul_limb<2>(uint64_t * lhs, uint64_t rhs) noexcept
     store_u128(lhs, load_u128(lhs) * rhs);
 }
 
-#if GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
+#if GINT_DETAIL_AARCH64_CLANG_CARRY_BUILTINS
 GINT_FORCE_INLINE void mul_limbs4_by_u64_in_place(uint64_t * lhs, uint64_t rhs) noexcept
 {
     using u128 = unsigned __int128;

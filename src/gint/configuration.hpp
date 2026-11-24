@@ -2,21 +2,99 @@
 
 #include "prelude.hpp"
 
-// Private feature policies, compiler attributes, and the configuration namespace.
-
-#define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
-#define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
-#define GINT_FORCE_INLINE inline __attribute__((always_inline))
-
-#if defined(__clang__)
-#    define GINT_CLANG_NOINLINE __attribute__((noinline))
+// Target and compiler feature detection.
+#if defined(__aarch64__)
+#    define GINT_ARCH_AARCH64 1
 #else
-#    define GINT_CLANG_NOINLINE
+#    define GINT_ARCH_AARCH64 0
 #endif
 
-#define GINT_NOINLINE __attribute__((noinline))
-#define GINT_COLD __attribute__((cold))
-#define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
+#if defined(__x86_64__)
+#    define GINT_ARCH_X86_64 1
+#else
+#    define GINT_ARCH_X86_64 0
+#endif
+
+#if defined(__clang__)
+#    define GINT_DETAIL_CLANG_FRONTEND 1
+#else
+#    define GINT_DETAIL_CLANG_FRONTEND 0
+#endif
+
+#if defined(__apple_build_version__)
+#    define GINT_DETAIL_APPLE_CLANG 1
+#else
+#    define GINT_DETAIL_APPLE_CLANG 0
+#endif
+
+#if __cplusplus >= 201402L
+#    define GINT_CONSTEXPR14 constexpr
+#else
+#    define GINT_CONSTEXPR14
+#endif
+
+#ifdef __has_builtin
+#    define GINT_DETAIL_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#    define GINT_DETAIL_HAS_BUILTIN(x) 0
+#endif
+
+#if GINT_DETAIL_HAS_BUILTIN(__builtin_is_constant_evaluated)
+#    define GINT_HAS_IS_CONSTANT_EVALUATED 1
+#else
+#    define GINT_HAS_IS_CONSTANT_EVALUATED 0
+#endif
+
+// User-configurable policies and normalized ABI inputs.
+#ifndef GINT_ENABLE_AARCH64_LIMB_ASM
+#    if GINT_ARCH_AARCH64
+#        define GINT_ENABLE_AARCH64_LIMB_ASM 1
+#    else
+#        define GINT_ENABLE_AARCH64_LIMB_ASM 0
+#    endif
+#endif
+
+// Compiler-tuned path policy:
+// - GCC benefits from selected small-number/division/modulo fast paths.
+// - Clang benefits from a narrower modulo fast path and otherwise prefers
+//   several generic paths that optimize better under AppleClang on AArch64.
+#ifndef GINT_GCC_TUNED_PATHS
+#    if GINT_DETAIL_CLANG_FRONTEND
+#        define GINT_GCC_TUNED_PATHS 0
+#    else
+#        define GINT_GCC_TUNED_PATHS 1
+#    endif
+#endif
+
+#ifndef GINT_CLANG_TUNED_PATHS
+#    if GINT_DETAIL_CLANG_FRONTEND
+#        define GINT_CLANG_TUNED_PATHS 1
+#    else
+#        define GINT_CLANG_TUNED_PATHS 0
+#    endif
+#endif
+
+#if GINT_GCC_TUNED_PATHS && GINT_CLANG_TUNED_PATHS
+#    error "GINT_GCC_TUNED_PATHS and GINT_CLANG_TUNED_PATHS are mutually exclusive"
+#endif
+
+#if GINT_GCC_TUNED_PATHS
+#    define GINT_DETAIL_GCC_TUNED_POLICY 1
+#else
+#    define GINT_DETAIL_GCC_TUNED_POLICY 0
+#endif
+
+#if GINT_CLANG_TUNED_PATHS
+#    define GINT_DETAIL_CLANG_TUNED_POLICY 1
+#else
+#    define GINT_DETAIL_CLANG_TUNED_POLICY 0
+#endif
+
+#if GINT_ENABLE_AARCH64_LIMB_ASM
+#    define GINT_DETAIL_AARCH64_ASM_POLICY 1
+#else
+#    define GINT_DETAIL_AARCH64_ASM_POLICY 0
+#endif
 
 #if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 #    define GINT_DETAIL_EXCEPTIONS_ENABLED 1
@@ -44,112 +122,45 @@
 #define GINT_DIVZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "division by zero")
 #define GINT_MODZERO_CHECK(cond) GINT_ZERO_CHECK(cond, "modulo by zero")
 
-#if __cplusplus >= 201402L
-#    define GINT_CONSTEXPR14 constexpr
-#else
-#    define GINT_CONSTEXPR14
-#endif
+// Platform policies and capability gates.
+#define GINT_DETAIL_X86_64_GCC (GINT_ARCH_X86_64 && GINT_DETAIL_GCC_TUNED_POLICY)
+#define GINT_DETAIL_X86_64_CLANG (GINT_ARCH_X86_64 && GINT_DETAIL_CLANG_TUNED_POLICY)
+#define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_DETAIL_GCC_TUNED_POLICY)
+#define GINT_DETAIL_AARCH64_CLANG (GINT_ARCH_AARCH64 && GINT_DETAIL_CLANG_TUNED_POLICY)
 
-#if defined(__GNUC__) || defined(__clang__)
-#    define GINT_RESTRICT __restrict
-#else
-#    define GINT_RESTRICT
-#endif
-
-#ifdef __has_builtin
-#    define GINT_DETAIL_HAS_BUILTIN(x) __has_builtin(x)
-#else
-#    define GINT_DETAIL_HAS_BUILTIN(x) 0
-#endif
-
-#if GINT_DETAIL_HAS_BUILTIN(__builtin_is_constant_evaluated)
-#    define GINT_HAS_IS_CONSTANT_EVALUATED 1
-#else
-#    define GINT_HAS_IS_CONSTANT_EVALUATED 0
-#endif
-
-#if defined(__aarch64__)
-#    define GINT_ARCH_AARCH64 1
-#else
-#    define GINT_ARCH_AARCH64 0
-#endif
-
-#if defined(__x86_64__)
-#    define GINT_ARCH_X86_64 1
-#else
-#    define GINT_ARCH_X86_64 0
-#endif
-
-// Public configuration boundary:
-// - User-facing switches are GINT_ENABLE_FMT, GINT_ENABLE_DIVZERO_CHECKS,
-//   GINT_GCC_TUNED_PATHS, GINT_CLANG_TUNED_PATHS, and
-//   GINT_ENABLE_AARCH64_LIMB_ASM.
-// - Fast paths are governed internally by the four platform policies below.
-//   Keep one-off compiler defect checks separate from algorithm selection.
-#ifndef GINT_ENABLE_AARCH64_LIMB_ASM
-#    if GINT_ARCH_AARCH64
-#        define GINT_ENABLE_AARCH64_LIMB_ASM 1
-#    else
-#        define GINT_ENABLE_AARCH64_LIMB_ASM 0
-#    endif
-#endif
-
-// Compiler-tuned path policy:
-// - GCC benefits from selected small-number/division/modulo fast paths.
-// - Clang benefits from a narrower modulo fast path and otherwise prefers
-//   several generic paths that optimize better under AppleClang on AArch64.
-#ifndef GINT_GCC_TUNED_PATHS
-#    if defined(__clang__)
-#        define GINT_GCC_TUNED_PATHS 0
-#    elif defined(__GNUC__)
-#        define GINT_GCC_TUNED_PATHS 1
-#    else
-#        define GINT_GCC_TUNED_PATHS 0
-#    endif
-#endif
-
-#ifndef GINT_CLANG_TUNED_PATHS
-#    if defined(__clang__)
-#        define GINT_CLANG_TUNED_PATHS 1
-#    else
-#        define GINT_CLANG_TUNED_PATHS 0
-#    endif
-#endif
-
-#if GINT_GCC_TUNED_PATHS && GINT_CLANG_TUNED_PATHS
-#    error "GINT_GCC_TUNED_PATHS and GINT_CLANG_TUNED_PATHS are mutually exclusive"
-#endif
-
-#define GINT_DETAIL_X86_64_GCC (GINT_ARCH_X86_64 && GINT_GCC_TUNED_PATHS)
-#define GINT_DETAIL_X86_64_CLANG (GINT_ARCH_X86_64 && GINT_CLANG_TUNED_PATHS)
-#define GINT_DETAIL_AARCH64_GCC (GINT_ARCH_AARCH64 && GINT_GCC_TUNED_PATHS)
-#define GINT_DETAIL_AARCH64_CLANG (GINT_ARCH_AARCH64 && GINT_CLANG_TUNED_PATHS)
+#define GINT_DETAIL_AARCH64_CLANG_CARRY_BUILTINS \
+    (GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll))
 
 // GCC only exposes the x86_64 carry/borrow intrinsics used below starting in
 // GCC 7. Older supported GCC releases use the scalar __int128 implementation.
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 7
+#if !GINT_DETAIL_CLANG_FRONTEND && __GNUC__ < 7
 #    define GINT_DETAIL_X86_64_CARRY_INTRINSICS 0
 #else
 #    define GINT_DETAIL_X86_64_CARRY_INTRINSICS (GINT_DETAIL_X86_64_GCC || GINT_DETAIL_X86_64_CLANG)
 #endif
 
-// In C++14 and later, non-constexpr intrinsics need a constant-evaluation
-// fallback in the constexpr function. Keep the existing legacy GCC restriction.
-#if __cplusplus >= 201402L && !GINT_HAS_IS_CONSTANT_EVALUATED
-#    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 0
-#elif defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9 && __cplusplus < 202002L
-#    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 0
+// Compiler attributes and branch hints.
+#define GINT_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define GINT_LIKELY(x) __builtin_expect(!!(x), 1)
+#define GINT_FORCE_INLINE inline __attribute__((always_inline))
+
+#if GINT_DETAIL_CLANG_FRONTEND
+#    define GINT_CLANG_NOINLINE __attribute__((noinline))
 #else
-#    define GINT_DETAIL_X86_64_CONSTEXPR_INTRINSICS_SAFE 1
+#    define GINT_CLANG_NOINLINE
 #endif
+
+#define GINT_NOINLINE __attribute__((noinline))
+#define GINT_COLD __attribute__((cold))
+#define GINT_HIDDEN_VISIBILITY __attribute__((visibility("hidden")))
+
+#define GINT_RESTRICT __restrict
 
 // Internal fast-path index and validation contract:
 // - Add/Sub: x86 carry/borrow intrinsics, AArch64 limb asm, and AArch64
 //   addcll/subcll builtins. Recheck Add/CarryChain64 and Sub/BorrowChain64.
 // - Mul: Mul4 small-operand, x86/GCC U64xU64, and wide single-limb paths.
 //   Recheck Mul/ plus Div/Mod neighbors that consume quotient products.
-// - Bitwise: x86 SSE2 xor and AArch64 xor unroll. Recheck Bitwise/Xor when
-//   touching constexpr or SIMD gates.
 // - Shift: AArch64/GCC unsigned wide shift and signed int128 right shift.
 //   Recheck Shift/LeftVariable with Add/Sub neighbors.
 // - Div/Mod: positive-limb, int128, two-limb divisor, quotient multiply,
@@ -160,24 +171,6 @@
 #else
 #    define GINT_WIDE_SHIFT_INLINE GINT_FORCE_INLINE
 #    define GINT_WIDE_PARSE_INLINE GINT_FORCE_INLINE
-#endif
-
-#if GINT_GCC_TUNED_PATHS
-#    define GINT_DETAIL_GCC_TUNED_POLICY 1
-#else
-#    define GINT_DETAIL_GCC_TUNED_POLICY 0
-#endif
-
-#if GINT_CLANG_TUNED_PATHS
-#    define GINT_DETAIL_CLANG_TUNED_POLICY 1
-#else
-#    define GINT_DETAIL_CLANG_TUNED_POLICY 0
-#endif
-
-#if GINT_ENABLE_AARCH64_LIMB_ASM
-#    define GINT_DETAIL_AARCH64_ASM_POLICY 1
-#else
-#    define GINT_DETAIL_AARCH64_ASM_POLICY 0
 #endif
 
 // Encode every user-selectable code-generation/semantic policy in the ABI.

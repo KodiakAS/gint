@@ -22,6 +22,68 @@ struct division_ops
     using UnsignedOps = division_ops<Bits, unsigned>;
     static constexpr size_t limbs = Int::limbs;
 
+    // Keep the 256-bit unsigned dispatch and its bounded shift in the caller.
+    // The single-limb and multi-limb kernels retain their own inline boundaries.
+    static GINT_FORCE_INLINE Int div_unsigned_256(const Int & lhs, const Int & rhs)
+    {
+        const size_t n = Int::used_limbs(rhs);
+        if (n <= 1)
+        {
+            GINT_DIVZERO_CHECK(n == 0);
+            return n == 0 ? Int() : div_by_positive_limb(lhs, rhs.data_[0]);
+        }
+        const limb_type top = rhs.data_[n - 1];
+        if ((top & (top - 1)) == 0)
+        {
+            limb_type lower = 0;
+            for (size_t i = 0; i < n - 1; ++i)
+                lower |= rhs.data_[i];
+            if (lower == 0)
+                return Int::shift_right_in_range(lhs, (n - 1) * 64 + __builtin_ctzll(top));
+        }
+        if (n == 2)
+            return div_large_2(lhs, rhs);
+        if (n == 3)
+            return div_large_3(lhs, rhs);
+        return div_large_4(lhs, rhs);
+    }
+
+    static Int modulo(const Int & lhs, const Int & rhs)
+    {
+        if (limbs == 2)
+            return div_or_mod_128<true>(lhs, rhs);
+        GINT_MODZERO_CHECK(rhs.is_zero());
+        if (limbs == 1)
+        {
+            const limb_type divisor = rhs.data_[0];
+            if (GINT_UNLIKELY(divisor == 0))
+                return lhs;
+            if (std::is_same<Signed, signed>::value)
+            {
+                const bool negative = lhs.data_[0] >> 63;
+                const limb_type magnitude = negative ? -lhs.data_[0] : lhs.data_[0];
+                const limb_type remainder = magnitude % ((divisor >> 63) ? -divisor : divisor);
+                return Int(negative ? -remainder : remainder);
+            }
+            return Int(lhs.data_[0] % divisor);
+        }
+        limb_type positive_limb_divisor;
+        if (positive_single_limb_value(rhs, positive_limb_divisor))
+            return rem_by_positive_limb(lhs, positive_limb_divisor);
+
+        if (std::is_same<Signed, signed>::value)
+        {
+            const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
+            // Keep the positive 512-bit fast path separate from GCC's signed magnitude path.
+            if (GINT_DETAIL_AARCH64_GCC && limbs == 8 && ((lhs.data_[limbs - 1] | rhs.data_[limbs - 1]) >> 63) == 0)
+                return rem_unsigned_magnitude_with_large_direct<true>(lhs, rhs);
+            if ((GINT_DETAIL_AARCH64_GCC && (limbs == 4 || limbs == 8)) || rhs_neg || (lhs.data_[limbs - 1] >> 63))
+                return rem_signed_magnitude(lhs, rhs, rhs_neg);
+        }
+
+        return rem_unsigned_magnitude_with_large_direct<std::is_same<Signed, signed>::value>(lhs, rhs);
+    }
+
     static bool positive_single_limb_value(const Int & v, limb_type & value) noexcept
     {
         value = v.data_[0];
@@ -112,13 +174,56 @@ struct division_ops
         return static_cast<limb_type>(divrem_reciprocal((rem << 64) | word, div, inv, rem));
     }
 
+    // Store quotient limbs only for callers that request them.
+#if GINT_ARCH_X86_64
+    template <bool WantQuotient>
+    static GINT_FORCE_INLINE limb_type scan_divq(const Int & self, size_t n, limb_type div, Int * quotient) noexcept
+    {
+        limb_type rem = 0;
+        for (size_t i = n; i-- > 0;)
+        {
+            const limb_type q = detail::divrem_u128_u64(self.data_[i], div, rem);
+            if (WantQuotient)
+                quotient->data_[i] = q;
+        }
+        return rem;
+    }
+#else
+    template <bool WantQuotient>
+    static GINT_FORCE_INLINE limb_type scan_reciprocal_half(const Int & self, size_t n, uint32_t div, Int * quotient) noexcept
+    {
+        const uint64_t inv = ~uint64_t(0) / static_cast<uint64_t>(div);
+        uint64_t rem = 0;
+        for (size_t i = n; i-- > 0;)
+        {
+            const limb_type cur = self.data_[i];
+            const uint32_t hi = divrem_reciprocal_half(static_cast<uint32_t>(cur >> 32), div, inv, rem);
+            const uint32_t lo = divrem_reciprocal_half(static_cast<uint32_t>(cur), div, inv, rem);
+            if (WantQuotient)
+                quotient->data_[i] = (limb_type(hi) << 32) | lo;
+        }
+        return static_cast<limb_type>(rem);
+    }
+#endif
+
+    template <bool WantQuotient>
+    static GINT_FORCE_INLINE limb_type scan_reciprocal_limb(const Int & self, size_t n, limb_type div, u128 inv, Int * quotient) noexcept
+    {
+        u128 rem = 0;
+        for (size_t i = n; i-- > 0;)
+        {
+            const limb_type q = divrem_reciprocal_limb(self.data_[i], div, inv, rem);
+            if (WantQuotient)
+                quotient->data_[i] = q;
+        }
+        return static_cast<limb_type>(rem);
+    }
+
     template <size_t L = limbs, limb_type FixedDivisor = 0>
     static typename std::enable_if<(L == 1), limb_type>::type div_mod_small(const Int & self, limb_type div, Int & quotient) noexcept
     {
-#if GINT_ARCH_X86_64
         if (FixedDivisor != 0)
             div = FixedDivisor;
-#endif
         // SFINAE provides a dedicated implementation for single-limb integers,
         // avoiding multi-limb code that would trigger -Warray-bounds warnings.
         quotient = Int();
@@ -137,10 +242,8 @@ struct division_ops
     template <size_t L = limbs, limb_type FixedDivisor = 0>
     static typename std::enable_if<(L > 1), limb_type>::type div_mod_small(const Int & self, limb_type div, Int & quotient) noexcept
     {
-#if GINT_ARCH_X86_64
         if (FixedDivisor != 0)
             div = FixedDivisor;
-#endif
         // This overload is only instantiated for multi-limb integers, preventing
         // compilers from inspecting out-of-bounds accesses in single-limb cases.
         quotient = Int();
@@ -178,32 +281,11 @@ struct division_ops
 #if GINT_ARCH_X86_64
         // Native x86-64 measurements favor divq for 1024-bit decimal conversion.
         if (FixedDivisor == 0 || limbs == 16)
-        {
-            limb_type rem = 0;
-            for (size_t i = n; i-- > 0;)
-                quotient.data_[i] = detail::divrem_u128_u64(self.data_[i], div, rem);
-            return rem;
-        }
+            return scan_divq<true>(self, n, div, &quotient);
 #else
-        // Fast path: 32-bit divisor using reciprocal-multiply in base 2^32.
-        // Compute rinv = floor((2^64-1)/d32). For each 64-bit chunk T
-        // (formed by (rem<<32)|word32), q_est = high64(T * rinv); correct by
-        // at most +1 via a single branch. This avoids hardware division in
-        // the loop and performs well across GCC/Clang.
+        // Use a reciprocal estimate in base 2^32 for a 32-bit divisor.
         if (div <= 0xFFFFFFFFULL)
-        {
-            const uint32_t d32 = static_cast<uint32_t>(div);
-            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
-            uint64_t rem = 0; // always < d32
-            for (size_t i = n; i-- > 0;)
-            {
-                const uint64_t cur = self.data_[i];
-                const uint32_t hi = divrem_reciprocal_half(static_cast<uint32_t>(cur >> 32), d32, rinv, rem);
-                const uint32_t lo = divrem_reciprocal_half(static_cast<uint32_t>(cur), d32, rinv, rem);
-                quotient.data_[i] = (uint64_t(hi) << 32) | lo;
-            }
-            return static_cast<limb_type>(rem);
-        }
+            return scan_reciprocal_half<true>(self, n, static_cast<uint32_t>(div), &quotient);
 #endif
         // Use a reciprocal estimate with one correction for 64-bit divisors.
         const u128 inv = ~u128(0) / static_cast<u128>(FixedDivisor != 0 ? FixedDivisor : div);
@@ -243,25 +325,17 @@ struct division_ops
                 }
             }
         }
-        // Generic path for other limb counts
-        u128 rem = 0;
-        for (size_t i = n; i-- > 0;)
-        {
-            quotient.data_[i] = divrem_reciprocal_limb(self.data_[i], div, inv, rem);
-        }
-        return static_cast<limb_type>(rem);
+        return scan_reciprocal_limb<true>(self, n, div, inv, &quotient);
     }
 
-#if GINT_ARCH_X86_64
     template <limb_type Divisor>
     static limb_type div_mod_small_constant(const Int & self, Int & quotient) noexcept
     {
         return div_mod_small<limbs, Divisor>(self, Divisor, quotient);
     }
-#endif
 
-    template <size_t L = limbs>
-    static typename std::enable_if<(L > 1), limb_type>::type mod_small(const Int & self, limb_type div) noexcept
+    template <size_t L = limbs, typename Divisor>
+    static typename std::enable_if<(L > 1), limb_type>::type mod_small(const Int & self, Divisor div) noexcept
     {
         const size_t n = Int::used_limbs(self);
         if (n == 0)
@@ -274,33 +348,13 @@ struct division_ops
             return static_cast<limb_type>(detail::load_u128(self.data_) % div);
 
 #if GINT_ARCH_X86_64
-        limb_type rem = 0;
-        for (size_t i = n; i-- > 0;)
-            detail::divrem_u128_u64(self.data_[i], div, rem);
-        return rem;
+        return scan_divq<false>(self, n, div, nullptr);
 #else
-        if (div <= 0xFFFFFFFFULL)
-        {
-            const uint32_t d32 = static_cast<uint32_t>(div);
-            const uint64_t rinv = ~uint64_t(0) / static_cast<uint64_t>(d32);
-            uint64_t rem = 0;
-            for (size_t i = n; i-- > 0;)
-            {
-                const uint64_t cur = self.data_[i];
-                divrem_reciprocal_half(static_cast<uint32_t>(cur >> 32), d32, rinv, rem);
-                divrem_reciprocal_half(static_cast<uint32_t>(cur), d32, rinv, rem);
-            }
-            return static_cast<limb_type>(rem);
-        }
+        if (sizeof(Divisor) <= 4 || div <= 0xFFFFFFFFULL)
+            return scan_reciprocal_half<false>(self, n, static_cast<uint32_t>(div), nullptr);
 
-        const u128 inv = static_cast<u128>(~static_cast<u128>(0)) / static_cast<u128>(div);
-
-        u128 rem = 0;
-        for (size_t i = n; i-- > 0;)
-        {
-            divrem_reciprocal_limb(self.data_[i], div, inv, rem);
-        }
-        return static_cast<limb_type>(rem);
+        const u128 inv = ~u128(0) / static_cast<u128>(div);
+        return scan_reciprocal_limb<false>(self, n, div, inv, nullptr);
 #endif
     }
 
@@ -461,7 +515,8 @@ struct division_ops
         return result;
     }
 
-    static Int rem_by_positive_limb(const Int & lhs, limb_type divisor) noexcept
+    template <typename Divisor>
+    static Int rem_by_positive_limb(const Int & lhs, Divisor divisor) noexcept
     {
         if (std::is_same<Signed, signed>::value && (lhs.data_[limbs - 1] >> 63))
         {
@@ -483,13 +538,10 @@ struct division_ops
         copy_abs_magnitude(lhs_mag, lhs, lhs_neg);
         copy_abs_magnitude(rhs_mag, rhs, rhs_neg);
 
-#if GINT_DETAIL_AARCH64_GCC
-        Unsigned rem_mag = UnsignedOps::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
-#elif GINT_CLANG_TUNED_PATHS
-        Unsigned rem_mag = rem_signed_magnitude_unsigned(lhs_mag, rhs_mag);
-#else
-        Unsigned rem_mag = UnsignedOps::rem_unsigned_magnitude(lhs_mag, rhs_mag);
-#endif
+        // x86-64 GCC favors quotient reconstruction for 1024-bit signed magnitudes.
+        const Unsigned rem_mag = GINT_DETAIL_X86_64_GCC && limbs == 16
+            ? UnsignedOps::rem_unsigned_magnitude(lhs_mag, rhs_mag)
+            : UnsignedOps::template rem_unsigned_magnitude_with_large_direct<true>(lhs_mag, rhs_mag);
         Int result(typename Int::uninitialized_tag{});
         for (size_t i = 0; i < limbs; ++i)
             result.data_[i] = rem_mag.data_[i];
@@ -497,22 +549,6 @@ struct division_ops
             Int::negate_in_place(result);
         return result;
     }
-
-#if GINT_CLANG_TUNED_PATHS
-    template <size_t L = limbs>
-    static GINT_FORCE_INLINE typename std::enable_if<(L >= 8), Unsigned>::type
-    rem_signed_magnitude_unsigned(const Unsigned & lhs_mag, const Unsigned & rhs_mag) noexcept
-    {
-        return UnsignedOps::rem_unsigned_magnitude_with_large_direct(lhs_mag, rhs_mag);
-    }
-
-    template <size_t L = limbs>
-    static GINT_FORCE_INLINE typename std::enable_if<(L < 8), Unsigned>::type
-    rem_signed_magnitude_unsigned(const Unsigned & lhs_mag, const Unsigned & rhs_mag) noexcept
-    {
-        return UnsignedOps::rem_unsigned_magnitude(lhs_mag, rhs_mag);
-    }
-#endif
 
     static Int rem_unsigned_magnitude(const Int & lhs, const Int & divisor) noexcept
     {
@@ -534,50 +570,31 @@ struct division_ops
             return result;
         }
 
-#if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
         if (limbs == 4 && divisor_limbs == 4)
             return rem_large_4(lhs, divisor);
-#endif
 
         Int quotient;
-        if (limbs == 2)
-#if GINT_DETAIL_AARCH64_GCC
-            quotient = div_128_native(lhs, divisor);
-#else
-            quotient = div_128(lhs, divisor);
-#endif
-        else if (divisor_limbs == 2)
+        if (divisor_limbs == 2)
             quotient = div_large_2(lhs, divisor);
         else if (divisor_limbs == 3)
             quotient = div_large_3(lhs, divisor);
-        else if (limbs == 4 && divisor_limbs == 4)
-            quotient = div_large_4(lhs, divisor);
         else
             quotient = div_large(lhs, divisor, divisor_limbs);
 
         result = lhs;
-#if GINT_GCC_TUNED_PATHS
-        if (limbs == 4 && quotient.data_[2] == 0 && quotient.data_[3] == 0)
-        {
-            Int product(typename Int::uninitialized_tag{});
-            if (quotient.data_[1] == 0)
-                detail::mul_limbs4_by_limb(product.data_, divisor.data_, quotient.data_[0]);
-            else
-                detail::mul_limbs4_by_2limb(product.data_, divisor.data_, quotient.data_[0], quotient.data_[1]);
-            result -= product;
-            return result;
-        }
-#endif
         quotient *= divisor;
         result -= quotient;
         return result;
     }
 
+    // Keep separate instantiations for signed magnitudes and regular unsigned modulo.
+    // Sharing one instantiation regresses GCC code generation at 1024 bits.
+    template <bool SignedOperands>
     static Int rem_unsigned_magnitude_with_large_direct(const Int & lhs, const Int & divisor) noexcept
     {
-#if GINT_DETAIL_AARCH64_GCC || GINT_CLANG_TUNED_PATHS
-        if (((GINT_DETAIL_AARCH64_GCC && limbs >= 4) || (GINT_CLANG_TUNED_PATHS && limbs >= 8))
-            && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[limbs - 2]) != 0))
+        constexpr size_t next_high = limbs >= 2 ? limbs - 2 : 0;
+        if ((limbs >= 8 || (GINT_DETAIL_AARCH64_GCC && limbs == 4))
+            && GINT_UNLIKELY((divisor.data_[limbs - 1] | divisor.data_[next_high]) != 0))
         {
             const size_t divisor_limbs = Int::used_limbs(divisor);
             int pow_bit;
@@ -585,7 +602,6 @@ struct division_ops
                 return lhs & (divisor - Int(1));
             return rem_large(lhs, divisor, divisor_limbs);
         }
-#endif
         return rem_unsigned_magnitude(lhs, divisor);
     }
 
@@ -707,23 +723,7 @@ struct division_ops
     }
 
     template <size_t L = limbs>
-    static typename std::enable_if<(L >= 2), Int>::type div_128_native(const Int & lhs, const Int & rhs) noexcept
-    {
-        Int result;
-        const auto divisor = detail::load_u128(rhs.data_);
-        if (GINT_LIKELY(divisor != 0))
-            detail::store_u128(result.data_, detail::load_u128(lhs.data_) / divisor);
-        return result;
-    }
-
-    template <size_t L = limbs>
     static typename std::enable_if<(L < 2), Int>::type div_128(const Int & lhs, const Int & rhs) noexcept
-    {
-        return div_128_native(lhs, rhs);
-    }
-
-    template <size_t L = limbs>
-    static typename std::enable_if<(L < 2), Int>::type div_128_native(const Int & lhs, const Int & rhs) noexcept
     {
         Int result;
         if (GINT_UNLIKELY(rhs.data_[0] == 0))
@@ -732,7 +732,6 @@ struct division_ops
         return result;
     }
 
-#if GINT_GCC_TUNED_PATHS
     static GINT_FORCE_INLINE limb_type left_shifted_limb_at(const limb_type * src, size_t i, int shift) noexcept
     {
         limb_type cur = src[i];
@@ -766,12 +765,9 @@ struct division_ops
         return false;
     }
 
-    static Int div_large_single_limb_quotient(const Int & lhs, const Int & divisor, size_t div_limbs) noexcept
+    // Estimate a one-limb quotient for operands with the same used length of at least two limbs.
+    static GINT_FORCE_INLINE limb_type estimate_single_limb_quotient(const Int & lhs, const Int & divisor, size_t div_limbs) noexcept
     {
-        Int quotient;
-        if (div_limbs < 2)
-            return quotient;
-
         const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
         const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
         const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
@@ -790,13 +786,21 @@ struct division_ops
                 break;
         }
 
-        limb_type q = static_cast<limb_type>(qhat);
+        return static_cast<limb_type>(qhat);
+    }
+
+    static Int div_large_single_limb_quotient(const Int & lhs, const Int & divisor, size_t div_limbs) noexcept
+    {
+        Int quotient;
+        if (div_limbs < 2)
+            return quotient;
+
+        limb_type q = estimate_single_limb_quotient(lhs, divisor, div_limbs);
         while (mul_by_limb_greater_than(lhs, divisor, div_limbs, q))
             --q;
         quotient.data_[0] = q;
         return quotient;
     }
-#endif
 
     template <bool WantRemainder>
     static GINT_NOINLINE Int div_or_rem_large_core(Int lhs, const Int & divisor, size_t v_limbs, size_t u_limbs) noexcept
@@ -890,35 +894,11 @@ struct division_ops
     static Int div_large(Int lhs, const Int & divisor, size_t div_limbs) noexcept
     {
         const size_t dividend_limbs = Int::used_limbs(lhs);
-#if GINT_GCC_TUNED_PATHS
+#if !GINT_DETAIL_X86_64_CLANG
         if (dividend_limbs == div_limbs && div_limbs >= 2)
             return div_large_single_limb_quotient(lhs, divisor, div_limbs);
 #endif
         return div_or_rem_large_core<false>(lhs, divisor, div_limbs, dividend_limbs);
-    }
-
-#if GINT_DETAIL_AARCH64_GCC
-    static limb_type rem_estimate_single_limb_quotient(const Int & lhs, const Int & divisor, size_t div_limbs) noexcept
-    {
-        const int shift = __builtin_clzll(divisor.data_[div_limbs - 1]);
-        const limb_type vtop = left_shifted_limb_at(divisor.data_, div_limbs - 1, shift);
-        const limb_type vnext = left_shifted_limb_at(divisor.data_, div_limbs - 2, shift);
-        const limb_type utop = shift ? static_cast<limb_type>(lhs.data_[div_limbs - 1] >> (64 - shift)) : 0;
-        const limb_type unext = left_shifted_limb_at(lhs.data_, div_limbs - 1, shift);
-        const limb_type uthird = left_shifted_limb_at(lhs.data_, div_limbs - 2, shift);
-
-        u128 numerator = (static_cast<u128>(utop) << 64) | unext;
-        u128 qhat = numerator / vtop;
-        u128 rhat = numerator - qhat * vtop;
-        while (qhat == (static_cast<u128>(1) << 64) || qhat * vnext > ((rhat << 64) | uthird))
-        {
-            --qhat;
-            rhat += vtop;
-            if (rhat >= (static_cast<u128>(1) << 64))
-                break;
-        }
-
-        return static_cast<limb_type>(qhat);
     }
 
     static GINT_FORCE_INLINE bool rem_sub_mul_limb(Int & lhs, const Int & divisor, size_t div_limbs, limb_type q) noexcept
@@ -961,7 +941,7 @@ struct division_ops
         if (div_limbs < 2)
             return lhs;
 
-        const limb_type q = rem_estimate_single_limb_quotient(lhs, divisor, div_limbs);
+        const limb_type q = estimate_single_limb_quotient(lhs, divisor, div_limbs);
         if (div_limbs == limbs)
         {
             if (rem_sub_mul_limb_full_width(lhs, divisor, q))
@@ -973,15 +953,16 @@ struct division_ops
         }
         return lhs;
     }
-#endif
 
+#if GINT_DETAIL_X86_64_GCC
+    // Keep wide remainder code out of callers to preserve inlining elsewhere.
+    GINT_NOINLINE
+#endif
     static Int rem_large(Int lhs, const Int & divisor, size_t div_limbs) noexcept
     {
         const size_t dividend_limbs = Int::used_limbs(lhs);
-#if GINT_DETAIL_AARCH64_GCC
         if (dividend_limbs == div_limbs && div_limbs >= 2)
             return rem_large_single_limb_quotient(lhs, divisor, div_limbs);
-#endif
         return div_or_rem_large_core<true>(lhs, divisor, div_limbs, dividend_limbs);
     }
 
