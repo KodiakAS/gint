@@ -24,8 +24,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # The independent oracle is intentionally compiled as C++11 on both supported
-  # Linux architectures and with both supported compiler families.
+  # Compile the independent oracle as C++11 on each supported platform.
   differential:
     name: deterministic differential (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
@@ -37,23 +36,44 @@ jobs:
           - name: x86_64-gcc
             os: ubuntu-24.04
             cxx: g++-13
+            compiler_package: g++-13
           - name: x86_64-clang
             os: ubuntu-24.04
             cxx: clang++-18
+            compiler_package: clang-18
           - name: aarch64-gcc
             os: ubuntu-24.04-arm
             cxx: g++-13
+            compiler_package: g++-13
           - name: aarch64-clang
             os: ubuntu-24.04-arm
             cxx: clang++-18
+            compiler_package: clang-18
+          - name: macos-appleclang
+            os: macos-26
+            cxx: c++
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Install GCC and Clang
+      - name: Select stable Xcode
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          test -d /Applications/Xcode_26.6.app/Contents/Developer
+          echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Verify stable Xcode
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version | grep -Fx 'Xcode 26.6'
+          xcrun clang++ --version
+      - name: Install compiler
+        if: runner.os == 'Linux'
+        env:
+          COMPILER_PACKAGE: ${{ matrix.compiler_package }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++-13 clang-18
+          sudo apt-get install -y --no-install-recommends "$COMPILER_PACKAGE"
       - name: Install libFuzzer runtime and symbolizer
-        if: matrix.name == 'x86_64-clang'
+        if: matrix.name == 'x86_64-clang' && github.event_name == 'pull_request'
         run: sudo apt-get install -y --no-install-recommends libclang-rt-18-dev llvm-18
       - name: Run C++11 deterministic differential checks
         env:

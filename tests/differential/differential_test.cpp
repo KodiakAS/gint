@@ -1,6 +1,7 @@
 #include "oracle.h"
 
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
@@ -102,8 +103,12 @@ size_t verify_unsigned_division_normalization()
     using namespace gint_differential;
     using UInt = gint::integer<Bits, unsigned>;
     constexpr size_t limb_count = Bits / 64;
-    std::mt19937_64 rng(0xd170d);
+    const uint64_t seed = 0xd170d;
+    std::mt19937_64 rng(seed);
+    reference_uint<limb_count> one;
+    one.limbs[0] = 1;
     size_t total = 0;
+    const auto started = std::chrono::steady_clock::now();
     for (size_t top = 0; top < limb_count; ++top)
         for (unsigned shift = 0; shift < 64; ++shift)
         {
@@ -111,40 +116,86 @@ size_t verify_unsigned_division_normalization()
             for (size_t limb = 0; limb < limb_count; ++limb)
                 dividend.limbs[limb] = rng();
             reference_uint<limb_count> divisor;
-            divisor.limbs[top] = uint64_t(1) << shift;
+            divisor.limbs[top] = uint64_t(1) << (63 - shift);
             for (unsigned shape = 0; shape < 2; ++shape)
             {
                 if (shape == 1)
                 {
+                    if (top == 0 && shift == 63)
+                        continue; // The only divisor with this length and shift is 1.
                     for (size_t limb = 0; limb < top; ++limb)
                         divisor.limbs[limb] = rng();
-                    // Setting lower bits must preserve the highest set bit.
-                    divisor.limbs[0] |= (top != 0 || shift > 1) ? 3u : 1u;
+                    divisor.limbs[top] |= rng() & (divisor.limbs[top] - 1);
+                    divisor.limbs[0] |= 1u;
                 }
-                UInt actual_dividend = 0;
-                UInt actual_divisor = 0;
+                const UInt actual_divisor = gint_from_reference<UInt>(divisor);
+                const auto verify = [&](const reference_uint<limb_count> & value, const char * boundary)
+                {
+                    const UInt actual_dividend = gint_from_reference<UInt>(value);
+                    try
+                    {
+                        verify_unsigned_division(actual_dividend, actual_divisor, value, divisor);
+                    }
+                    catch (const std::exception & error)
+                    {
+                        std::cerr << "division normalization failure: bits=" << Bits << ", seed=0x" << std::hex << seed << std::dec
+                                  << ", divisor_limbs=" << top + 1 << ", shift=" << shift
+                                  << ", shape=" << (shape == 0 ? "power-of-two" : "mixed") << ", boundary=" << boundary
+                                  << ", dividend=" << gint::to_string(actual_dividend) << ", divisor=" << gint::to_string(actual_divisor)
+                                  << ", reason=" << error.what() << '\n';
+                        throw;
+                    }
+                    ++total;
+                };
+                verify(dividend, "random");
+
+                if (shape == 0 || top == 0)
+                    continue;
+
+                // Fit two quotient digits where possible. For odd divisors,
+                // subtracting 1 from the normalized product changes only its
+                // lowest limb, which can leave the top-limb estimate too big.
+                // Full-width divisors with bit Bits-1 set overflow 3*d, so fall
+                // back to q = 1 to still test the 0 -> 1 quotient transition.
+                const bool two_quotient_limbs = top + 1 < limb_count;
+                reference_uint<limb_count> exact;
+                uint128_t carry = 0;
                 for (size_t limb = 0; limb < limb_count; ++limb)
                 {
-                    gint_integer_access<UInt>::limb(actual_dividend, limb) = dividend.limbs[limb];
-                    gint_integer_access<UInt>::limb(actual_divisor, limb) = divisor.limbs[limb];
+                    // q = 2^64 + 1 for shorter divisors, or 3 at full width.
+                    const uint128_t product = uint128_t(divisor.limbs[limb]) * (two_quotient_limbs ? 1u : 3u);
+                    const uint128_t shifted = two_quotient_limbs && limb > 0 ? divisor.limbs[limb - 1] : 0;
+                    const uint128_t sum = product + shifted + carry;
+                    exact.limbs[limb] = static_cast<uint64_t>(sum);
+                    carry = sum >> 64;
                 }
-                try
+                if (carry != 0)
                 {
-                    verify_unsigned_division(actual_dividend, actual_divisor, dividend, divisor);
+                    if (two_quotient_limbs)
+                        continue;
+                    exact = divisor;
                 }
-                catch (const std::exception & error)
+                verify(wide_reference_subtract(exact, one), "q*d - 1");
+                verify(exact, "q*d");
+                reference_uint<limb_count> above;
+                uint128_t add_carry = 1;
+                for (size_t limb = 0; limb < limb_count; ++limb)
                 {
-                    std::cerr << "division normalization failure: bits=" << Bits << ", seed=0xd170d, divisor_limbs=" << top + 1
-                              << ", shift=" << shift << ", shape=" << (shape == 0 ? "power-of-two" : "mixed")
-                              << ", dividend=" << gint::to_string(actual_dividend) << ", divisor=" << gint::to_string(actual_divisor)
-                              << ", reason=" << error.what() << '\n';
-                    throw;
+                    const uint128_t sum = uint128_t(exact.limbs[limb]) + add_carry;
+                    above.limbs[limb] = static_cast<uint64_t>(sum);
+                    add_carry = sum >> 64;
                 }
-                ++total;
+                if (add_carry == 0)
+                    verify(above, "q*d + 1");
             }
         }
+    const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+    std::cout << "division normalization: bits=" << Bits << ", cases=" << total << ", seconds=" << elapsed.count() << '\n';
     return total;
 }
+
+constexpr gint_differential::uint128_t max_finite_float_u128
+    = ~gint_differential::uint128_t(0) - ((gint_differential::uint128_t(1) << 104) - 1);
 
 gint_differential::uint256_reference reference_from_uint128(gint_differential::uint128_t value)
 {
@@ -197,11 +248,15 @@ void verify_float_oracle_against_native()
         (gint_differential::uint128_t(1) << 24) + 1,
         (gint_differential::uint128_t(1) << 53) + 3,
         gint_differential::uint128_t(1) << 127,
+        max_finite_float_u128 - (gint_differential::uint128_t(1) << 104),
+        max_finite_float_u128 - 1,
+        max_finite_float_u128,
         ~gint_differential::uint128_t(0),
     };
     for (size_t i = 0; i < sizeof(unsigned_values) / sizeof(unsigned_values[0]); ++i)
     {
-        verify_unsigned_native_float<float>(unsigned_values[i], "float oracle disagrees with native unsigned __int128");
+        if (unsigned_values[i] <= max_finite_float_u128)
+            verify_unsigned_native_float<float>(unsigned_values[i], "float oracle disagrees with native unsigned __int128");
         verify_unsigned_native_float<double>(unsigned_values[i], "double oracle disagrees with native unsigned __int128");
         verify_unsigned_native_float<long double>(unsigned_values[i], "long double oracle disagrees with native unsigned __int128");
     }
@@ -229,10 +284,13 @@ void verify_float_oracle_against_native()
     {
         const gint_differential::uint128_t unsigned_value = (static_cast<gint_differential::uint128_t>(rng.next()) << 64) | rng.next();
         const gint_differential::int128_t signed_value = static_cast<gint_differential::int128_t>(unsigned_value);
-        verify_unsigned_native_float<float>(unsigned_value, "float oracle random unsigned __int128 calibration failed");
+        if (unsigned_value <= max_finite_float_u128)
+            verify_unsigned_native_float<float>(unsigned_value, "float oracle random unsigned __int128 calibration failed");
         verify_unsigned_native_float<double>(unsigned_value, "double oracle random unsigned __int128 calibration failed");
+        verify_unsigned_native_float<long double>(unsigned_value, "long double oracle random unsigned __int128 calibration failed");
         verify_signed_native_float<float>(signed_value, "float oracle random signed __int128 calibration failed");
         verify_signed_native_float<double>(signed_value, "double oracle random signed __int128 calibration failed");
+        verify_signed_native_float<long double>(signed_value, "long double oracle random signed __int128 calibration failed");
     }
 }
 
@@ -296,6 +354,33 @@ void verify_unsigned_overflow_case(const UInt & value, int rounding_mode, bool n
 
 void verify_float_overflow_boundaries(int rounding_mode)
 {
+    using namespace gint_differential;
+    const uint128_t half_ulp_u128 = uint128_t(1) << 103;
+    const uint128_t midpoint_u128 = max_finite_float_u128 + half_ulp_u128;
+    const struct
+    {
+        uint128_t input;
+        float expected;
+        const char * boundary;
+    } uint128_cases[] = {
+        {max_finite_float_u128, std::numeric_limits<float>::max(), "max_finite"},
+        {midpoint_u128 - 1, expected_above_max<float>(false, rounding_mode, false), "below_midpoint"},
+        {midpoint_u128, expected_above_max<float>(false, rounding_mode, true), "midpoint"},
+        {~uint128_t(0), expected_above_max<float>(false, rounding_mode, true), "uint128_max"},
+    };
+    for (const auto & test : uint128_cases)
+    {
+        const float actual = static_cast<float>(gint::UInt128(test.input));
+        const float reference = reference_binary_float<float>(reference_from_uint128(test.input), false);
+        if (!equal_float(actual, test.expected) || !equal_float(reference, test.expected))
+        {
+            std::cerr << "UInt128 to float overflow failure: boundary=" << test.boundary << ", rounding_mode=" << rounding_mode
+                      << ", input=" << gint::to_string(gint::UInt128(test.input)) << ", expected=" << test.expected << ", actual=" << actual
+                      << ", reference=" << reference << '\n';
+            throw std::runtime_error("UInt128 to float overflow boundary differs");
+        }
+    }
+
     const gint::UInt256 one = 1;
     const gint::UInt256 max_finite_integer = (one << 128) - (one << 104);
     const gint::UInt256 half_ulp = one << 103;
@@ -351,6 +436,79 @@ void verify_signed_min_float_conversion()
         "Int256 minimum to long double differs from exact oracle");
 }
 
+template <size_t Bits, typename Float>
+void verify_float_integer_boundaries()
+{
+    using namespace gint_differential;
+    using Reference = reference_uint<Bits / 64>;
+    const Reference zero;
+    Reference min_bits;
+    wide_reference_set_bit(min_bits, Bits - 1);
+    const Float infinity = std::numeric_limits<Float>::infinity();
+    const Float denorm = std::numeric_limits<Float>::denorm_min();
+    const Float specials[] = {
+        Float(0),
+        -Float(0),
+        denorm,
+        -denorm,
+        infinity,
+        -infinity,
+        std::numeric_limits<Float>::quiet_NaN(),
+        std::numeric_limits<Float>::max(),
+        -std::numeric_limits<Float>::max(),
+    };
+    for (Float value : specials)
+    {
+        verify_float_integer<Bits>(zero, value);
+        verify_float_integer<Bits>(min_bits, value);
+    }
+
+    Reference three;
+    three.limbs[0] = 3;
+    verify_float_integer<Bits>(three, Float(3.75));
+    wide_reference_negate(three);
+    verify_float_integer<Bits>(three, -Float(3.75));
+
+    const int max_exponent = std::numeric_limits<Float>::max_exponent;
+    const size_t positions[] = {63, 64, 65, Bits - 2, Bits - 1};
+    for (size_t position : positions)
+    {
+        if (position >= static_cast<size_t>(max_exponent))
+            continue;
+        const Float power = std::ldexp(Float(1), static_cast<int>(position));
+        Reference bits;
+        wide_reference_set_bit(bits, position);
+        verify_float_integer<Bits>(bits, power);
+        bits.limbs[0] |= 1;
+        verify_float_integer<Bits>(bits, power);
+        if (position != Bits - 1)
+        {
+            wide_reference_negate(bits);
+            verify_float_integer<Bits>(bits, -power);
+        }
+        else
+            verify_float_integer<Bits>(min_bits, -power);
+    }
+
+    // 1.5 * 2^Bits discards its leading bit and leaves a nonzero residue.
+    if (Bits < static_cast<size_t>(max_exponent))
+    {
+        const Float wrapping = std::ldexp(Float(1.5), static_cast<int>(Bits));
+        verify_float_integer<Bits>(min_bits, wrapping);
+        verify_float_integer<Bits>(min_bits, -wrapping);
+    }
+    if (Bits + 1 < static_cast<size_t>(max_exponent))
+        verify_float_integer<Bits>(zero, std::ldexp(Float(1.5), static_cast<int>(Bits + 1)));
+}
+
+template <size_t Bits>
+void verify_float_integer_boundaries()
+{
+    verify_float_integer_boundaries<Bits, float>();
+    verify_float_integer_boundaries<Bits, double>();
+    verify_float_integer_boundaries<Bits, long double>();
+}
+
 void verify_deterministic_float_boundaries()
 {
     static const int rounding_modes[] = {FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO};
@@ -364,6 +522,10 @@ void verify_deterministic_float_boundaries()
         verify_float_overflow_boundaries(rounding_mode);
         verify_double_overflow_boundaries(rounding_mode);
         verify_signed_min_float_conversion();
+        verify_float_integer_boundaries<128>();
+        verify_float_integer_boundaries<256>();
+        verify_float_integer_boundaries<512>();
+        verify_float_integer_boundaries<1024>();
     }
 }
 
@@ -417,7 +579,10 @@ int main(int argc, char ** argv)
     {
         const size_t iterations_per_seed = argc > 1 ? parse_iterations(argv[1]) : 512;
         verify_division_oracle_against_native();
-        const size_t division_cases = verify_unsigned_division_normalization<128>() + verify_unsigned_division_normalization<256>();
+        size_t division_cases = verify_unsigned_division_normalization<128>();
+        division_cases += verify_unsigned_division_normalization<256>();
+        division_cases += verify_unsigned_division_normalization<512>();
+        division_cases += verify_unsigned_division_normalization<1024>();
         verify_float_oracle_against_native();
         verify_deterministic_float_boundaries();
         verify_uint1024_parser_boundaries();

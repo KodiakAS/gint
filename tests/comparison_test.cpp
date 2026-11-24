@@ -19,6 +19,50 @@ static_assert(6 > gint::integer<128, signed>(5), "mixed integer > should be cons
 static_assert(gint::integer<64, signed>(0) < 0x8000000000000005ULL, "promoted mixed comparison should be constexpr");
 #endif
 
+namespace
+{
+template <size_t Bits>
+void check_unsigned_max()
+{
+    SCOPED_TRACE(Bits);
+    using U = gint::integer<Bits, unsigned>;
+    const U max = ~U(0);
+    EXPECT_TRUE(max > U(0));
+}
+
+template <size_t Bits>
+void check_signed_min()
+{
+    SCOPED_TRACE(Bits);
+    using S = gint::integer<Bits, signed>;
+    const S min = S(1) << static_cast<int>(Bits - 1);
+    const S negated = -min;
+    const S max = ~negated;
+    EXPECT_EQ(negated, min);
+    EXPECT_TRUE(max > min);
+}
+}
+
+TEST(WideIntegerBoundary, Unsigned256)
+{
+    check_unsigned_max<256>();
+}
+
+TEST(WideIntegerBoundary, Signed256)
+{
+    check_signed_min<256>();
+}
+
+TEST(WideIntegerBoundary, Unsigned512)
+{
+    check_unsigned_max<512>();
+}
+
+TEST(WideIntegerBoundary, Signed512)
+{
+    check_signed_min<512>();
+}
+
 TEST(WideIntegerComparison, SignedInt128ScalarOutsideInt64Range)
 {
     using S64 = gint::integer<64, signed>;

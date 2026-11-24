@@ -51,7 +51,7 @@
 `gint::checked` 必须都是 `INTERFACE_LIBRARY`。
 
 机器检查由
-[`tests/cmake/run_consumer.cmake`](../tests/cmake/run_consumer.cmake)维护；修改安装
+[`tests/cmake/stage_package.cmake`](../tests/cmake/stage_package.cmake)维护；修改安装
 规则时先更新该 contract，再同步本清单。
 
 ## Tag 与 GitHub Release

@@ -6,8 +6,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
 #define GINT_TEST_ACCESS
 #include <gint/gint.h>
@@ -180,6 +182,15 @@ struct gint_integer_access<gint::integer<Bits, Signed>>
 
     static const uint64_t & limb(const gint::integer<Bits, Signed> & value, size_t index) { return access::limb(value, index); }
 };
+
+template <typename Int, size_t LimbCount>
+Int gint_from_reference(const reference_uint<LimbCount> & bits)
+{
+    Int value = 0;
+    for (size_t limb = 0; limb < LimbCount; ++limb)
+        gint_integer_access<Int>::limb(value, limb) = bits.limbs[limb];
+    return value;
+}
 
 template <typename UInt>
 UInt gint_from_input(const uint8_t * data, size_t size, size_t offset, size_t byte_count, bool clear_top_bit = false)
@@ -383,36 +394,32 @@ void exercise_wide_division(const uint8_t * data, size_t size)
 
     const size_t value_bytes = Bits / 8;
     const uint8_t control = input_byte(data, size, 1);
-    const unsigned divisor_shape = (control >> 2) & 3u;
-    const size_t divisor_bytes = divisor_shape == 0 ? 8 : divisor_shape == 1 ? 16 : divisor_shape == 2 ? value_bytes / 2 : value_bytes;
+    const size_t divisor_limbs = 1 + input_byte(data, size, 2 + 2 * value_bytes) % (Bits / 64);
+    const size_t divisor_bytes = divisor_limbs * 8;
 
     const UInt dividend = gint_from_input<UInt>(data, size, 2, value_bytes);
-    UInt divisor = gint_from_input<UInt>(data, size, 2 + value_bytes, divisor_bytes);
     const Reference ref_dividend = wide_reference_from_input<Bits / 64>(data, size, 2, value_bytes);
     Reference ref_divisor = wide_reference_from_input<Bits / 64>(data, size, 2 + value_bytes, divisor_bytes);
-    if (wide_reference_is_zero(ref_divisor))
-    {
-        divisor = 1;
-        ref_divisor.limbs[0] = 1;
-    }
+    if (ref_divisor.limbs[divisor_limbs - 1] == 0)
+        ref_divisor.limbs[divisor_limbs - 1] = 1;
 
-    verify_unsigned_division(dividend, divisor, ref_dividend, ref_divisor);
+    verify_unsigned_division(dividend, gint_from_reference<UInt>(ref_divisor), ref_dividend, ref_divisor);
 
     const UInt signed_dividend_magnitude = gint_from_input<UInt>(data, size, 2, value_bytes, true);
-    UInt signed_divisor_magnitude = gint_from_input<UInt>(data, size, 2 + value_bytes, divisor_bytes, divisor_bytes == value_bytes);
     const Reference ref_signed_dividend_magnitude = wide_reference_from_input<Bits / 64>(data, size, 2, value_bytes, true);
-    Reference ref_signed_divisor_magnitude
-        = wide_reference_from_input<Bits / 64>(data, size, 2 + value_bytes, divisor_bytes, divisor_bytes == value_bytes);
-    if (wide_reference_is_zero(ref_signed_divisor_magnitude))
+    Reference ref_signed_divisor_magnitude = ref_divisor;
+    if (divisor_limbs == Bits / 64)
     {
-        signed_divisor_magnitude = 1;
-        ref_signed_divisor_magnitude.limbs[0] = 1;
+        uint64_t & top = ref_signed_divisor_magnitude.limbs[divisor_limbs - 1];
+        top &= (uint64_t(1) << 63) - 1;
+        if (top == 0)
+            top = 1;
     }
 
     const bool dividend_negative = (control & 0x10u) != 0;
     const bool divisor_negative = (control & 0x20u) != 0;
     Int signed_dividend(signed_dividend_magnitude);
-    Int signed_divisor(signed_divisor_magnitude);
+    Int signed_divisor = gint_from_reference<Int>(ref_signed_divisor_magnitude);
     if (dividend_negative)
         signed_dividend = -signed_dividend;
     if (divisor_negative)
@@ -798,9 +805,10 @@ private:
     int old_mode_;
 };
 
-inline unsigned reference_bit_count(const uint256_reference & value)
+template <size_t LimbCount>
+unsigned reference_bit_count(const reference_uint<LimbCount> & value)
 {
-    for (unsigned limb = 4; limb-- > 0;)
+    for (size_t limb = LimbCount; limb-- > 0;)
     {
         if (value.limbs[limb] == 0)
             continue;
@@ -816,7 +824,8 @@ inline unsigned reference_bit_count(const uint256_reference & value)
     return 0;
 }
 
-inline bool reference_any_low_bits(const uint256_reference & value, unsigned bit_count)
+template <size_t LimbCount>
+bool reference_any_low_bits(const reference_uint<LimbCount> & value, unsigned bit_count)
 {
     const unsigned whole_limbs = bit_count / 64;
     for (unsigned limb = 0; limb < whole_limbs; ++limb)
@@ -914,6 +923,221 @@ bool equal_float(Float actual, Float expected)
     return actual == expected && std::signbit(actual) == std::signbit(expected);
 }
 
+template <typename Float>
+struct reference_float_parts
+{
+    int category;
+    bool negative;
+    int exponent;
+    Float fraction;
+
+    explicit reference_float_parts(Float value)
+        : category(std::fpclassify(value))
+        , negative(category != FP_ZERO && category != FP_NAN && std::signbit(value))
+        , exponent(0)
+        , fraction(0)
+    {
+        if (std::isfinite(value))
+            fraction = std::frexp(std::fabs(value), &exponent);
+    }
+};
+
+template <typename Float>
+bool reference_take_fraction_bit(Float & fraction)
+{
+    fraction *= Float(2);
+    const bool bit = fraction >= Float(1);
+    if (bit)
+        fraction -= Float(1);
+    return bit;
+}
+
+template <size_t Bits, typename Float>
+reference_uint<Bits / 64> reference_float_to_integer(const reference_float_parts<Float> & value, bool is_signed)
+{
+    reference_uint<Bits / 64> result;
+    if (value.category == FP_INFINITE)
+    {
+        if (!value.negative)
+        {
+            for (size_t limb = 0; limb < Bits / 64; ++limb)
+                result.limbs[limb] = ~uint64_t(0);
+            if (is_signed)
+                result.limbs[Bits / 64 - 1] >>= 1;
+        }
+        else if (is_signed)
+            wide_reference_set_bit(result, Bits - 1);
+        return result;
+    }
+
+    // NaN and zero have no fraction. Discard bits outside the destination
+    // width and stop at the binary point to truncate toward zero.
+    Float fraction = value.fraction;
+    for (int bit = value.exponent - 1; bit >= 0 && fraction != Float(0); --bit)
+    {
+        const bool set = reference_take_fraction_bit(fraction);
+        if (set && bit < static_cast<int>(Bits))
+            wide_reference_set_bit(result, static_cast<size_t>(bit));
+    }
+    if (value.negative)
+        wide_reference_negate(result);
+    return result;
+}
+
+enum class reference_float_order
+{
+    less = -1,
+    equal = 0,
+    greater = 1,
+    unordered,
+};
+
+template <size_t LimbCount, typename Float>
+int reference_compare_float_magnitudes(const reference_uint<LimbCount> & integer, const reference_float_parts<Float> & value)
+{
+    const int integer_bits = static_cast<int>(reference_bit_count(integer));
+    if (integer_bits == 0)
+        return value.fraction == Float(0) ? 0 : -1;
+    if (value.fraction == Float(0))
+        return 1;
+    if (integer_bits != value.exponent)
+        return integer_bits < value.exponent ? -1 : 1;
+
+    Float fraction = value.fraction;
+    int bit = integer_bits;
+    while (bit > 0 && fraction != Float(0))
+    {
+        --bit;
+        const bool integer_bit = wide_reference_bit(integer, static_cast<size_t>(bit));
+        const bool float_bit = reference_take_fraction_bit(fraction);
+        if (integer_bit != float_bit)
+            return integer_bit ? 1 : -1;
+    }
+    if (fraction != Float(0))
+        return -1; // All integer bits matched, but the float has a fractional tail.
+    return reference_any_low_bits(integer, static_cast<unsigned>(bit)) ? 1 : 0;
+}
+
+template <size_t Bits, typename Float>
+reference_float_order reference_compare_float(const wide_signed_reference<Bits> & integer, const reference_float_parts<Float> & value)
+{
+    if (value.category == FP_NAN)
+        return reference_float_order::unordered;
+    if (value.category == FP_INFINITE || integer.negative != value.negative)
+        return value.negative ? reference_float_order::greater : reference_float_order::less;
+
+    const int order = reference_compare_float_magnitudes(integer.magnitude, value);
+    return static_cast<reference_float_order>(integer.negative ? -order : order);
+}
+
+template <size_t Bits, typename Signed, typename Float>
+void verify_float_integer_pair(const reference_uint<Bits / 64> & bits, Float value, const reference_float_parts<Float> & parts)
+{
+    using Int = gint::integer<Bits, Signed>;
+    const bool is_signed = std::is_same<Signed, signed>::value;
+    const Int integer = gint_from_reference<Int>(bits);
+    wide_signed_reference<Bits> ref_integer = {bits, is_signed && wide_reference_bit(bits, Bits - 1)};
+    if (ref_integer.negative)
+        wide_reference_negate(ref_integer.magnitude);
+    try
+    {
+        const reference_uint<Bits / 64> expected = reference_float_to_integer<Bits>(parts, is_signed);
+        require(
+            equal_wide_unsigned_bits(gint::integer<Bits, unsigned>(Int(value)), expected),
+            "floating-point to wide integer differs from exact oracle");
+
+        const reference_float_order order = reference_compare_float(ref_integer, parts);
+        const bool equal = order == reference_float_order::equal;
+        const bool less = order == reference_float_order::less;
+        const bool greater = order == reference_float_order::greater;
+        require((integer == value) == equal && (value == integer) == equal, "mixed operator== differs from exact oracle");
+        require((integer != value) == !equal && (value != integer) == !equal, "mixed operator!= differs from exact oracle");
+        require((integer < value) == less && (value < integer) == greater, "mixed operator< differs from exact oracle");
+        require(
+            (integer <= value) == (less || equal) && (value <= integer) == (greater || equal),
+            "mixed operator<= differs from exact oracle");
+        require((integer > value) == greater && (value > integer) == less, "mixed operator> differs from exact oracle");
+        require(
+            (integer >= value) == (greater || equal) && (value >= integer) == (less || equal),
+            "mixed operator>= differs from exact oracle");
+    }
+    catch (const std::exception & error)
+    {
+        std::ostringstream message;
+        const char * float_type = std::is_same<Float, float>::value ? "float"
+            : std::is_same<Float, double>::value                    ? "double"
+                                                                    : "long double";
+        message.precision(std::numeric_limits<Float>::max_digits10);
+        message << error.what() << ": bits=" << Bits << ", signed=" << is_signed << ", float_type=" << float_type
+                << ", rounding_mode=" << std::fegetround() << ", integer=" << gint::to_string(integer) << ", float=" << value;
+        throw std::runtime_error(message.str());
+    }
+}
+
+template <size_t Bits, typename Float>
+void verify_float_integer(const reference_uint<Bits / 64> & bits, Float value)
+{
+    const reference_float_parts<Float> parts(value);
+    verify_float_integer_pair<Bits, unsigned>(bits, value, parts);
+    verify_float_integer_pair<Bits, signed>(bits, value, parts);
+}
+
+template <typename Float>
+Float float_from_input(const uint8_t * data, size_t size, size_t offset)
+{
+    const uint8_t control = input_byte(data, size, offset);
+    const bool negative = (control & 8u) != 0;
+    Float magnitude;
+    switch (control & 7u)
+    {
+        case 0:
+            return std::numeric_limits<Float>::quiet_NaN();
+        case 1:
+            magnitude = std::numeric_limits<Float>::infinity();
+            break;
+        case 2:
+            magnitude = Float(0);
+            break;
+        case 3:
+            magnitude = std::numeric_limits<Float>::denorm_min();
+            break;
+        default: {
+            const unsigned exponent_bits = input_byte(data, size, offset + 1) | (unsigned(input_byte(data, size, offset + 2)) << 8);
+            const int min_exponent = std::numeric_limits<Float>::min_exponent - 1;
+            const int max_exponent = std::numeric_limits<Float>::max_exponent - 1;
+            int exponent = min_exponent + int(exponent_bits % unsigned(max_exponent - min_exponent + 1));
+            if ((control & 7u) == 4)
+                exponent = int(exponent_bits % 64u) - 32;
+            if ((control & 7u) == 5)
+            {
+                const int upper = max_exponent < 1055 ? max_exponent : 1055;
+                exponent = int(exponent_bits % unsigned(upper + 33)) - 32;
+            }
+
+            // Build the significand from least significant to most significant
+            // so every intermediate value is exactly representable.
+            Float fraction = 0;
+            for (int bit = std::numeric_limits<Float>::digits - 2; bit >= 0; --bit)
+            {
+                const uint8_t byte = input_byte(data, size, offset + 3 + static_cast<size_t>(bit) / 8);
+                fraction = std::ldexp(fraction + Float((byte >> (bit % 8)) & 1u), -1);
+            }
+            magnitude = std::ldexp(Float(1) + fraction, exponent);
+            break;
+        }
+    }
+    return negative ? -magnitude : magnitude;
+}
+
+template <size_t Bits>
+void exercise_float_integer(const uint8_t * data, size_t size, float single, double dbl, long double extended)
+{
+    const reference_uint<Bits / 64> bits = wide_reference_from_input<Bits / 64>(data, size, 2, Bits / 8);
+    verify_float_integer<Bits>(bits, single);
+    verify_float_integer<Bits>(bits, dbl);
+    verify_float_integer<Bits>(bits, extended);
+}
+
 inline void exercise_float_conversion(const uint8_t * data, size_t size)
 {
     static const int rounding_modes[] = {FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO};
@@ -957,6 +1181,15 @@ inline void exercise_float_conversion(const uint8_t * data, size_t size)
     require(
         equal_float(static_cast<float>(signed_128), reference_binary_float<float>(ref_unsigned_128, signed_128_negative)),
         "Int128 to float differs from exact oracle");
+
+    const size_t float_offset = 2 + 1024 / 8;
+    const float single = float_from_input<float>(data, size, float_offset);
+    const double dbl = float_from_input<double>(data, size, float_offset + 6);
+    const long double extended = float_from_input<long double>(data, size, float_offset + 16);
+    exercise_float_integer<128>(data, size, single, dbl, extended);
+    exercise_float_integer<256>(data, size, single, dbl, extended);
+    exercise_float_integer<512>(data, size, single, dbl, extended);
+    exercise_float_integer<1024>(data, size, single, dbl, extended);
 }
 
 inline void exercise_input(const uint8_t * data, size_t size)

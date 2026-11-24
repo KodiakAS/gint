@@ -54,5 +54,5 @@ echo "[gcc63] C++11 ASan/UBSan tests"
 export ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1
 cmake -S . -B "$RUN_ROOT/build-sanitizers" "${test_options[@]}" \
     -DENABLE_SANITIZERS=ON -DGINT_BUILD_TESTS_RELEASE=OFF
-cmake --build "$RUN_ROOT/build-sanitizers" --parallel "$JOBS"
-(cd "$RUN_ROOT/build-sanitizers" && ctest --output-on-failure -j "$JOBS")
+cmake --build "$RUN_ROOT/build-sanitizers" --target gint_sanitized_tests --parallel "$JOBS"
+(cd "$RUN_ROOT/build-sanitizers" && ctest --output-on-failure -L '^gint_sanitized$' -j "$JOBS")

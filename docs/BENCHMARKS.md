@@ -68,8 +68,15 @@ runs/local/build-bench/perf_compare_int256 --gint_full --benchmark_list_tests
 Base2/8/10/16 parser 组合。
 
 `--gint_full` 在 gint-only 中还提供原生除数、标量复合乘法、有符号与分 limb 除模，
-以及文本和浮点转换用例。复合乘法分别覆盖单 limb 和稠密输入，有符号除模消费
-一次 `gint::divmod` 的两个结果，浮点转换分别覆盖低 limb 精确值和满宽需舍入值。
+以及文本和浮点转换用例。复合乘法分别覆盖单 limb 和稠密输入，浮点转换分别覆盖
+低 limb 精确值和满宽需舍入值。配对的 `DivMod/*` 用例共享确定性数据，分别使用
+`gint::divmod` 和 `/` 加 `%`，均消费商和余数。
+512 位和 1024 位还覆盖归一化的 5 limb 和 9 limb 长除数。
+
+`Latency/*Chain` 将每次运算的结果传入下一次运算，左移链按批重置以保持非零输入。
+`Shift/*Const1` 和 `Shift/*Limb64` 衡量独立输入的固定位移。`CompareFloat/*`
+覆盖不同指数、同指数不同有效位、完全相等，以及仅低位不同。`Fmt/FormatToDec`
+在启用 fmt 时复用输出缓冲区，`Hash/StdHash` 测量标准库哈希入口。
 
 两个 benchmark 二进制都会拒绝无法识别的参数。过滤器无匹配或正则无效时，
 采样、`--benchmark_list_tests` 和 `--benchmark_dry_run` 均以非零状态退出。
@@ -117,8 +124,8 @@ contract 失败后应先检查生成汇编，并在同编译器上运行受影�
 ## 自动化
 
 [`Performance` workflow](../.github/workflows/performance.yml) 在 PR 上运行现代
-GCC/Clang/AppleClang codegen contract；定时和手工任务保存 gint-only、三方
-comparison、128-bit 除模、1024-bit parser 与定向热点的原始及规范化 JSON。
+GCC/Clang/AppleClang codegen contract；定时和手工任务保存 gint-only、256/512-bit 三方
+comparison、128-bit 除模、512-bit 热点、1024-bit parser 与定向热点的原始及规范化 JSON。
 
 共享 runner 的绝对时间不阻断 PR。自动化样本用于发现趋势；真正的性能回归结论
 必须回到固定主机复测。GCC 4.8.5 lane 只验证 correctness/integration，不构建
