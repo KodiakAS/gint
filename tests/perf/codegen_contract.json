@@ -211,6 +211,89 @@
       },
       "max_calls": 1
     },
+    "gint_perf_divmod512_u64": {
+      "max_instructions": {
+        "aarch64": 360,
+        "x86_64": 96
+      },
+      "max_total_instructions": {
+        "aarch64": 680,
+        "x86_64": 225
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "forbidden_mnemonics": {
+        "x86_64": [
+          "mul",
+          "mulq",
+          "imul",
+          "imulq"
+        ]
+      },
+      "forbidden_caller_mnemonics": {
+        "aarch64": [
+          "mul",
+          "umulh",
+          "madd",
+          "msub"
+        ]
+      },
+      "max_calls": 1
+    },
+    "gint_perf_divmod1024_u64": {
+      "max_instructions": {
+        "aarch64": 260,
+        "x86_64": 145
+      },
+      "max_total_instructions": {
+        "aarch64": 620,
+        "x86_64": 320
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {
+          "memcpy": 2
+        }
+      },
+      "forbidden_mnemonics": {
+        "x86_64": [
+          "mul",
+          "mulq",
+          "imul",
+          "imulq"
+        ]
+      },
+      "forbidden_caller_mnemonics": {
+        "aarch64": [
+          "mul",
+          "umulh",
+          "madd",
+          "msub"
+        ]
+      },
+      "max_calls": 3
+    },
+    "gint_perf_divmod512_dense4": {
+      "max_instructions": {
+        "aarch64": 120,
+        "x86_64": 96
+      },
+      "allowed_call_substrings": [
+        "divmod_large_core",
+        "is_power_of_two",
+        "used_limbs",
+        "memcpy",
+        "memset",
+        "bzero"
+      ],
+      "max_calls": 5
+    },
     "gint_perf_add512": {
       "max_instructions": {
         "aarch64": 64,

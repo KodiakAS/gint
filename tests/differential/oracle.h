@@ -302,6 +302,8 @@ void exercise_wide_signed_min_division()
     const wide_signed_reference<Bits> ref_wide_divisor = make_wide_signed_reference<Bits>(wide_divisor_magnitude, false);
 
     verify_wide_signed_division(min_value, Int(-1), ref_min, ref_minus_one);
+    verify_wide_signed_division(min_value, Int(1), ref_min, make_wide_signed_reference<Bits>(one, false));
+    verify_wide_signed_division(Int(0), Int(-1), make_wide_signed_reference<Bits>(Reference(), false), ref_minus_one);
     verify_wide_signed_division(min_value, wide_divisor, ref_min, ref_wide_divisor);
     verify_wide_signed_division(Int(123), min_value, ref_small, ref_min);
     verify_wide_signed_division(min_value, min_value, ref_min, ref_min);
