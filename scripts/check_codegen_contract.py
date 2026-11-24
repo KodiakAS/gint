@@ -512,6 +512,7 @@ def evaluate_contract(functions, contract, architecture, target=None):
                         name, call["line"], call["instruction"]
                     )
                 )
+        bodies = None
         if "max_total_instructions" in requirements:
             total_maximum = requirements["max_total_instructions"][architecture]
             external_budget = requirements["external_call_budget"][architecture]
@@ -529,6 +530,32 @@ def evaluate_contract(functions, contract, architecture, target=None):
                 violations.append(
                     "{0}: {1} total instructions exceeds budget {2}".format(name, total_count, total_maximum)
                 )
+        forbidden = {
+            mnemonic.lower()
+            for mnemonic in requirements.get("forbidden_mnemonics", {}).get(architecture, [])
+        }
+        if forbidden:
+            checked_symbols = sorted(bodies) if bodies is not None else [name]
+            for symbol in checked_symbols:
+                for instruction in functions[symbol]["instructions"]:
+                    if instruction["mnemonic"] in forbidden:
+                        violations.append(
+                            "{0}: {1} at line {2}: forbidden instruction: {3}".format(
+                                name, symbol, instruction["line"], instruction["instruction"]
+                            )
+                        )
+        forbidden_caller = {
+            mnemonic.lower()
+            for mnemonic in requirements.get("forbidden_caller_mnemonics", {}).get(architecture, [])
+        }
+        if forbidden_caller and bodies is not None and len(bodies) > 1:
+            for instruction in parsed["instructions"]:
+                if instruction["mnemonic"] in forbidden_caller:
+                    violations.append(
+                        "{0}: {1} at line {2}: forbidden caller instruction: {3}".format(
+                            name, name, instruction["line"], instruction["instruction"]
+                        )
+                    )
 
     return results, violations
 

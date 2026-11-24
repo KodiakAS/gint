@@ -313,39 +313,56 @@ int main() { return 0; }
         target_compile_options(gint_consumer_header_contract_intel PRIVATE -O3 -Wall -Wextra -Werror -masm=intel)
     endif()
 
-    foreach(standard IN ITEMS 14 17)
-        if(cxx_std_${standard} IN_LIST CMAKE_CXX_COMPILE_FEATURES)
-            add_gint_consumer_test(gint_consumer_header_contract_cxx${standard} tests/consumer/header_contract.cpp ${standard})
-        endif()
-    endforeach()
+    function(add_gint_std_contract standard minimum)
+        foreach(flag IN LISTS ARGN)
+            string(MAKE_C_IDENTIFIER "GINT_HAS_${flag}" flag_check)
+            check_cxx_compiler_flag("${flag}" ${flag_check})
+            if(${flag_check})
+                set(target gint_consumer_std_contract_cxx${standard})
+                add_executable(${target} tests/consumer/std_contract.cpp)
+                # The probed flag selects the dialect even when the parent sets
+                # a default CXX_STANDARD or CMake 3.13 doesn't know the dialect.
+                set_property(TARGET ${target} PROPERTY CXX_STANDARD)
+                set_property(TARGET ${target} PROPERTY CXX_EXTENSIONS)
+                target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+                target_compile_definitions(${target} PRIVATE "GINT_EXPECT_CXX_MIN=${minimum}")
+                target_compile_options(${target} PRIVATE "${flag}" -Wall -Wextra -Wdeprecated-declarations -Werror)
+                add_test(NAME consumer.${target} COMMAND ${target})
+                return()
+            endif()
+        endforeach()
+    endfunction()
+
+    add_gint_std_contract(14 201402L -std=c++14)
+    # GCC 6 reports a draft __cplusplus value even with -std=c++17.
+    add_gint_std_contract(17 201500L -std=c++17)
+    # Accept the draft __cplusplus values from c++2a/c++2b mode as well.
+    add_gint_std_contract(20 201709L -std=c++20 -std=c++2a)
+    add_gint_std_contract(23 202100L -std=c++23 -std=c++2b)
+
     add_gint_consumer_test(gint_consumer_fmt_bounded_output tests/consumer/fmt_bounded_output.cpp 11)
     target_compile_definitions(gint_consumer_fmt_bounded_output PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(gint_consumer_fmt_bounded_output PRIVATE fmt::fmt)
     add_gint_consumer_test(gint_consumer_gcc48_compat tests/consumer/gcc48_compat.cpp 11)
     add_gint_consumer_test(gint_consumer_no_exceptions tests/consumer/no_exceptions.cpp 11)
     target_compile_options(gint_consumer_no_exceptions PRIVATE -fno-exceptions)
+    add_gint_consumer_test(gint_consumer_no_exceptions_checked tests/consumer/no_exceptions.cpp 11)
+    target_link_libraries(gint_consumer_no_exceptions_checked PRIVATE gint::checked)
+    target_compile_options(gint_consumer_no_exceptions_checked PRIVATE -fno-exceptions)
 
-    set(GINT_CONFIG_ISOLATION_SOURCES
-        tests/consumer/config_checked.cpp
-        tests/consumer/config_unchecked.cpp
-        tests/consumer/config_gcc_tuned.cpp
-        tests/consumer/config_isolation_main.cpp
-    )
-    add_gint_consumer_test(gint_consumer_config_isolation "${GINT_CONFIG_ISOLATION_SOURCES}" 11)
-    list(REVERSE GINT_CONFIG_ISOLATION_SOURCES)
-    add_gint_consumer_test(gint_consumer_config_isolation_reversed "${GINT_CONFIG_ISOLATION_SOURCES}" 11)
-
-    set(GINT_CXX23_FLAG -std=c++2b)
-    check_cxx_compiler_flag("${GINT_CXX23_FLAG}" GINT_HAS_CXX23_FLAG)
-    if(GINT_HAS_CXX23_FLAG)
-        add_executable(gint_consumer_cxx23_werror tests/consumer/cxx23_werror.cpp)
-        target_include_directories(gint_consumer_cxx23_werror PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        target_compile_options(gint_consumer_cxx23_werror PRIVATE ${GINT_CXX23_FLAG})
-        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-            target_compile_options(gint_consumer_cxx23_werror PRIVATE -Wall -Wextra -Wdeprecated-declarations -Werror)
-        endif()
-        add_test(NAME consumer.gint_consumer_cxx23_werror COMMAND gint_consumer_cxx23_werror)
-    endif()
+    set(GINT_CONFIG_ISOLATION_OBJECTS)
+    foreach(source IN ITEMS config_checked config_unchecked config_gcc_tuned config_isolation_main)
+        set(target gint_consumer_${source})
+        add_library(${target} OBJECT tests/consumer/${source}.cpp)
+        set_target_properties(${target} PROPERTIES
+            CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+        target_link_libraries(${target} PRIVATE gint::gint)
+        list(APPEND GINT_CONFIG_ISOLATION_OBJECTS "$<TARGET_OBJECTS:${target}>")
+    endforeach()
+    add_gint_consumer_test(gint_consumer_config_isolation "${GINT_CONFIG_ISOLATION_OBJECTS}" 11)
+    list(REVERSE GINT_CONFIG_ISOLATION_OBJECTS)
+    add_gint_consumer_test(gint_consumer_config_isolation_reversed "${GINT_CONFIG_ISOLATION_OBJECTS}" 11)
 
     add_test(NAME consumer.header_contract_negative
         COMMAND ${CMAKE_COMMAND}
@@ -395,6 +412,16 @@ int main() { return 0; }
             -DGINT_INSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}
             -DGINT_INSTALL_DATADIR=${CMAKE_INSTALL_DATADIR}
         )
+
+        add_test(NAME consumer.package.stage
+            COMMAND ${CMAKE_COMMAND}
+                ${GINT_PACKAGE_TEST_INSTALL_ARGS}
+                ${GINT_CONSUMER_BUILD_ARGS}
+                -DGINT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/stage_package.cmake
+        )
+        set_tests_properties(consumer.package.stage PROPERTIES FIXTURES_SETUP gint_package_stage)
 
         add_test(NAME consumer.package
             COMMAND ${CMAKE_COMMAND}
@@ -455,6 +482,14 @@ int main() { return 0; }
                 -DGINT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/run_consumer.cmake
         )
+        set_tests_properties(
+            consumer.package
+            consumer.package.version_exact
+            consumer.package.version_compatible
+            consumer.package.version_newer_rejected
+            consumer.package.version_other_minor_rejected
+            PROPERTIES FIXTURES_REQUIRED gint_package_stage
+        )
         add_test(NAME consumer.package.compiler_contract
             COMMAND ${CMAKE_COMMAND}
                 -DGINT_CXX_COMPILER=${CMAKE_CXX_COMPILER}
@@ -475,7 +510,6 @@ int main() { return 0; }
         tests/arithmetic_divmod_test.cpp
         tests/arithmetic_mul_test.cpp
         tests/bitwise_test.cpp
-        tests/boundary_test.cpp
         tests/comparison_test.cpp
         tests/construction_test.cpp
         tests/conversion_test.cpp
@@ -487,6 +521,21 @@ int main() { return 0; }
         tests/shift_test.cpp
         tests/stream_test.cpp
     )
+
+    if(ENABLE_SANITIZERS)
+        add_custom_target(gint_sanitized_tests)
+        set(GINT_SANITIZED_TEST_PROPERTIES PROPERTIES LABELS gint_sanitized)
+    endif()
+
+    function(gint_apply_test_options target)
+        target_compile_options(${target} PRIVATE ${GINT_TEST_OPTIONS})
+        if(GINT_TEST_LINK_OPTIONS)
+            target_link_options(${target} PRIVATE ${GINT_TEST_LINK_OPTIONS})
+        endif()
+        if(ENABLE_SANITIZERS)
+            add_dependencies(gint_sanitized_tests ${target})
+        endif()
+    endfunction()
 
     # Keep each policy/optimization variant in its own executable. Only the
     # target setup is shared; Release intentionally omits debug instrumentation.
@@ -502,15 +551,13 @@ int main() { return 0; }
         if(TEST_RELEASE)
             target_compile_options(${target} PRIVATE ${GINT_TEST_RELEASE_OPTIONS})
         else()
-            target_compile_options(${target} PRIVATE ${GINT_TEST_OPTIONS})
-            if(GINT_TEST_LINK_OPTIONS)
-                target_link_options(${target} PRIVATE ${GINT_TEST_LINK_OPTIONS})
-            endif()
+            gint_apply_test_options(${target})
+            set(test_properties ${GINT_SANITIZED_TEST_PROPERTIES})
         endif()
         target_compile_definitions(${target} PRIVATE ${TEST_DEFINITIONS})
         target_link_libraries(${target} PRIVATE GTest::gtest_main ${TEST_LIBRARIES})
         gtest_discover_tests(${target}
-            TEST_PREFIX "${prefix}" NO_PRETTY_VALUES DISCOVERY_TIMEOUT 60)
+            TEST_PREFIX "${prefix}" NO_PRETTY_VALUES DISCOVERY_TIMEOUT 60 ${test_properties})
     endfunction()
 
     set(GINT_CORE_TEST_ARGS DEFINITIONS GINT_ENABLE_FMT GINT_TEST_ACCESS LIBRARIES fmt::fmt)
@@ -533,10 +580,7 @@ int main() { return 0; }
             add_library(${target} SHARED tests/divzero_dso_library.cpp)
             target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
             set_target_properties(${target} PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-            target_compile_options(${target} PRIVATE ${GINT_TEST_OPTIONS})
-            if(GINT_TEST_LINK_OPTIONS)
-                target_link_options(${target} PRIVATE ${GINT_TEST_LINK_OPTIONS})
-            endif()
+            gint_apply_test_options(${target})
         endforeach()
         target_compile_definitions(gint_divzero_checked_dso PRIVATE GINT_ENABLE_DIVZERO_CHECKS)
 
@@ -547,16 +591,14 @@ int main() { return 0; }
                 GINT_DSO_UNCHECKED_PATH="$<TARGET_FILE:gint_divzero_unchecked_dso>"
         )
         set_target_properties(gint_tests_divzero_dso PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-        target_compile_options(gint_tests_divzero_dso PRIVATE ${GINT_TEST_OPTIONS})
-        if(GINT_TEST_LINK_OPTIONS)
-            target_link_options(gint_tests_divzero_dso PRIVATE ${GINT_TEST_LINK_OPTIONS})
-        endif()
+        gint_apply_test_options(gint_tests_divzero_dso)
         target_link_libraries(gint_tests_divzero_dso PRIVATE GTest::gtest_main ${CMAKE_DL_LIBS})
         add_dependencies(gint_tests_divzero_dso gint_divzero_checked_dso gint_divzero_unchecked_dso)
         gtest_discover_tests(gint_tests_divzero_dso
             TEST_PREFIX divzero_dso.
             NO_PRETTY_VALUES
             DISCOVERY_TIMEOUT 60
+            ${GINT_SANITIZED_TEST_PROPERTIES}
         )
     endif()
 

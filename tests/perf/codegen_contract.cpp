@@ -8,6 +8,8 @@
 #    error "The code-generation contract supports GCC and Clang only"
 #endif
 
+using UInt512 = gint::integer<512, unsigned>;
+
 extern "C" {
 
 GINT_PERF_NOINLINE void gint_perf_add256(gint::UInt256 * out, const gint::UInt256 * lhs, const gint::UInt256 * rhs)
@@ -96,6 +98,40 @@ GINT_PERF_NOINLINE std::uint64_t gint_perf_mod_u64(const gint::UInt256 * dividen
 GINT_PERF_NOINLINE unsigned gint_perf_hex_digit(unsigned char value)
 {
     return gint::detail::hexadecimal_digit_value(value);
+}
+
+// Inline the public dispatcher here so its proven single-limb divisor prunes the other kernels.
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((flatten))
+#endif
+GINT_PERF_NOINLINE void
+gint_perf_divmod256_u64(gint::divmod_result<gint::UInt256> * result, const gint::UInt256 * dividend, std::uint64_t divisor)
+{
+    divisor = (divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL;
+    const gint::UInt256 wide_divisor(divisor);
+    const gint::UInt256 full_width_dividend = *dividend | (gint::UInt256(1) << 255u);
+#if defined(__clang__)
+    [[clang::always_inline]]
+#endif
+    {
+        *result = gint::divmod(full_width_dividend, wide_divisor);
+    }
+}
+
+GINT_PERF_NOINLINE void gint_perf_add512(UInt512 * out, const UInt512 * lhs, const UInt512 * rhs)
+{
+    *out = *lhs + *rhs;
+}
+
+GINT_PERF_NOINLINE void gint_perf_sub512(UInt512 * out, const UInt512 * lhs, const UInt512 * rhs)
+{
+    *out = *lhs - *rhs;
+}
+
+GINT_PERF_NOINLINE void gint_perf_div_u64_512(UInt512 * quotient, const UInt512 * dividend, std::uint64_t divisor)
+{
+    divisor = (divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL;
+    *quotient = *dividend / divisor;
 }
 
 } // extern "C"

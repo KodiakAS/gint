@@ -20,27 +20,7 @@ set(consumer_build "${GINT_BINARY_DIR}/consumer-${consumer_case}")
 file(REMOVE_RECURSE "${consumer_build}")
 
 if(GINT_CONSUMER_KIND STREQUAL "package")
-    set(stage_root "${GINT_BINARY_DIR}/consumer-${consumer_case}-prefix")
-    file(REMOVE_RECURSE "${stage_root}")
-    include("${CMAKE_CURRENT_LIST_DIR}/stage_package.cmake")
-    set(expected_install_files
-        "${staged_INCLUDE}/gint/gint.h"
-        "${staged_CMAKE}/gintConfig.cmake"
-        "${staged_CMAKE}/gintConfigVersion.cmake"
-        "${staged_CMAKE}/gintCompilerContract.cmake"
-        "${staged_CMAKE}/gintTargets.cmake"
-        "${staged_DATA}/LICENSE"
-    )
-    file(GLOB_RECURSE installed_files LIST_DIRECTORIES FALSE "${stage_root}/*")
-    list(SORT installed_files)
-    list(SORT expected_install_files)
-    if(NOT "${installed_files}" STREQUAL "${expected_install_files}")
-        message(FATAL_ERROR
-            "installed package manifest mismatch\n"
-            "expected: ${expected_install_files}\n"
-            "actual:   ${installed_files}"
-        )
-    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/package_install_layout.cmake")
 
     set(configure_args "-DCMAKE_PREFIX_PATH=${stage_root}${GINT_INSTALL_PREFIX}")
     # Prefix-only discovery covers the default layout. Custom libdirs may

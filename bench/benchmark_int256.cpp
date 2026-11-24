@@ -7,13 +7,19 @@
 #endif
 
 #include <array>
+#include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <string>
 #include <vector>
 
+#ifdef GINT_ENABLE_FMT
+#    include <fmt/format.h>
+#endif
 #include <gint/gint.h>
 
 #ifndef GINT_BENCH_BITS
@@ -839,14 +845,20 @@ static const std::array<std::pair<Int, Int>, kDataN> & divmod_similar_magnitude_
     return data;
 }
 
-// Overload by the actual operand type: comparison builds also include gint.
 template <typename Int>
-inline void consume_divmod(const Int & dividend, const Int & divisor)
+inline void consume_separate_divmod(const Int & dividend, const Int & divisor)
 {
     Int quotient = dividend / divisor;
     Int remainder = dividend % divisor;
     benchmark::DoNotOptimize(quotient);
     benchmark::DoNotOptimize(remainder);
+}
+
+// Overload by the actual operand type: comparison builds also include gint.
+template <typename Int>
+inline void consume_divmod(const Int & dividend, const Int & divisor)
+{
+    consume_separate_divmod(dividend, divisor);
 }
 
 inline void consume_divmod(const WInt & dividend, const WInt & divisor)
@@ -878,10 +890,7 @@ static void DivMod_SimilarMagnitudeSeparate(benchmark::State & state)
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        Int quotient = p.first / p.second;
-        Int remainder = p.first % p.second;
-        benchmark::DoNotOptimize(quotient);
-        benchmark::DoNotOptimize(remainder);
+        consume_separate_divmod(p.first, p.second);
     }
 }
 #endif
@@ -1154,20 +1163,27 @@ static void Mul_I64(benchmark::State & state)
     }
 }
 
-template <typename Int>
+template <bool Separate = false, typename Int>
 static void run_gint_divmod(benchmark::State & state, const std::array<std::pair<Int, Int>, kDataN> & data)
 {
     size_t i = 0;
     for (auto _ : state)
     {
         const auto & p = data[i++ & (kDataN - 1)];
-        auto result = gint::divmod(p.first, p.second);
-        benchmark::DoNotOptimize(result.quotient);
-        benchmark::DoNotOptimize(result.remainder);
+        if constexpr (Separate)
+        {
+            consume_separate_divmod(p.first, p.second);
+        }
+        else
+        {
+            auto result = gint::divmod(p.first, p.second);
+            benchmark::DoNotOptimize(result.quotient);
+            benchmark::DoNotOptimize(result.remainder);
+        }
     }
 }
 
-static void DivMod_SignedMixed(benchmark::State & state)
+static const auto & divmod_signed_mixed_data()
 {
     using SInt = gint::integer<kBenchBits, signed>;
     static const auto data = []
@@ -1183,12 +1199,19 @@ static void DivMod_SignedMixed(benchmark::State & state)
         }
         return values;
     }();
-    run_gint_divmod(state, data);
+    return data;
+}
+
+template <bool Separate>
+static void DivMod_SignedMixed(benchmark::State & state)
+{
+    run_gint_divmod<Separate>(state, divmod_signed_mixed_data());
 }
 
 template <size_t DivisorLimbs>
 static WInt random_divisor(std::mt19937_64 & rng, bool normalized)
 {
+    static_assert(DivisorLimbs > 0 && DivisorLimbs <= kBenchLimbs, "invalid divisor width");
     std::array<uint64_t, kBenchLimbs> words{};
     for (size_t i = 0; i < DivisorLimbs; ++i)
         words[i] = rng();
@@ -1201,18 +1224,24 @@ static WInt random_divisor(std::mt19937_64 & rng, bool normalized)
     return assemble_words<WInt>(words);
 }
 
-template <size_t DivisorLimbs>
-static void DivMod_DenseDivisor(benchmark::State & state)
+template <size_t DivisorLimbs, bool Normalized>
+static const auto & divmod_dense_data()
 {
     static const auto data = []
     {
         std::array<std::pair<WInt, WInt>, kDataN> values{};
         std::mt19937_64 rng(kSeedBase ^ 0x44454e5345444956ULL);
         for (auto & value : values)
-            value = {random_full_width(rng), random_divisor<DivisorLimbs>(rng, false)};
+            value = {random_full_width(rng), random_divisor<DivisorLimbs>(rng, Normalized)};
         return values;
     }();
-    run_gint_divmod(state, data);
+    return data;
+}
+
+template <size_t DivisorLimbs, bool Separate = false, bool Normalized = false>
+static void DivMod_DenseDivisor(benchmark::State & state)
+{
+    run_gint_divmod<Separate>(state, divmod_dense_data<DivisorLimbs, Normalized>());
 }
 
 static void DivMod_DividendSmaller(benchmark::State & state)
@@ -1265,6 +1294,121 @@ static const auto & conversion_data()
         return values;
     }();
     return data;
+}
+
+template <bool Multiply>
+static void Latency_ArithmeticChain(benchmark::State & state)
+{
+    const auto & data = conversion_data<0>();
+    WInt value = data[0];
+    const WInt & operand = data[1];
+    for (auto _ : state)
+    {
+        if constexpr (Multiply)
+            value = value * operand;
+        else
+            value = value + operand;
+        benchmark::DoNotOptimize(value);
+    }
+}
+
+static void Latency_ShiftLeftChain(benchmark::State & state)
+{
+    const WInt & seed = conversion_data<0>().front();
+    constexpr int batch_size = kBenchBits / 2;
+    while (state.KeepRunningBatch(batch_size))
+    {
+        // The odd seed stays nonzero across the batch. Count each dependent shift as one operation.
+        WInt value = seed;
+        for (int i = 0; i < batch_size; ++i)
+        {
+            value = value << 1u;
+            benchmark::DoNotOptimize(value);
+        }
+    }
+}
+
+template <unsigned Shift, bool Left>
+static void Shift_Constant(benchmark::State & state)
+{
+    const auto & data = conversion_data<0>();
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const WInt & value = data[i++ & (kDataN - 1)];
+        if constexpr (Left)
+            benchmark::DoNotOptimize(value << Shift);
+        else
+            benchmark::DoNotOptimize(value >> Shift);
+    }
+}
+
+enum class FloatCompareCase
+{
+    DiffExp,
+    SameExpHighDiff,
+    SameExpEqual,
+    SameExpLowBitDiff,
+};
+
+template <FloatCompareCase Case>
+static void CompareFloat(benchmark::State & state)
+{
+    static const auto data = []
+    {
+        constexpr int digits = std::numeric_limits<double>::digits;
+        constexpr unsigned shift = kBenchBits - digits;
+        constexpr uint64_t leading_bit = uint64_t(1) << (digits - 1);
+        std::array<std::pair<WInt, double>, kDataN> values{};
+        std::mt19937_64 rng(kSeedBase ^ 0x434f4d50464c4f41ULL);
+        for (auto & value : values)
+        {
+            const uint64_t significand = leading_bit | (rng() & (leading_bit - 1));
+            WInt lhs = WInt(significand) << shift;
+            uint64_t rhs_significand = significand;
+            unsigned rhs_shift = shift;
+            if constexpr (Case == FloatCompareCase::DiffExp)
+                --rhs_shift;
+            if constexpr (Case == FloatCompareCase::SameExpHighDiff)
+                rhs_significand ^= leading_bit >> 1;
+            if constexpr (Case == FloatCompareCase::SameExpLowBitDiff)
+                lhs |= WInt(1);
+            value = {lhs, std::ldexp(static_cast<double>(rhs_significand), rhs_shift)};
+        }
+        return values;
+    }();
+
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        const auto & p = data[i++ & (kDataN - 1)];
+        benchmark::DoNotOptimize(p.first == p.second);
+    }
+}
+
+#    ifdef GINT_ENABLE_FMT
+static void Fmt_FormatToDec(benchmark::State & state)
+{
+    const auto & data = conversion_data<0>();
+    fmt::memory_buffer buffer;
+    size_t i = 0;
+    for (auto _ : state)
+    {
+        buffer.clear();
+        fmt::format_to(std::back_inserter(buffer), "{:d}", data[i++ & (kDataN - 1)]);
+        benchmark::DoNotOptimize(buffer.data());
+        benchmark::ClobberMemory();
+    }
+}
+#    endif
+
+static void Hash_StdHash(benchmark::State & state)
+{
+    const auto & data = conversion_data<0>();
+    const std::hash<WInt> hash;
+    size_t i = 0;
+    for (auto _ : state)
+        benchmark::DoNotOptimize(hash(data[i++ & (kDataN - 1)]));
 }
 
 template <unsigned Base, bool Short>
@@ -1395,12 +1539,22 @@ int main(int argc, char ** argv)
         benchmark::RegisterBenchmark("MulAssign/I64NegativeDense/gint", &Mul_I64<-1, false, true>);
         benchmark::RegisterBenchmark("MulAssign/I64MinDense/gint", &Mul_I64<0, false, true>);
         benchmark::RegisterBenchmark("MulAssign/I64NegativeSparse/gint", &Mul_I64<-1, true, true>);
-        benchmark::RegisterBenchmark("DivMod/SignedMixed/gint", &DivMod_SignedMixed);
+        benchmark::RegisterBenchmark("DivMod/SignedMixed/gint", &DivMod_SignedMixed<false>);
+        benchmark::RegisterBenchmark("DivMod/SignedMixedSeparate/gint", &DivMod_SignedMixed<true>);
+        benchmark::RegisterBenchmark("DivMod/SingleLimb/gint", &DivMod_DenseDivisor<1>);
+        benchmark::RegisterBenchmark("DivMod/SingleLimbSeparate/gint", &DivMod_DenseDivisor<1, true>);
         benchmark::RegisterBenchmark("DivMod/DenseDivisor2/gint", &DivMod_DenseDivisor<2>);
+        benchmark::RegisterBenchmark("DivMod/DenseDivisor2Separate/gint", &DivMod_DenseDivisor<2, true>);
         if constexpr (kBenchLimbs >= 4)
         {
             benchmark::RegisterBenchmark("DivMod/DenseDivisor3/gint", &DivMod_DenseDivisor<3>);
+            benchmark::RegisterBenchmark("DivMod/DenseDivisor3Separate/gint", &DivMod_DenseDivisor<3, true>);
             benchmark::RegisterBenchmark("DivMod/DenseDivisor4/gint", &DivMod_DenseDivisor<4>);
+        }
+        if constexpr (kBenchLimbs >= 8)
+        {
+            benchmark::RegisterBenchmark("DivMod/DenseDivisorWide/gint", &DivMod_DenseDivisor<kBenchLimbs / 2 + 1, false, true>);
+            benchmark::RegisterBenchmark("DivMod/DenseDivisorWideSeparate/gint", &DivMod_DenseDivisor<kBenchLimbs / 2 + 1, true, true>);
         }
         benchmark::RegisterBenchmark("DivMod/DividendSmaller/gint", &DivMod_DividendSmaller);
         if constexpr (kBenchBits == 256)
@@ -1413,6 +1567,21 @@ int main(int argc, char ** argv)
         benchmark::RegisterBenchmark("ToString/HexFull/gint", &ToString_Nondecimal<16, false>);
         benchmark::RegisterBenchmark("ToDouble/ExactLow/gint", &ToDouble<true>);
         benchmark::RegisterBenchmark("ToDouble/InexactFull/gint", &ToDouble<false>);
+        benchmark::RegisterBenchmark("Latency/AddChain/gint", &Latency_ArithmeticChain<false>);
+        benchmark::RegisterBenchmark("Latency/MulChain/gint", &Latency_ArithmeticChain<true>);
+        benchmark::RegisterBenchmark("Latency/ShiftLeftChain/gint", &Latency_ShiftLeftChain);
+        benchmark::RegisterBenchmark("Shift/LeftConst1/gint", &Shift_Constant<1, true>);
+        benchmark::RegisterBenchmark("Shift/RightConst1/gint", &Shift_Constant<1, false>);
+        benchmark::RegisterBenchmark("Shift/LeftLimb64/gint", &Shift_Constant<64, true>);
+        benchmark::RegisterBenchmark("Shift/RightLimb64/gint", &Shift_Constant<64, false>);
+        benchmark::RegisterBenchmark("CompareFloat/DiffExp/gint", &CompareFloat<FloatCompareCase::DiffExp>);
+        benchmark::RegisterBenchmark("CompareFloat/SameExpHighDiff/gint", &CompareFloat<FloatCompareCase::SameExpHighDiff>);
+        benchmark::RegisterBenchmark("CompareFloat/SameExpEqual/gint", &CompareFloat<FloatCompareCase::SameExpEqual>);
+        benchmark::RegisterBenchmark("CompareFloat/SameExpLowBitDiff/gint", &CompareFloat<FloatCompareCase::SameExpLowBitDiff>);
+#    ifdef GINT_ENABLE_FMT
+        benchmark::RegisterBenchmark("Fmt/FormatToDec/gint", &Fmt_FormatToDec);
+#    endif
+        benchmark::RegisterBenchmark("Hash/StdHash/gint", &Hash_StdHash);
 #endif
     }
 

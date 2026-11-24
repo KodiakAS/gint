@@ -24,15 +24,19 @@ jobs:
           - name: ubuntu-gcc
             os: ubuntu-24.04
             cxx: g++-13
+            compiler_package: g++-13
           - name: ubuntu-clang
             os: ubuntu-24.04
             cxx: clang++-18
+            compiler_package: clang-18
           - name: ubuntu-arm64-gcc
             os: ubuntu-24.04-arm
             cxx: g++-13
+            compiler_package: g++-13
           - name: ubuntu-arm64-clang
             os: ubuntu-24.04-arm
             cxx: clang++-18
+            compiler_package: clang-18
           - name: macos-appleclang
             os: macos-26
             cxx: c++
@@ -52,28 +56,23 @@ jobs:
           xcrun clang++ --version
       - name: Install dependencies
         env:
+          COMPILER_PACKAGE: ${{ matrix.compiler_package }}
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends \
-              cmake g++-13 clang-18 libfmt-dev
+              cmake "$COMPILER_PACKAGE" libfmt-dev ccache
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             # Avoid reinstalling preinstalled or pinned formulae on GitHub macOS runners
             (brew list cmake >/dev/null 2>&1) || brew install cmake
             (brew list fmt >/dev/null 2>&1) || brew install fmt
+            (brew list ccache >/dev/null 2>&1) || brew install ccache
           fi
       - uses: ./.github/actions/cxx11-googletest
         env:
           CXX: ${{ matrix.cxx }}
-      - name: Install ccache
-        run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt-get install -y --no-install-recommends ccache
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            (brew list ccache >/dev/null 2>&1) || brew install ccache
-          fi
       - name: Prepare ccache directory
         run: mkdir -p ~/.ccache
       - name: Cache ccache
@@ -89,18 +88,6 @@ jobs:
         run: cmake --build runs/ci/build --config Debug --parallel
       - name: Run tests
         run: ctest --test-dir runs/ci/build -j 2 --output-on-failure
-      - name: Header warning smoke
-        run: |
-          mkdir -p runs/ci
-          cat > runs/ci/gint_header_warning_smoke.cpp <<'CPP'
-          #include <gint/gint.h>
-          int main() {
-              gint::integer<256, unsigned> x = 1;
-              auto y = x >> 1;
-              return static_cast<int>(static_cast<unsigned long long>(y));
-          }
-          CPP
-          ${{ matrix.cxx }} -std=c++11 -Wall -Wextra -Werror -Iinclude runs/ci/gint_header_warning_smoke.cpp -c -o runs/ci/gint_header_warning_smoke.o
 
   build-cxx17:
     name: build (ubuntu-24.04-cxx17)
@@ -181,12 +168,19 @@ jobs:
           cmake --build runs/ci/build-cmake-3.13 --target gint_consumer_header_contract --parallel
           cmake --build runs/ci/build-cmake-3.13 --target gint-internal-headers-check --parallel
       - name: Run package and header contracts
+        shell: bash
         run: |
           cd runs/ci/build-cmake-3.13
           DESTDIR="$PWD/manual-install" cmake -DCMAKE_INSTALL_PREFIX=/manual-prefix -P cmake_install.cmake
           cp install_manifest.txt expected-manifest.txt
-          ctest -N -R '^consumer\.(package|header_contract)' | grep -Eq 'Total Tests: [1-9][0-9]*'
-          ctest --output-on-failure -R '^consumer\.(package|header_contract|toolchain_forwarding)'
+          contracts='^consumer\.(gint_consumer_header_contract|header_contract_negative|package(\..*)?|toolchain_forwarding)$'
+          ctest --output-on-failure -R "$contracts" | tee package-contract.log
+          passed_tests=$(sed -n 's/^.*Test *# *[0-9][0-9]*: \([^ ]*\) \.* *Passed.*$/\1/p' package-contract.log)
+          for name in gint_consumer_header_contract header_contract_negative toolchain_forwarding \
+            package package.stage package.version_exact package.version_compatible \
+            package.version_newer_rejected package.version_other_minor_rejected package.compiler_contract; do
+            grep -Fx "consumer.$name" <<< "$passed_tests"
+          done
           cmp expected-manifest.txt install_manifest.txt
           test ! -e /gint-validation/headers/gint/gint.h
 

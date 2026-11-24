@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "language_standard": "c++11",
-  "description": "Structural budgets for UInt256 hot paths compiled with GCC or Clang at -O3. Scalar division budgets include outlined bodies.",
+  "description": "Structural budgets for UInt256 and UInt512 hot paths compiled with GCC or Clang at -O3. Single-limb division budgets include outlined bodies.",
   "functions": {
     "gint_perf_add256": {
       "max_instructions": {
@@ -169,6 +169,72 @@
       "max_total_instructions": {
         "aarch64": 470,
         "x86_64": 56
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "max_calls": 1
+    },
+    "gint_perf_divmod256_u64": {
+      "max_instructions": {
+        "aarch64": 140,
+        "x86_64": 100
+      },
+      "max_total_instructions": {
+        "aarch64": 540,
+        "x86_64": 165
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "forbidden_mnemonics": {
+        "x86_64": [
+          "mul",
+          "mulq",
+          "imul",
+          "imulq"
+        ]
+      },
+      "forbidden_caller_mnemonics": {
+        "aarch64": [
+          "mul",
+          "umulh",
+          "madd",
+          "msub"
+        ]
+      },
+      "max_calls": 1
+    },
+    "gint_perf_add512": {
+      "max_instructions": {
+        "aarch64": 64,
+        "x86_64": 48
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_sub512": {
+      "max_instructions": {
+        "aarch64": 120,
+        "x86_64": 56
+      },
+      "forbid_calls": true,
+      "max_back_edges": 0
+    },
+    "gint_perf_div_u64_512": {
+      "max_instructions": {
+        "aarch64": 360,
+        "x86_64": 155
+      },
+      "max_total_instructions": {
+        "aarch64": 620,
+        "x86_64": 170
       },
       "external_call_budget": {
         "aarch64": {

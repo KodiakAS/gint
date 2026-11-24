@@ -585,6 +585,77 @@ LBB1_1:
         _, violations = CODEGEN.evaluate_contract(functions, contract, "x86_64")
         self.assertEqual(len(violations), 1)
 
+    def test_rejects_forbidden_mnemonics_in_call_tree(self):
+        assembly = """
+gint_perf_divmod256_u64:
+\tcallq _helper
+\tret
+\t.cfi_endproc
+_helper:
+\tmulq %rcx
+\tret
+\t.cfi_endproc
+"""
+        functions = CODEGEN.parse_assembly(assembly, target="x86_64-linux-gnu")
+        contract = {
+            "functions": {
+                "gint_perf_divmod256_u64": {
+                    "max_instructions": {"x86_64": 10},
+                    "max_total_instructions": {"x86_64": 20},
+                    "external_call_budget": {"x86_64": {}},
+                    "forbidden_mnemonics": {"x86_64": ["mulq"]},
+                    "max_calls": 1,
+                }
+            }
+        }
+        _, violations = CODEGEN.evaluate_contract(
+            functions, contract, "x86_64", target="x86_64-linux-gnu"
+        )
+        self.assertEqual(len(violations), 1)
+        self.assertIn("forbidden instruction: mulq %rcx", violations[0])
+
+    def test_rejects_forbidden_caller_mnemonics_only_when_calling_internal_callee(self):
+        with_callee = """
+_gint_perf_divmod256_u64:
+\tbl _helper
+\tmul x8, x0, x1
+\tret
+\t.cfi_endproc
+_helper:
+\tmul x2, x0, x1
+\tret
+\t.cfi_endproc
+"""
+        flattened = """
+_gint_perf_divmod256_u64:
+\tmul x8, x0, x1
+\tret
+\t.cfi_endproc
+"""
+        contract = {
+            "functions": {
+                "gint_perf_divmod256_u64": {
+                    "max_instructions": {"aarch64": 10},
+                    "max_total_instructions": {"aarch64": 20},
+                    "external_call_budget": {"aarch64": {}},
+                    "forbidden_caller_mnemonics": {"aarch64": ["mul", "umulh"]},
+                    "max_calls": 1,
+                }
+            }
+        }
+        functions = CODEGEN.parse_assembly(with_callee, target="arm64-apple-darwin")
+        _, violations = CODEGEN.evaluate_contract(
+            functions, contract, "aarch64", target="arm64-apple-darwin"
+        )
+        self.assertEqual(len(violations), 1)
+        self.assertIn("forbidden caller instruction: mul x8, x0, x1", violations[0])
+
+        flattened_functions = CODEGEN.parse_assembly(flattened, target="arm64-apple-darwin")
+        _, flattened_violations = CODEGEN.evaluate_contract(
+            flattened_functions, contract, "aarch64", target="arm64-apple-darwin"
+        )
+        self.assertEqual(flattened_violations, [])
+
 
 if __name__ == "__main__":
     unittest.main()

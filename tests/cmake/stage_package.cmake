@@ -1,24 +1,19 @@
-# Run the actual install script inside DESTDIR, including absolute GNUInstallDirs.
-# Each package test owns its staging directory and can run concurrently.
-set(GINT_INSTALL_CMAKE_DIR "${GINT_INSTALL_LIBDIR}/cmake/gint")
-set(GINT_INSTALL_DATA_DIR "${GINT_INSTALL_DATADIR}/gint")
-# Join relative destinations with one slash, including when the prefix is /.
-string(REGEX REPLACE "/+$" "" install_prefix "${GINT_INSTALL_PREFIX}")
-foreach(kind IN ITEMS INCLUDE CMAKE DATA)
-    set(dir "${GINT_INSTALL_${kind}_DIR}")
-    if(NOT IS_ABSOLUTE "${dir}")
-        set(dir "${install_prefix}/${dir}")
+# The fixture stages once for all package/version consumers. The installed
+# compiler contract supplies its own independent stage_root.
+if(NOT DEFINED stage_root)
+    set(shared_stage ON)
+    if(GINT_CONSUMER_MULTI_CONFIG AND NOT GINT_CONSUMER_CONFIG)
+        message(FATAL_ERROR "multi-config consumer tests require ctest -C <configuration>")
     endif()
-    get_filename_component(logical_${kind} "${dir}" ABSOLUTE)
-    get_filename_component(staged_${kind} "${stage_root}${dir}" ABSOLUTE)
-    if(NOT staged_${kind} STREQUAL "${stage_root}${logical_${kind}}")
-        message(FATAL_ERROR "install directory would escape the package test staging root: ${dir}")
-    endif()
-endforeach()
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/package_install_layout.cmake")
 
 # CMake writes install_manifest.txt to its producer build even under DESTDIR.
-# Configure the same install layout in a build private to this test case.
+# Keep that manifest in a private producer build.
 set(producer_build "${stage_root}-producer")
+if(shared_stage)
+    file(REMOVE_RECURSE "${stage_root}" "${producer_build}")
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/consumer_generator.cmake")
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${GINT_SOURCE_DIR}" -B "${producer_build}"
@@ -43,4 +38,25 @@ execute_process(
 )
 if(NOT result EQUAL 0)
     message(FATAL_ERROR "failed to stage gint package: ${result}")
+endif()
+
+if(shared_stage)
+    set(expected_install_files
+        "${staged_INCLUDE}/gint/gint.h"
+        "${staged_CMAKE}/gintConfig.cmake"
+        "${staged_CMAKE}/gintConfigVersion.cmake"
+        "${staged_CMAKE}/gintCompilerContract.cmake"
+        "${staged_CMAKE}/gintTargets.cmake"
+        "${staged_DATA}/LICENSE"
+    )
+    file(GLOB_RECURSE installed_files LIST_DIRECTORIES FALSE "${stage_root}/*")
+    list(SORT installed_files)
+    list(SORT expected_install_files)
+    if(NOT "${installed_files}" STREQUAL "${expected_install_files}")
+        message(FATAL_ERROR
+            "installed package manifest mismatch\n"
+            "expected: ${expected_install_files}\n"
+            "actual:   ${installed_files}"
+        )
+    endif()
 endif()
