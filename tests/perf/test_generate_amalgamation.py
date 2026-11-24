@@ -7,6 +7,7 @@ import errno
 import importlib.util
 import io
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -167,6 +168,32 @@ class GenerateAmalgamationTest(unittest.TestCase):
         self.assertTrue(content.startswith(b"#pragma once\n"))
         self.assertEqual(content.count(b"define GINT_DETAIL_CONFIG_NAMESPACE_I("), 1)
         self.assertEqual(content.count(b"undef GINT_DETAIL_CONFIG_NAMESPACE_I\n"), 1)
+
+    def test_production_graph_rejects_forward_dependencies_between_integer_layers(self):
+        shutil.rmtree(os.path.join(self.root, "src", "gint"))
+        shutil.copytree(os.path.join(ROOT, "src", "gint"), os.path.join(self.root, "src", "gint"))
+
+        for module, dependency in (
+            ("limb_ops.hpp", "integer_type.hpp"),
+            ("integer_type.hpp", "integer_division.hpp"),
+            ("integer_division.hpp", "integer.hpp"),
+        ):
+            with self.subTest(module=module, dependency=dependency):
+                path = os.path.join("src", "gint", module)
+                with open(os.path.join(self.root, path), "rb") as source:
+                    original = source.read()
+                reverse = '#include "{}"\n'.format(dependency).encode("ascii")
+                self.write_bytes(path, original.replace(b"#pragma once\n", b"#pragma once\n" + reverse, 1))
+                try:
+                    with self.assertRaisesRegex(
+                        AMALGAMATION.AmalgamationError,
+                        r"same-role dependency must target a lower order: {} .* -> {}".format(
+                            re.escape(module), re.escape(dependency)
+                        ),
+                    ):
+                        AMALGAMATION.build_project_amalgamation(self.root)
+                finally:
+                    self.write_bytes(path, original)
 
     def test_project_wrapper_always_supplies_all_production_contracts(self):
         with mock.patch.object(

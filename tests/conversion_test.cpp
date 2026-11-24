@@ -507,6 +507,10 @@ TEST(WideIntegerConversion, FromStringPowerOfTwoWrapAndValidation)
         binary[i] = static_cast<char>('0' + ((i * 5u + 1u) & 1u));
     EXPECT_EQ(gint::from_string<U128>(binary, 2), parse_string_digit_by_digit<U128>(binary, 2));
     EXPECT_EQ(gint::from_string<U1024>(binary.c_str(), 2), parse_string_digit_by_digit<U1024>(binary, 2));
+    EXPECT_EQ(gint::from_string<U128>("10110010", 2), U128(0xb2));
+    binary[5] = '2';
+    EXPECT_THROW(gint::from_string<U128>(binary, 2), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<U1024>(binary.c_str(), 2), std::invalid_argument);
 
     std::string octal(701, '0');
     for (size_t i = 0; i < octal.size(); ++i)

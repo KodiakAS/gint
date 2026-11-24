@@ -14,6 +14,21 @@ inline namespace GINT_DETAIL_CONFIG_NAMESPACE
 {
 
 //=== String and stream definitions =========================================
+namespace detail
+{
+template <unsigned Width>
+GINT_FORCE_INLINE char * write_decimal_chunk(char * end, uint64_t value) noexcept
+{
+    char * pos = end;
+    do
+    {
+        *--pos = static_cast<char>('0' + (value % 10));
+        value /= 10;
+    } while (Width == 0 ? value != 0 : pos != end - Width);
+    return pos;
+}
+} // namespace detail
+
 template <size_t Bits, typename Signed>
 inline std::string to_string(const integer<Bits, Signed> & v)
 {
@@ -28,54 +43,35 @@ inline std::string to_string(const integer<Bits, Signed> & v)
         return "0";
 
     using Int = integer<Bits, Signed>;
+    using Division = detail::division_ops<Bits, Signed>;
     const typename Int::limb_type base = 10000000000000000000ULL; // 1e19
     const unsigned chunk_digits = 19;
 
-    constexpr size_t max_chunks = (Bits + 62) / 63;
+    constexpr size_t max_chunks = (Bits + 62) / 63; // 10^19 exceeds 2^63.
     std::array<typename Int::limb_type, max_chunks> chunks = {{}};
     size_t chunk_count = 0;
     while (!tmp.is_zero())
     {
         Int q;
 #if GINT_ARCH_X86_64
-        typename Int::limb_type rem = tmp.template div_mod_small_constant<base>(q);
+        const typename Int::limb_type rem = Division::template div_mod_small_constant<base>(tmp, q);
 #else
-        typename Int::limb_type rem = tmp.div_mod_small(base, q);
+        const typename Int::limb_type rem = Division::div_mod_small(tmp, base, q);
 #endif
         chunks[chunk_count++] = rem;
         tmp = q;
     }
 
-    std::string out;
-    out.reserve(chunk_count * chunk_digits + 1);
-    // most significant chunk
-    {
-        char buf[32];
-        unsigned idx = 32;
-        typename Int::limb_type x = chunks[chunk_count - 1];
-        while (x)
-        {
-            buf[--idx] = static_cast<char>('0' + (x % 10));
-            x /= 10;
-        }
-        out.append(buf + idx, 32 - idx);
-    }
-    // zero-padded remaining chunks
-    for (size_t chunk_index = chunk_count - 1; chunk_index-- > 0;)
-    {
-        char buf[32];
-        unsigned idx = 32;
-        typename Int::limb_type x = chunks[chunk_index];
-        for (unsigned i = 0; i < chunk_digits; ++i)
-        {
-            buf[--idx] = static_cast<char>('0' + (x % 10));
-            x /= 10;
-        }
-        out.append(buf + idx, chunk_digits);
-    }
+    // Write least significant chunks first into the tail of the final buffer.
+    char digits[max_chunks * chunk_digits + 1];
+    char * const end = digits + sizeof(digits);
+    char * pos = end;
+    for (size_t i = 0; i + 1 < chunk_count; ++i)
+        pos = detail::write_decimal_chunk<chunk_digits>(pos, chunks[i]);
+    pos = detail::write_decimal_chunk<0>(pos, chunks[chunk_count - 1]);
     if (neg)
-        out.insert(out.begin(), '-');
-    return out;
+        *--pos = '-';
+    return std::string(pos, static_cast<size_t>(end - pos));
 }
 
 namespace detail
@@ -320,13 +316,30 @@ inline std::string format_stream_value(const integer<Bits, Signed> & value, cons
     return text;
 }
 
+template <size_t Limbs, unsigned Shift>
+GINT_FORCE_INLINE void append_power_of_two_chunk(uint64_t * data, uint64_t chunk, std::true_type) noexcept
+{
+    for (size_t i = Limbs; i-- > 1;)
+        data[i] = data[i - 1];
+    data[0] = chunk;
+}
+
+template <size_t Limbs, unsigned Shift>
+GINT_FORCE_INLINE void append_power_of_two_chunk(uint64_t * data, uint64_t chunk, std::false_type) noexcept
+{
+    const unsigned inv_shift = 64u - Shift;
+    for (size_t i = Limbs; i-- > 1;)
+        data[i] = (data[i] << Shift) | (data[i - 1] >> inv_shift);
+    data[0] = (data[0] << Shift) | chunk;
+}
+
 template <unsigned BitsPerDigit, size_t Bits, typename Signed>
 GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end)
 {
     using Int = integer<Bits, Signed>;
     using limb_type = typename Int::limb_type;
     const unsigned base = 1u << BitsPerDigit;
-    const size_t chunk_digits = 64u / BitsPerDigit;
+    constexpr size_t chunk_digits = 64u / BitsPerDigit;
 
     Int result;
     const char * cursor = begin;
@@ -358,20 +371,8 @@ GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * be
             }
             else
             {
-                const unsigned shift = static_cast<unsigned>(current_chunk_digits * BitsPerDigit);
-                if (shift == 64u)
-                {
-                    for (size_t i = Int::limbs; i-- > 1;)
-                        result.data_[i] = result.data_[i - 1];
-                    result.data_[0] = chunk;
-                }
-                else
-                {
-                    const unsigned inv_shift = 64u - shift;
-                    for (size_t i = Int::limbs; i-- > 1;)
-                        result.data_[i] = (result.data_[i] << shift) | (result.data_[i - 1] >> inv_shift);
-                    result.data_[0] = (result.data_[0] << shift) | chunk;
-                }
+                constexpr unsigned shift = static_cast<unsigned>(chunk_digits * BitsPerDigit);
+                append_power_of_two_chunk<Int::limbs, shift>(result.data_, chunk, std::integral_constant<bool, (shift == 64u)>{});
             }
         }
         else if (digits_left <= Bits / BitsPerDigit)
@@ -401,15 +402,11 @@ GINT_WIDE_PARSE_INLINE integer<Bits, Signed> parse_wide_power_of_two_range(const
 }
 
 template <unsigned BitsPerDigit, size_t Bits, typename Signed>
-GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range_selected(const char * begin, const char * end, std::false_type)
+GINT_FORCE_INLINE integer<Bits, Signed> parse_signed_power_of_two_range(const char * begin, const char * end, bool negative)
 {
-    return parse_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end);
-}
-
-template <unsigned BitsPerDigit, size_t Bits, typename Signed>
-GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range_selected(const char * begin, const char * end, std::true_type)
-{
-    return parse_wide_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end);
+    const auto result = integer<Bits, Signed>::limbs > 4 ? parse_wide_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end)
+                                                         : parse_power_of_two_range<BitsPerDigit, Bits, Signed>(begin, end);
+    return negative ? -result : result;
 }
 
 template <size_t Bits, typename Signed>
@@ -439,20 +436,11 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
     // 64-bit digit chunks and place them directly into the destination limbs,
     // so over-width input naturally wraps modulo 2^Bits.
     if (base == 2)
-    {
-        Int result = parse_power_of_two_range_selected<1, Bits, Signed>(pos, end, std::integral_constant<bool, (Int::limbs > 4)>());
-        return negative ? -result : result;
-    }
+        return parse_signed_power_of_two_range<1, Bits, Signed>(pos, end, negative);
     if (base == 8)
-    {
-        Int result = parse_power_of_two_range_selected<3, Bits, Signed>(pos, end, std::integral_constant<bool, (Int::limbs > 4)>());
-        return negative ? -result : result;
-    }
+        return parse_signed_power_of_two_range<3, Bits, Signed>(pos, end, negative);
     if (base == 16)
-    {
-        Int result = parse_power_of_two_range_selected<4, Bits, Signed>(pos, end, std::integral_constant<bool, (Int::limbs > 4)>());
-        return negative ? -result : result;
-    }
+        return parse_signed_power_of_two_range<4, Bits, Signed>(pos, end, negative);
 
     const limb_type max_limb = std::numeric_limits<limb_type>::max();
     limb_type chunk_base = 1;

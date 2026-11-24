@@ -258,6 +258,11 @@ if(GINT_BUILD_TESTS)
     # exported nor installed.
     add_gint_internal_graph_test(gint_internal_header_graph tests/consumer/internal_header_graph.cpp)
 
+    add_gint_internal_graph_test(
+        gint_internal_header_graph_integer_layers
+        tests/consumer/internal_header_graph_integer_layers.cpp
+    )
+
     add_gint_internal_graph_test(gint_internal_header_graph_fmt tests/consumer/internal_header_graph_fmt.cpp)
     target_compile_definitions(gint_internal_header_graph_fmt PRIVATE GINT_ENABLE_FMT)
     target_link_libraries(gint_internal_header_graph_fmt PRIVATE fmt::fmt)
