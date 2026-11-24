@@ -64,6 +64,12 @@ private:
     friend struct detail::division_ops;
     using Division = detail::division_ops<Bits, Signed>;
 
+    // Select the inline unsigned 256-bit entry without changing its operand types.
+    struct inactive_dividend;
+    static constexpr bool inline_unsigned_division = GINT_DETAIL_AARCH64_GCC && limbs == 4 && std::is_same<Signed, unsigned>::value;
+    using inline_dividend = typename std::conditional<inline_unsigned_division, integer, inactive_dividend &>::type;
+    using regular_dividend = typename std::conditional<inline_unsigned_division, inactive_dividend &, integer>::type;
+
     // The x86-64 wide scalar remainder path reads the existing limbs directly.
     using scalar_mod_dividend = typename std::conditional<GINT_ARCH_X86_64 && (limbs > 2), const integer &, integer>::type;
 
@@ -371,7 +377,7 @@ public:
     //   and logical (zero-fill) for unsigned.
     GINT_CONSTEXPR14 GINT_FORCE_INLINE integer & operator<<=(int n) noexcept
     {
-        if (n < 0 || ((!GINT_ARCH_X86_64 || limbs != 4) && n == 0))
+        if (n < 0 || (limbs != 4 && n == 0))
             return *this;
         size_t total_bits = Bits;
         size_t shift = static_cast<size_t>(n);
@@ -966,14 +972,12 @@ public:
 
     GINT_CONSTEXPR14 friend integer operator+(integer lhs, limb_type rhs) noexcept
     {
-#if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
-        if (limbs == 4)
+        if (detail::use_fixed_limb_add_sub<limbs>())
         {
             integer result;
             detail::add_limbs4_by_limb(result.data_, lhs.data_, rhs);
             return result;
         }
-#endif
         if (limbs == 2)
             return integer(detail::load_u128(lhs.data_) + rhs);
         const limb_type old = lhs.data_[0];
@@ -1013,39 +1017,18 @@ public:
     GINT_CONSTEXPR14 friend integer operator-(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
-#if GINT_DETAIL_X86_64_GCC
-        if (limbs == 4 && (rhs.data_[1] | rhs.data_[2] | rhs.data_[3]) == 0)
-        {
-            detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs.data_[0]);
-            return result;
-        }
-#endif
-        detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs.data_);
+        detail::sub_limbs_copy_disjoint<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
 
     GINT_CONSTEXPR14 friend integer operator-(integer lhs, limb_type rhs) noexcept
     {
-#if GINT_DETAIL_X86_64_GCC || GINT_DETAIL_AARCH64_CLANG
-        if (limbs == 4)
+        if (detail::use_fixed_limb_add_sub<limbs>())
         {
             integer result;
-#    if GINT_DETAIL_AARCH64_CLANG && !defined(__apple_build_version__)
-            using u128 = unsigned __int128;
-            const u128 low = (u128(lhs.data_[1]) << 64) | lhs.data_[0];
-            const u128 high = (u128(lhs.data_[3]) << 64) | lhs.data_[2];
-            const u128 result_low = low - rhs;
-            const u128 result_high = high - (low < rhs);
-            result.data_[0] = static_cast<limb_type>(result_low);
-            result.data_[1] = static_cast<limb_type>(result_low >> 64);
-            result.data_[2] = static_cast<limb_type>(result_high);
-            result.data_[3] = static_cast<limb_type>(result_high >> 64);
-#    else
-            detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs);
-#    endif
+            detail::sub_limbs4_by_limb_for_scalar(result.data_, lhs.data_, rhs);
             return result;
         }
-#endif
         if (limbs == 2)
             return integer(detail::load_u128(lhs.data_) - rhs);
         const limb_type old = lhs.data_[0];
@@ -1254,14 +1237,9 @@ public:
     friend integer operator*(limb_type lhs, integer rhs) noexcept { return rhs * lhs; }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
-    friend integer operator*(integer lhs, T rhs) noexcept
+    friend GINT_FORCE_INLINE integer operator*(integer lhs, T rhs) noexcept
     {
-        if (is_limb_scalar<T>::value)
-        {
-            lhs *= rhs;
-            return lhs;
-        }
-        return lhs * integer(rhs);
+        return lhs.multiply_scalar_if_limb(rhs, is_limb_scalar<T>{});
     }
 
     template <typename T, typename std::enable_if<detail::is_integral<T>::value, int>::type = 0>
@@ -1283,11 +1261,16 @@ public:
         return rhs * lhs;
     }
 
-    friend GINT_HIDDEN_VISIBILITY integer operator/(integer lhs, const integer & rhs)
+    friend GINT_HIDDEN_VISIBILITY GINT_FORCE_INLINE integer operator/(inline_dividend lhs, const integer & rhs)
+    {
+        return Division::div_unsigned_256(lhs, rhs);
+    }
+
+    friend GINT_HIDDEN_VISIBILITY integer operator/(regular_dividend lhs, const integer & rhs)
     {
         if (limbs == 2)
             return Division::template div_or_mod_128<false>(lhs, rhs);
-#if GINT_GCC_TUNED_PATHS
+#if !GINT_DETAIL_X86_64_CLANG
         limb_type positive_limb_divisor;
         if (Division::positive_single_limb_value(rhs, positive_limb_divisor))
         {
@@ -1365,7 +1348,7 @@ public:
             }
             else
             {
-                // Multi-limb divisor: use Knuth's Algorithm D (div_large)
+                // Dispatch general multi-limb division, including equal-length quotient estimation.
                 result = Division::div_large(lhs, divisor, divisor_limbs);
             }
         }
@@ -1406,49 +1389,7 @@ public:
         return integer(lhs) / rhs;
     }
 
-    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, const integer & rhs)
-    {
-        if (limbs == 2)
-            return Division::template div_or_mod_128<true>(lhs, rhs);
-        GINT_MODZERO_CHECK(rhs.is_zero());
-#if GINT_CLANG_TUNED_PATHS || GINT_ARCH_X86_64
-        limb_type positive_limb_divisor;
-        if (Division::positive_single_limb_value(rhs, positive_limb_divisor))
-            return Division::rem_by_positive_limb(lhs, positive_limb_divisor);
-#endif
-#if GINT_GCC_TUNED_PATHS
-        if (std::is_same<Signed, signed>::value)
-        {
-            const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
-#    if GINT_DETAIL_X86_64_GCC
-            const bool lhs_neg = lhs.data_[limbs - 1] >> 63;
-            if (!lhs_neg && !rhs_neg)
-                return Division::rem_unsigned_magnitude(lhs, rhs);
-#    endif
-            return Division::rem_signed_magnitude(lhs, rhs, rhs_neg);
-        }
-        else
-        {
-            return Division::rem_unsigned_magnitude(lhs, rhs);
-        }
-#else
-#    if GINT_CLANG_TUNED_PATHS
-        if (limbs >= 4)
-        {
-            if (std::is_same<Signed, signed>::value)
-            {
-                const bool rhs_neg = rhs.data_[limbs - 1] >> 63;
-                return Division::rem_signed_magnitude(lhs, rhs, rhs_neg);
-            }
-            return Division::rem_unsigned_magnitude_with_large_direct(lhs, rhs);
-        }
-#    endif
-        integer q = lhs / rhs;
-        q *= rhs;
-        lhs -= q;
-        return lhs;
-#endif
-    }
+    friend GINT_HIDDEN_VISIBILITY integer operator%(integer lhs, const integer & rhs) { return Division::modulo(lhs, rhs); }
 
     friend GINT_HIDDEN_VISIBILITY integer operator%(scalar_mod_dividend lhs, limb_type rhs)
     {
@@ -1542,6 +1483,11 @@ public:
     {
         if (uses_unsigned_limb_divisor<T>())
             return lhs % static_cast<limb_type>(rhs);
+        if (limbs == 4 && std::is_same<Signed, unsigned>::value && detail::is_unsigned<T>::value && sizeof(T) <= sizeof(uint32_t))
+        {
+            GINT_MODZERO_CHECK(rhs == 0);
+            return rhs == 0 ? lhs : Division::rem_by_positive_limb(lhs, static_cast<uint32_t>(rhs));
+        }
         if (is_int64_with_int128<T>())
             return Division::template divmod_int64_int128<true>(static_cast<signed_limb_type>(lhs.data_[0]), rhs);
         if (outside_uint64_operand_range(rhs))
@@ -1555,15 +1501,7 @@ public:
         if (std::is_same<Signed, unsigned>::value && detail::is_signed<T>::value && static_cast<__int128>(rhs) < 0)
             return lhs % integer(rhs);
         if (fits_signed_limb(rhs))
-        {
-#if GINT_ARCH_X86_64
             return lhs % static_cast<signed_limb_type>(rhs);
-#else
-            integer q;
-            signed_limb_type r = Division::div_mod_small(lhs, static_cast<signed_limb_type>(rhs), q);
-            return integer(r);
-#endif
-        }
         return lhs % integer(rhs);
     }
 
@@ -1896,9 +1834,22 @@ public:
 
 private:
     template <typename T>
+    GINT_FORCE_INLINE integer multiply_scalar_if_limb(T rhs, std::true_type) noexcept
+    {
+        multiply_limb_scalar(rhs, std::is_signed<T>{});
+        return *this;
+    }
+
+    template <typename T>
+    GINT_FORCE_INLINE integer multiply_scalar_if_limb(T rhs, std::false_type) const noexcept
+    {
+        return *this * integer(rhs);
+    }
+
+    template <typename T>
     GINT_FORCE_INLINE void multiply_limb_scalar(T rhs, std::false_type) noexcept
     {
-#if GINT_DETAIL_AARCH64_CLANG && GINT_DETAIL_HAS_BUILTIN(__builtin_addcll) && GINT_DETAIL_HAS_BUILTIN(__builtin_subcll)
+#if GINT_DETAIL_AARCH64_CLANG_CARRY_BUILTINS
         if (limbs == 4 && sizeof(T) == sizeof(limb_type))
         {
             detail::mul_limbs4_by_u64_in_place(data_, rhs);
