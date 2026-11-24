@@ -95,10 +95,13 @@ int main()
     ok &= expect_sigabrt("integer / zero", [] { static_cast<void>(UInt256(1) / UInt256(0)); });
     ok &= expect_sigabrt("integer % zero", [] { static_cast<void>(UInt256(1) % UInt256(0)); });
     ok &= expect_sigabrt("divmod by zero", [] { static_cast<void>(gint::divmod(UInt256(1), UInt256(0))); });
-    ok &= expect_sigabrt("signed wide min divmod by zero", [] {
-        using Int512 = gint::integer<512, signed>;
-        static_cast<void>(gint::divmod(std::numeric_limits<Int512>::min(), Int512(0)));
-    });
+    ok &= expect_sigabrt(
+        "signed wide min divmod by zero",
+        []
+        {
+            using Int512 = gint::integer<512, signed>;
+            static_cast<void>(gint::divmod(std::numeric_limits<Int512>::min(), Int512(0)));
+        });
     ok &= expect_sigabrt("integer / 0.5", [] { static_cast<void>(UInt256(5) / 0.5); });
     ok &= expect_sigabrt("integer % 0.5", [] { static_cast<void>(UInt256(5) % 0.5); });
 #else

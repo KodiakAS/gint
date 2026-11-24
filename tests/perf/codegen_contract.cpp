@@ -124,7 +124,8 @@ gint_perf_divmod256_u64(gint::divmod_result<gint::UInt256> * result, const gint:
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((flatten))
 #endif
-GINT_PERF_NOINLINE void gint_perf_divmod512_u64(gint::divmod_result<UInt512> * result, const UInt512 * dividend, std::uint64_t divisor)
+GINT_PERF_NOINLINE void
+gint_perf_divmod512_u64(gint::divmod_result<UInt512> * result, const UInt512 * dividend, std::uint64_t divisor)
 {
     const UInt512 wide_divisor((divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL);
     // Set the operand shape directly. GCC's out-of-line wide shift hides the
@@ -142,7 +143,8 @@ GINT_PERF_NOINLINE void gint_perf_divmod512_u64(gint::divmod_result<UInt512> * r
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((flatten))
 #endif
-GINT_PERF_NOINLINE void gint_perf_divmod1024_u64(gint::divmod_result<UInt1024> * result, const UInt1024 * dividend, std::uint64_t divisor)
+GINT_PERF_NOINLINE void
+gint_perf_divmod1024_u64(gint::divmod_result<UInt1024> * result, const UInt1024 * dividend, std::uint64_t divisor)
 {
     const UInt1024 wide_divisor((divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL);
     UInt1024 full_width_dividend = *dividend;

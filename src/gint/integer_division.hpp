@@ -912,8 +912,8 @@ struct division_ops
     template <bool WantRemainder>
     static GINT_NOINLINE Int div_or_rem_large_core(Int lhs, const Int & divisor, size_t v_limbs, size_t u_limbs) noexcept
     {
-        return div_large_core<WantRemainder ? div_large_mode::remainder_only : div_large_mode::quotient_only>(
-            lhs, divisor, v_limbs, u_limbs, nullptr);
+        constexpr div_large_mode mode = WantRemainder ? div_large_mode::remainder_only : div_large_mode::quotient_only;
+        return div_large_core<mode>(lhs, divisor, v_limbs, u_limbs, nullptr);
     }
 
     static GINT_NOINLINE Int divmod_large_core(Int lhs, const Int & divisor, size_t v_limbs, size_t u_limbs, Int & remainder) noexcept
