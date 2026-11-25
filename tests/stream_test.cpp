@@ -1,6 +1,7 @@
 #include <exception>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
@@ -80,6 +81,67 @@ TEST(WideIntegerStream, FormatsOctalAcrossLimbAndWidthBoundaries)
     out.str("");
     out << std::numeric_limits<S1024>::min();
     EXPECT_EQ(out.str(), "1" + std::string(341, '0'));
+}
+
+template <typename Int>
+static void expect_wide_decimal(const Int & value, const std::string & expected)
+{
+    EXPECT_EQ(gint::to_string(value), expected);
+    std::ostringstream out;
+    out << value;
+    EXPECT_EQ(out.str(), expected);
+}
+
+TEST(WideIntegerStream, Formats1024BitDecimalChunks)
+{
+    using UInt = gint::integer<1024, unsigned>;
+    using Int = gint::integer<1024, signed>;
+    constexpr std::uint64_t chunk = UINT64_C(10000000000000000000);
+    const UInt square = UInt(chunk) * chunk;
+    const UInt uint_max = std::numeric_limits<UInt>::max();
+    const Int int_min = std::numeric_limits<Int>::min();
+    const std::pair<UInt, std::string> cases[] = {
+        {UInt(0), "0"},
+        {UInt(1), "1"},
+        {UInt(chunk - 1), "9999999999999999999"},
+        {UInt(chunk), "10000000000000000000"},
+        {UInt(chunk + 1), "10000000000000000001"},
+        {square - 1, std::string(38, '9')},
+        {square, "1" + std::string(38, '0')},
+        {square + 1, "1" + std::string(37, '0') + "1"},
+    };
+    for (const auto & entry : cases)
+    {
+        SCOPED_TRACE(entry.second);
+        expect_wide_decimal(entry.first, entry.second);
+        expect_wide_decimal(Int(entry.first), entry.second);
+        if (entry.first != 0)
+            expect_wide_decimal(-Int(entry.first), "-" + entry.second);
+    }
+    expect_wide_decimal(
+        uint_max,
+        "179769313486231590772930519078902473361797697894230657273430081157732675805500"
+        "963132708477322407536021120113879871393357658789768814416622492847430639474124"
+        "377767893424865485276302219601246094119453082952085005768838150682342462881473"
+        "913110540827237163350510684586298239947245938479716304835356329624224137215");
+    expect_wide_decimal(
+        int_min,
+        "-898846567431157953864652595394512366808988489471153286367150405788663379027504"
+        "815663542386612037680105600569399356966788293948844072083112464237153197370621"
+        "888839467124327426381511098006230470597265414760425028844190753411712314407369"
+        "56555270413618581675255342293149119973622969239858152417678164812112068608");
+
+    const UInt inputs[]
+        = {UInt(0), UInt(1), UInt(chunk - 1), UInt(chunk), UInt(chunk + 1), square - 1, square, square + 1, UInt(int_min), uint_max};
+    for (const UInt & input : inputs)
+    {
+        SCOPED_TRACE(gint::to_string(input));
+        UInt quotient = uint_max;
+        const auto remainder = gint::detail::division_ops<1024, unsigned>::div_mod_small_constant<chunk>(input, quotient);
+        EXPECT_LT(remainder, chunk);
+        EXPECT_EQ(quotient, input / chunk);
+        EXPECT_EQ(quotient * chunk + remainder, input);
+    }
 }
 
 TEST(WideIntegerStream, HonorsWidthFillAndSigns)

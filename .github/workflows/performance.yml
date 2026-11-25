@@ -190,7 +190,7 @@ jobs:
             --benchmark_out="$RESULT_DIR/wide-parser.json"
           "$BUILD_DIR/perf_benchmark_int1024" \
             "${COMMON_ARGS[@]}" \
-            '--benchmark_filter=^((Div|Mod)/NativeU(32|64)|MulAssign/|DivMod/(SingleLimb|SingleLimbSeparate|SignedMixed|SignedMixedSeparate|DenseDivisor[234]|DenseDivisor[23]Separate|DenseDivisorWide|DenseDivisorWideSeparate|DividendSmaller)|ToString/(Binary|Octal|Hex)(Short|Full)|ToDouble/|Latency/|CompareFloat/|Fmt/|Hash/)' \
+            '--benchmark_filter=^((Div|Mod)/NativeU(32|64)|MulAssign/|DivMod/(SingleLimb|SingleLimbSeparate|SignedMixed|SignedMixedSeparate|DenseDivisor[234]|DenseDivisor[23]Separate|DenseDivisorWide|DenseDivisorWideSeparate|DividendSmaller)|ToString/((Binary|Octal|Hex)(Short|Full)|Base10/gint$)|ToDouble/|Latency/|CompareFloat/|Fmt/|Hash/)' \
             --benchmark_out="$RESULT_DIR/wide-hotpaths.json"
       - name: Normalize benchmark evidence
         run: |
@@ -212,7 +212,7 @@ jobs:
             --expected-median-count wide512_hotpaths=20 \
             --expected-median-count wide512_comparison=12 \
             --expected-median-count wide_parser=16 \
-            --expected-median-count wide_hotpaths=40 \
+            --expected-median-count wide_hotpaths=41 \
             --require-benchmark gint=FromString/Base2/gint \
             --require-benchmark gint=FromString/Base8/gint \
             --require-benchmark gint=FromString/Base10/gint \
@@ -265,6 +265,7 @@ jobs:
             --require-benchmark wide_hotpaths=DivMod/DenseDivisorWide/gint \
             --require-benchmark wide_hotpaths=DivMod/DenseDivisorWideSeparate/gint \
             --require-benchmark wide_hotpaths=ToString/HexShort/gint \
+            --require-benchmark wide_hotpaths=ToString/Base10/gint \
             --require-benchmark wide_hotpaths=ToDouble/ExactLow/gint \
             --require-benchmark wide_hotpaths=CompareFloat/SameExpLowBitDiff/gint \
             --require-benchmark comparison=DivMod/SimilarMagnitude/gint \
