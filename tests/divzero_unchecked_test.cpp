@@ -4,6 +4,35 @@
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
+namespace
+{
+template <size_t Bits>
+void check_wide_divmod_zero()
+{
+    using U = gint::integer<Bits, unsigned>;
+    using S = gint::integer<Bits, signed>;
+    SCOPED_TRACE(::testing::Message() << "bits=" << Bits);
+    const U zero_u;
+    const S zero;
+    const S dividends[] = {S(0), std::numeric_limits<S>::min(), -((S(1) << (Bits - 2)) + S(7))};
+    const auto unsigned_result = gint::divmod(zero_u, zero_u);
+    EXPECT_EQ(unsigned_result.quotient, zero_u);
+    EXPECT_EQ(unsigned_result.remainder, zero_u);
+    for (const S & dividend : dividends)
+    {
+        const auto result = gint::divmod(dividend, zero);
+        EXPECT_EQ(result.quotient, zero);
+        EXPECT_EQ(result.remainder, dividend);
+    }
+}
+} // namespace
+
+TEST(WideIntegerDivModUnchecked, WideDivmodZeroDivisor)
+{
+    check_wide_divmod_zero<512>();
+    check_wide_divmod_zero<1024>();
+}
+
 TEST(WideIntegerDivZero, SignedInt128DividendKeepsLowWordOnModuloByZero)
 {
     using S64 = gint::integer<64, signed>;

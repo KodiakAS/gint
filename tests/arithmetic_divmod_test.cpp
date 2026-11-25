@@ -171,27 +171,44 @@ TEST(WideIntegerDivision, PublicDivModMatchesIndependentOperators)
     EXPECT_LT(result.remainder, divisor);
 }
 
+namespace
+{
+template <typename Int>
+void expect_divmod(const Int & dividend, const Int & divisor, const Int & quotient, const Int & remainder)
+{
+    SCOPED_TRACE(
+        ::testing::Message() << "bits=" << Int::bits << ", dividend=" << gint::to_string(dividend)
+                             << ", divisor=" << gint::to_string(divisor));
+    const auto result = gint::divmod(dividend, divisor);
+    EXPECT_EQ(result.quotient, quotient);
+    EXPECT_EQ(result.remainder, remainder);
+}
+
+template <size_t Bits>
+void check_signed_divmod_boundaries()
+{
+    using Int = gint::integer<Bits, signed>;
+    const Int min = std::numeric_limits<Int>::min();
+    expect_divmod(min, Int(-1), min, Int(0));
+    expect_divmod(min, Int(1), min, Int(0));
+    expect_divmod(min, min, Int(1), Int(0));
+    expect_divmod(Int(123), min, Int(0), Int(123));
+    expect_divmod(Int(0), Int(-7), Int(0), Int(0));
+
+    const Int divisor = (Int(1) << 192) + Int(1);
+    const Int dividend = divisor * Int(5) + Int(17);
+    expect_divmod(dividend, divisor, Int(5), Int(17));
+    expect_divmod(dividend, -divisor, Int(-5), Int(17));
+    expect_divmod(-dividend, divisor, Int(-5), Int(-17));
+    expect_divmod(-dividend, -divisor, Int(5), Int(-17));
+}
+} // namespace
+
 TEST(WideIntegerDivision, PublicDivModPreservesSignedEdgeSemantics)
 {
-    using Int256 = gint::integer<256, signed>;
-    const Int256 divisors[] = {Int256(7), Int256(-7)};
-    const Int256 dividends[] = {Int256(123), Int256(-123)};
-
-    for (const auto & dividend : dividends)
-    {
-        for (const auto & divisor : divisors)
-        {
-            const auto result = gint::divmod(dividend, divisor);
-            EXPECT_EQ(result.quotient, dividend / divisor);
-            EXPECT_EQ(result.remainder, dividend % divisor);
-            EXPECT_EQ(result.quotient * divisor + result.remainder, dividend);
-        }
-    }
-
-    const Int256 min = std::numeric_limits<Int256>::min();
-    const auto overflow_result = gint::divmod(min, Int256(-1));
-    EXPECT_EQ(overflow_result.quotient, min);
-    EXPECT_EQ(overflow_result.remainder, Int256(0));
+    check_signed_divmod_boundaries<256>();
+    check_signed_divmod_boundaries<512>();
+    check_signed_divmod_boundaries<1024>();
 }
 
 TEST(WideIntegerDivision, SignedSmallDivMod_NegativeDivisorRegression)
@@ -237,6 +254,11 @@ TEST(WideIntegerDivision, LongDivisionCorrection)
     EXPECT_EQ(dividend / divisor, expected_q);
     EXPECT_EQ(dividend % divisor, expected_r);
     EXPECT_EQ((dividend / divisor) * divisor + (dividend % divisor), dividend);
+    expect_divmod(dividend, divisor, expected_q, expected_r);
+    using UInt512 = gint::integer<512, unsigned>;
+    using UInt1024 = gint::integer<1024, unsigned>;
+    expect_divmod(UInt512(dividend), UInt512(divisor), UInt512(expected_q), UInt512(expected_r));
+    expect_divmod(UInt1024(dividend), UInt1024(divisor), UInt1024(expected_q), UInt1024(expected_r));
 }
 
 // --- Division/mod algorithm coverage formerly in division_algorithms_test.cpp ---
@@ -1556,6 +1578,51 @@ TEST(WideIntegerDivision, PublicDivModUnsignedBoundaries)
     }
 }
 
+namespace
+{
+template <size_t Bits>
+void check_wide_unsigned_divmod()
+{
+    using U = gint::integer<Bits, unsigned>;
+    const U base = U(1) << 64;
+    const U dense4 = (U(1) << 192) + U(1);
+    expect_divmod((base + U(1)) * dense4 + U(17), dense4, base + U(1), U(17));
+
+    // Each effective divisor length, including a full-width divisor.
+    for (size_t n = 1; n <= Bits / 64; ++n)
+    {
+        SCOPED_TRACE(::testing::Message() << "divisor limbs=" << n);
+        const U divisor = (U(1) << (64 * n - 4)) + U(3);
+        expect_divmod(U(5) * divisor + U(17), divisor, U(5), U(17));
+    }
+    const U dividend = (U(1) << (Bits - 1)) + U(17);
+    expect_divmod(dividend, U(32), U(1) << (Bits - 6), U(17));
+    expect_divmod(dividend, U(1) << 193, U(1) << (Bits - 194), U(17));
+}
+} // namespace
+
+TEST(WideIntegerDivision, PublicDivModWideUnsignedDivisors)
+{
+    check_wide_unsigned_divmod<512>();
+    check_wide_unsigned_divmod<1024>();
+}
+
+TEST(WideIntegerDivision, PublicDivModEqualLengthAddback)
+{
+    using U512 = gint::integer<512, unsigned>;
+    using U1024 = gint::integer<1024, unsigned>;
+    // In each 2*d - 1 case the leading limbs yield a trial quotient of 2.
+    // The low limb forces subtraction to borrow, so the final quotient is 1.
+    const U512 partial = (U512(1) << 192) + U512(1);
+    expect_divmod(U512(2) * partial - U512(1), partial, U512(1), partial - U512(1));
+    expect_divmod(U1024(U512(2) * partial - U512(1)), U1024(partial), U1024(1), U1024(partial - U512(1)));
+
+    const U512 full512 = (U512(1) << 510) + U512(1);
+    expect_divmod((U512(1) << 511) + U512(1), full512, U512(1), full512 - U512(1));
+    const U1024 full1024 = (U1024(1) << 1022) + U1024(1);
+    expect_divmod((U1024(1) << 1023) + U1024(1), full1024, U1024(1), full1024 - U1024(1));
+}
+
 TEST(WideIntegerDivision, PublicDivModThreeLimbAddback)
 {
     using U = gint::UInt256;
@@ -1563,7 +1630,11 @@ TEST(WideIntegerDivision, PublicDivModThreeLimbAddback)
     const U divisor = U(13930160852258120406ULL) | (U(11788048577503494824ULL) << 64) | (U(13874630024467741450ULL) << 128);
     const U dividend = U(7865594366602207753ULL) | (U(14317669559219201549ULL) << 64) | (U(18061272594500877176ULL) << 128)
         | (U(1890733067841405531ULL) << 192);
-    const auto result = gint::divmod(dividend, divisor);
-    EXPECT_EQ(result.quotient, U(2513787319205155662ULL));
-    EXPECT_EQ(result.remainder, divisor - U(1));
+    const U quotient(2513787319205155662ULL);
+    const U remainder = divisor - U(1);
+    expect_divmod(dividend, divisor, quotient, remainder);
+    using UInt512 = gint::integer<512, unsigned>;
+    using UInt1024 = gint::integer<1024, unsigned>;
+    expect_divmod(UInt512(dividend), UInt512(divisor), UInt512(quotient), UInt512(remainder));
+    expect_divmod(UInt1024(dividend), UInt1024(divisor), UInt1024(quotient), UInt1024(remainder));
 }

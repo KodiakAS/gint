@@ -4286,12 +4286,24 @@ struct division_ops
         return quotient;
     }
 
-    template <bool WantRemainder>
-    static GINT_NOINLINE Int div_or_rem_large_core(Int lhs, const Int & divisor, size_t v_limbs, size_t u_limbs) noexcept
+    enum class div_large_mode
+    {
+        quotient_only,
+        remainder_only,
+        quotient_and_remainder,
+    };
+
+    template <div_large_mode Mode>
+    static GINT_FORCE_INLINE Int
+    div_large_core(const Int & lhs, const Int & divisor, size_t v_limbs, size_t u_limbs, Int * remainder) noexcept
     {
         Int result;
         if (GINT_UNLIKELY(v_limbs == 0) || u_limbs < v_limbs)
-            return WantRemainder ? lhs : result;
+        {
+            if (Mode == div_large_mode::quotient_and_remainder)
+                *remainder = lhs;
+            return Mode == div_large_mode::remainder_only ? lhs : result;
+        }
 
         std::array<limb_type, limbs + 1> u;
         std::array<limb_type, limbs + 1> v;
@@ -4351,16 +4363,17 @@ struct division_ops
             {
                 u[j + v_limbs] = static_cast<limb_type>(static_cast<unsigned __int128>(u[j + v_limbs]) - borrow);
             }
-            if (!WantRemainder)
+            if (Mode != div_large_mode::remainder_only)
                 result.data_[j] = static_cast<limb_type>(qhat);
         }
 
-        if (WantRemainder)
+        if (Mode != div_large_mode::quotient_only)
         {
+            Int & output = Mode == div_large_mode::remainder_only ? result : *remainder;
             if (shift == 0)
             {
                 for (size_t i = 0; i < v_limbs; ++i)
-                    result.data_[i] = u[i];
+                    output.data_[i] = u[i];
             }
             else
             {
@@ -4368,11 +4381,28 @@ struct division_ops
                 for (size_t i = 0; i < v_limbs; ++i)
                 {
                     const limb_type next = (i + 1 < v_limbs) ? u[i + 1] : 0;
-                    result.data_[i] = (u[i] >> shift) | (next << inv_shift);
+                    output.data_[i] = (u[i] >> shift) | (next << inv_shift);
                 }
+            }
+            if (Mode == div_large_mode::quotient_and_remainder)
+            {
+                for (size_t i = v_limbs; i < limbs; ++i)
+                    output.data_[i] = 0;
             }
         }
         return result;
+    }
+
+    template <bool WantRemainder>
+    static GINT_NOINLINE Int div_or_rem_large_core(Int lhs, const Int & divisor, size_t v_limbs, size_t u_limbs) noexcept
+    {
+        constexpr div_large_mode mode = WantRemainder ? div_large_mode::remainder_only : div_large_mode::quotient_only;
+        return div_large_core<mode>(lhs, divisor, v_limbs, u_limbs, nullptr);
+    }
+
+    static GINT_NOINLINE Int divmod_large_core(Int lhs, const Int & divisor, size_t v_limbs, size_t u_limbs, Int & remainder) noexcept
+    {
+        return div_large_core<div_large_mode::quotient_and_remainder>(lhs, divisor, v_limbs, u_limbs, &remainder);
     }
 
     static Int div_large(Int lhs, const Int & divisor, size_t div_limbs) noexcept
@@ -4880,6 +4910,51 @@ struct division_ops
     {
         return lhs / divisor;
     }
+
+    static GINT_NOINLINE Int divmod_large_single_limb_quotient(Int lhs, const Int & divisor, size_t div_limbs, Int & remainder) noexcept
+    {
+        if (div_limbs < 2)
+        {
+            remainder = lhs;
+            return Int();
+        }
+
+        // For equal-length magnitudes with lhs > divisor, the estimate is exact or one too large.
+        limb_type q = estimate_single_limb_quotient(lhs, divisor, div_limbs);
+        if (div_limbs == limbs)
+        {
+            if (rem_sub_mul_limb_full_width(lhs, divisor, q))
+            {
+                --q;
+                rem_add_divisor_full_width(lhs, divisor);
+            }
+        }
+        else if (rem_sub_mul_limb(lhs, divisor, div_limbs, q))
+        {
+            --q;
+            rem_add_divisor(lhs, divisor, div_limbs);
+        }
+        // Limbs above div_limbs were zero on entry and remain untouched.
+        remainder = lhs;
+        return Int(q);
+    }
+
+    static divmod_result<Int> divmod_signed_wide(const Int & dividend, const Int & divisor)
+    {
+        const bool lhs_neg = dividend.data_[limbs - 1] >> 63;
+        const bool rhs_neg = divisor.data_[limbs - 1] >> 63;
+        Unsigned rhs_mag(typename Unsigned::uninitialized_tag{});
+        copy_abs_magnitude(rhs_mag, divisor, rhs_neg);
+        Unsigned lhs_mag(typename Unsigned::uninitialized_tag{});
+        copy_abs_magnitude(lhs_mag, dividend, lhs_neg);
+        const divmod_result<Unsigned> magnitude = gint::divmod(lhs_mag, rhs_mag);
+        divmod_result<Int> result = {Int(magnitude.quotient), Int(magnitude.remainder)};
+        if (lhs_neg != rhs_neg)
+            result.quotient = -result.quotient;
+        if (lhs_neg)
+            result.remainder = -result.remainder;
+        return result;
+    }
 };
 } // namespace detail
 
@@ -4893,53 +4968,94 @@ struct divmod_result
 
 /// Compute quotient and remainder while sharing the expensive quotient work.
 ///
-/// UInt256 retains the remainder from the division kernel. Other types rebuild
-/// it from the quotient. Both paths preserve the exact signed and unsigned
-/// semantics of the independent operators.
+/// At widths of 256 bits and above, keep the remainder from the unsigned
+/// division kernel and restore signs as needed. Narrower widths rebuild the
+/// remainder from the quotient.
 template <size_t Bits, typename Signed>
 inline divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> & dividend, const integer<Bits, Signed> & divisor)
 {
     using Int = integer<Bits, Signed>;
     using Division = detail::division_ops<Bits, Signed>;
-    if (Bits == 256 && !std::is_same<Signed, signed>::value)
+    if (Bits < 256)
     {
-        const size_t divisor_limbs = Int::used_limbs(divisor);
-        if (divisor_limbs != 0)
+        if (GINT_UNLIKELY(divisor.is_zero()))
         {
-            // Resolve quotient zero or one without entering a division kernel.
-            size_t different = Int::limbs;
-            while (different != 0 && dividend.data_[different - 1] == divisor.data_[different - 1])
-                --different;
-            if (different == 0)
+            GINT_DIVZERO_CHECK(true);
+            return {Int(), dividend};
+        }
+        const Int quotient = dividend / divisor;
+        return {quotient, dividend - quotient * divisor};
+    }
+
+    if (std::is_same<Signed, signed>::value)
+        return Division::divmod_signed_wide(dividend, divisor);
+
+    // Keep the unsigned dispatch visible when the caller knows the divisor shape.
+    using limb_type = typename Int::limb_type;
+    constexpr size_t limbs = Int::limbs;
+    if (limbs == 4 && dividend.data_[limbs - 1] < divisor.data_[limbs - 1])
+        return {Int(), dividend};
+
+    const size_t divisor_limbs = Int::used_limbs(divisor);
+    if (GINT_UNLIKELY(divisor_limbs == 0))
+    {
+        GINT_DIVZERO_CHECK(true);
+        return {Int(), dividend};
+    }
+
+    size_t different = limbs;
+    while (different != 0 && dividend.data_[different - 1] == divisor.data_[different - 1])
+        --different;
+    if (different == 0)
+        return {Int(1), Int()};
+    if (dividend.data_[different - 1] < divisor.data_[different - 1])
+        return {Int(), dividend};
+
+    // Reuse the fixed-width power-of-two path for 256 bits to limit dispatch expansion.
+    if (limbs == 4)
+    {
+        int shift;
+        if (Division::is_power_of_two(divisor, shift))
+            return {dividend >> shift, dividend & (divisor - Int(1))};
+    }
+
+    divmod_result<Int> result;
+    if (divisor_limbs == 1)
+    {
+        result.remainder = Int(Division::div_mod_small(dividend, divisor.data_[0], result.quotient));
+        return result;
+    }
+
+    if (limbs != 4)
+    {
+        const limb_type top = divisor.data_[divisor_limbs - 1];
+        if ((top & (top - 1)) == 0)
+        {
+            limb_type lower = 0;
+            for (size_t i = 0; i < divisor_limbs - 1; ++i)
+                lower |= divisor.data_[i];
+            if (lower == 0)
             {
-                const divmod_result<Int> result = {Int(1), Int()};
-                return result;
+                const size_t shift = (divisor_limbs - 1) * 64 + __builtin_ctzll(top);
+                return {Int::shift_right_in_range(dividend, shift), dividend & (divisor - Int(1))};
             }
-            if (dividend.data_[different - 1] < divisor.data_[different - 1])
-            {
-                const divmod_result<Int> result = {Int(), dividend};
-                return result;
-            }
-            int shift;
-            if (Division::is_power_of_two(divisor, shift))
-            {
-                const divmod_result<Int> result = {dividend >> shift, dividend & (divisor - Int(1))};
-                return result;
-            }
-            divmod_result<Int> result;
-            if (divisor_limbs == 1)
-                result.remainder = Int(Division::div_mod_small(dividend, divisor.data_[0], result.quotient));
-            else if (divisor_limbs == 2)
-                result.quotient = Division::template div_large_2<Int::limbs, true>(dividend, divisor, &result.remainder);
-            else if (divisor_limbs == 3)
-                result.quotient = Division::template div_large_3<Int::limbs, true>(dividend, divisor, &result.remainder);
-            else
-                result.quotient = Division::template div_large_4<Int::limbs, true>(dividend, divisor, &result.remainder);
-            return result;
         }
     }
-    const integer<Bits, Signed> quotient = dividend / divisor;
-    const divmod_result<integer<Bits, Signed>> result = {quotient, dividend - quotient * divisor};
+
+    if (divisor_limbs == 2)
+        result.quotient = Division::template div_large_2<limbs, true>(dividend, divisor, &result.remainder);
+    else if (divisor_limbs == 3)
+        result.quotient = Division::template div_large_3<limbs, true>(dividend, divisor, &result.remainder);
+    else if (limbs == 4)
+        result.quotient = Division::template div_large_4<limbs, true>(dividend, divisor, &result.remainder);
+    else
+    {
+        const size_t dividend_limbs = Int::used_limbs(dividend);
+        if (dividend_limbs == divisor_limbs)
+            result.quotient = Division::divmod_large_single_limb_quotient(dividend, divisor, divisor_limbs, result.remainder);
+        else
+            result.quotient = Division::divmod_large_core(dividend, divisor, divisor_limbs, dividend_limbs, result.remainder);
+    }
     return result;
 }
 

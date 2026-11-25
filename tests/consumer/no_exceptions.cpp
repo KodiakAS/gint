@@ -95,14 +95,25 @@ int main()
     ok &= expect_sigabrt("integer / zero", [] { static_cast<void>(UInt256(1) / UInt256(0)); });
     ok &= expect_sigabrt("integer % zero", [] { static_cast<void>(UInt256(1) % UInt256(0)); });
     ok &= expect_sigabrt("divmod by zero", [] { static_cast<void>(gint::divmod(UInt256(1), UInt256(0))); });
+    ok &= expect_sigabrt(
+        "signed wide min divmod by zero",
+        []
+        {
+            using Int512 = gint::integer<512, signed>;
+            static_cast<void>(gint::divmod(std::numeric_limits<Int512>::min(), Int512(0)));
+        });
     ok &= expect_sigabrt("integer / 0.5", [] { static_cast<void>(UInt256(5) / 0.5); });
     ok &= expect_sigabrt("integer % 0.5", [] { static_cast<void>(UInt256(5) % 0.5); });
 #else
     const UInt256 value = 42;
     const UInt256 zero = 0;
     const auto zero_qr = gint::divmod(value, zero);
-    if (value / zero != zero || value % zero != value || zero_qr.quotient != zero || zero_qr.remainder != value || value / 0.5 != zero
-        || value % 0.5 != value)
+    using Int512 = gint::integer<512, signed>;
+    const Int512 wide_min = std::numeric_limits<Int512>::min();
+    const Int512 wide_zero = 0;
+    const auto wide_zero_qr = gint::divmod(wide_min, wide_zero);
+    if (value / zero != zero || value % zero != value || zero_qr.quotient != zero || zero_qr.remainder != value
+        || wide_zero_qr.quotient != wide_zero || wide_zero_qr.remainder != wide_min || value / 0.5 != zero || value % 0.5 != value)
     {
         std::fputs("unchecked zero divisor must return quotient 0 and the original remainder\n", stderr);
         ok = false;

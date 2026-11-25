@@ -152,6 +152,14 @@ size_t verify_unsigned_division_normalization()
                 if (shape == 0 || top == 0)
                     continue;
 
+                // Keep the same effective length and enter the kernel with a greater dividend.
+                if (top + 1 < limb_count && divisor.limbs[0] != std::numeric_limits<uint64_t>::max())
+                {
+                    reference_uint<limb_count> equal_length_dividend = divisor;
+                    ++equal_length_dividend.limbs[0];
+                    verify(equal_length_dividend, "partial equal length");
+                }
+
                 // Fit two quotient digits where possible. For odd divisors,
                 // subtracting 1 from the normalized product changes only its
                 // lowest limb, which can leave the top-limb estimate too big.

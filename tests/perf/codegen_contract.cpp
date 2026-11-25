@@ -1,4 +1,6 @@
+#define GINT_TEST_ACCESS
 #include <gint/gint.h>
+#undef GINT_TEST_ACCESS
 
 #include <cstdint>
 
@@ -9,6 +11,7 @@
 #endif
 
 using UInt512 = gint::integer<512, unsigned>;
+using UInt1024 = gint::integer<1024, unsigned>;
 
 extern "C" {
 
@@ -110,6 +113,61 @@ gint_perf_divmod256_u64(gint::divmod_result<gint::UInt256> * result, const gint:
     divisor = (divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL;
     const gint::UInt256 wide_divisor(divisor);
     const gint::UInt256 full_width_dividend = *dividend | (gint::UInt256(1) << 255u);
+#if defined(__clang__)
+    [[clang::always_inline]]
+#endif
+    {
+        *result = gint::divmod(full_width_dividend, wide_divisor);
+    }
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((flatten))
+#endif
+GINT_PERF_NOINLINE void
+gint_perf_divmod512_u64(gint::divmod_result<UInt512> * result, const UInt512 * dividend, std::uint64_t divisor)
+{
+    const UInt512 wide_divisor((divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL);
+    // Set the operand shape directly. GCC's out-of-line wide shift hides the
+    // known top bit from the dispatcher and leaves unrelated kernels reachable.
+    UInt512 full_width_dividend = *dividend;
+    gint::detail::integer_test_access<512, unsigned>::limb(full_width_dividend, UInt512::limbs - 1) |= UINT64_C(1) << 63;
+#if defined(__clang__)
+    [[clang::always_inline]]
+#endif
+    {
+        *result = gint::divmod(full_width_dividend, wide_divisor);
+    }
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((flatten))
+#endif
+GINT_PERF_NOINLINE void
+gint_perf_divmod1024_u64(gint::divmod_result<UInt1024> * result, const UInt1024 * dividend, std::uint64_t divisor)
+{
+    const UInt1024 wide_divisor((divisor & 0x7FFFFFFFFFFFFFFFULL) | 0x100000001ULL);
+    UInt1024 full_width_dividend = *dividend;
+    gint::detail::integer_test_access<1024, unsigned>::limb(full_width_dividend, UInt1024::limbs - 1) |= UINT64_C(1) << 63;
+#if defined(__clang__)
+    [[clang::always_inline]]
+#endif
+    {
+        *result = gint::divmod(full_width_dividend, wide_divisor);
+    }
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((flatten))
+#endif
+GINT_PERF_NOINLINE void
+gint_perf_divmod512_dense4(gint::divmod_result<UInt512> * result, const UInt512 * dividend, const gint::UInt256 * divisor)
+{
+    using Access = gint::detail::integer_test_access<512, unsigned>;
+    UInt512 wide_divisor(*divisor);
+    Access::limb(wide_divisor, gint::UInt256::limbs - 1) |= (UINT64_C(1) << 63) | 1;
+    UInt512 full_width_dividend = *dividend;
+    Access::limb(full_width_dividend, UInt512::limbs - 1) |= UINT64_C(1) << 63;
 #if defined(__clang__)
     [[clang::always_inline]]
 #endif
