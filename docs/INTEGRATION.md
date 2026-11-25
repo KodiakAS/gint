@@ -30,7 +30,7 @@ benchmark 或安装规则。
 
 ### 安装后消费
 
-最低支持 CMake 3.13。安装仓库可使用兼容该版本的 build target：
+最低支持 CMake 3.13。安装 gint 到指定前缀：
 
 ```sh
 cmake -S . -B runs/local/install \
@@ -41,13 +41,22 @@ cmake -S . -B runs/local/install \
 cmake --build runs/local/install --target install
 ```
 
-消费者随后使用：
+在消费项目的 `CMakeLists.txt` 中引入 package：
 
 ```cmake
 find_package(gint 0.9 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
+配置消费项目时，通过 `CMAKE_PREFIX_PATH` 指向上述安装前缀：
+
+```sh
+cmake -S <your-project> -B <build-dir> \
+  -DCMAKE_PREFIX_PATH="/path/to/gint/runs/local/prefix"
+cmake --build <build-dir>
+```
+
+如需在仓库内就地验证安装结果，可直接构建自带的[示例消费项目](../tests/consumer/package)（额外传入 `-DGINT_FIND_VERSION=0.9`）。
 package 的版本匹配规则见[支持策略](SUPPORT.md#0x-维护策略)，精确安装清单见
 [发布流程](RELEASING.md)。
 
@@ -86,4 +95,4 @@ gint::divmod_result<gint::UInt256> qr = gint::divmod(value, divisor);
 ## 无异常构建
 
 可使用 `-fno-exceptions`；错误路径的行为见
-[技术规格](TECH_SPEC.md#9-错误路径)。
+[技术规格](TECH_SPEC.md#8-错误路径)。
