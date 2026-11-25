@@ -1577,11 +1577,10 @@ public:
     // 1) Decompose rhs_abs = m * 2^e via frexp, with 0.5 <= m < 1.
     // 2) Let hb be the highest set bit of lhs_abs; compare hb with e-1. If they
     //    differ, the one with larger exponent wins.
-    // 3) Align lhs_abs to the p-bit significand of T (p = digits), by shifting
-    //    so that its top bit aligns to p-1. Mask out lower bits beyond p.
-    // 4) Compare the p-bit significands; if equal, inspect fractional tail of
-    //    rhs to decide strictness. If lhs has extra non-zero low bits when
-    //    shifting back, it is considered larger.
+    // 3) Use the leading p bits of lhs_abs as its significand (p = digits),
+    //    or left-align its low limbs if it has fewer than p bits.
+    // 4) Compare the significands. On a tie, a fractional tail makes rhs_abs
+    //    larger, or any discarded low bit makes lhs_abs larger.
     template <typename T>
     static int compare_with_float_abs(const integer & lhs_abs, T rhs_abs) noexcept
     {
@@ -1598,23 +1597,17 @@ public:
             return hb < k ? -1 : 1;
         const int p = std::numeric_limits<T>::digits;
         int shift = hb - (p - 1);
-        integer scaled = lhs_abs;
-        unsigned __int128 sigA = 0;
-        if (limbs >= 2)
-            sigA = (static_cast<unsigned __int128>(lhs_abs.data_[1]) << 64) | lhs_abs.data_[0];
-        else
-            sigA = lhs_abs.data_[0];
+        unsigned __int128 sigA;
         if (shift > 0)
+            sigA = binary_float_significand<T>(lhs_abs, shift);
+        else
         {
-            scaled >>= shift;
             if (limbs >= 2)
-                sigA = (static_cast<unsigned __int128>(scaled.data_[1]) << 64) | scaled.data_[0];
+                sigA = (static_cast<unsigned __int128>(lhs_abs.data_[1]) << 64) | lhs_abs.data_[0];
             else
-                sigA = scaled.data_[0];
-        }
-        else if (shift < 0)
-        {
-            sigA <<= -shift;
+                sigA = lhs_abs.data_[0];
+            if (shift < 0)
+                sigA <<= -shift;
         }
         if (p < 128)
             sigA &= ((static_cast<unsigned __int128>(1) << p) - 1);
@@ -1630,12 +1623,7 @@ public:
             T frac = scaled_rhs - std::floor(scaled_rhs);
             return (frac > T(0)) ? -1 : 0;
         }
-        else
-        {
-            integer rec = scaled;
-            rec <<= shift;
-            return (rec == lhs_abs) ? 0 : 1; // lhs has extra low bits -> larger
-        }
+        return has_any_bit_below(lhs_abs, shift) ? 1 : 0;
     }
 
     template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
