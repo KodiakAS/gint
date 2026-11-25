@@ -329,17 +329,82 @@ GINT_FORCE_INLINE void append_power_of_two_chunk(uint64_t * data, uint64_t chunk
     data[0] = (data[0] << Shift) | chunk;
 }
 
+template <unsigned BitsPerDigit>
+GINT_FORCE_INLINE unsigned power_of_two_digit_value(char c) noexcept
+{
+    const unsigned value = static_cast<unsigned>(static_cast<unsigned char>(c));
+    return BitsPerDigit == 4u ? hexadecimal_digit_value(value) : value - static_cast<unsigned>('0');
+}
+
+template <unsigned BitsPerDigit>
+GINT_FORCE_INLINE uint64_t parse_power_of_two_digits(const char *& cursor, const char * end, uint64_t chunk = 0)
+{
+    constexpr unsigned base = 1u << BitsPerDigit;
+    while (cursor != end)
+    {
+        const unsigned digit = power_of_two_digit_value<BitsPerDigit>(*cursor++);
+        if (digit >= base)
+            GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
+        chunk = (chunk << BitsPerDigit) | digit;
+    }
+    return chunk;
+}
+
+template <unsigned BitsPerDigit>
+GINT_FORCE_INLINE uint64_t parse_power_of_two_chunk(const char *& cursor, size_t count)
+{
+    const char * const end = cursor + count;
+    uint64_t chunk = 0;
+    const char * const groups_end = end - count % 4u;
+    while (cursor != groups_end)
+    {
+        unsigned digits;
+        if (BitsPerDigit < 4u)
+        {
+            constexpr unsigned mask = (1u << BitsPerDigit) - 1u;
+            constexpr unsigned byte_masks = mask * 0x01010101u;
+            constexpr unsigned pair_masks = mask * 0x00010001u;
+            constexpr unsigned low_pair_mask = (1u << (2u * BitsPerDigit)) - 1u;
+            // On supported little-endian targets the first digit is in the low byte.
+            uint32_t bytes;
+            std::memcpy(&bytes, cursor, sizeof(bytes));
+            if ((bytes & ~byte_masks) != static_cast<unsigned>('0') * 0x01010101u)
+                GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
+            const unsigned pairs = ((bytes & pair_masks) << BitsPerDigit) | ((bytes >> 8u) & pair_masks);
+            digits = ((pairs & low_pair_mask) << (2u * BitsPerDigit)) | (pairs >> 16u);
+        }
+        else
+        {
+            const unsigned first = power_of_two_digit_value<BitsPerDigit>(cursor[0]);
+            const unsigned second = power_of_two_digit_value<BitsPerDigit>(cursor[1]);
+            const unsigned third = power_of_two_digit_value<BitsPerDigit>(cursor[2]);
+            const unsigned last = power_of_two_digit_value<BitsPerDigit>(cursor[3]);
+            if ((first | second | third | last) >= 16u)
+                GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
+            digits = (first << 12u) | (second << 8u) | (third << 4u) | last;
+        }
+        chunk = (chunk << (4u * BitsPerDigit)) | digits;
+        cursor += 4;
+    }
+    return parse_power_of_two_digits<BitsPerDigit>(cursor, end, chunk);
+}
+
 template <unsigned BitsPerDigit, size_t Bits, typename Signed>
 GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * begin, const char * end)
 {
     using Int = integer<Bits, Signed>;
     using limb_type = typename Int::limb_type;
-    const unsigned base = 1u << BitsPerDigit;
     constexpr size_t chunk_digits = 64u / BitsPerDigit;
 
     Int result;
     const char * cursor = begin;
     size_t digits_left = static_cast<size_t>(end - begin);
+    if (digits_left <= chunk_digits)
+    {
+        result.data_[0] = parse_power_of_two_digits<BitsPerDigit>(cursor, end);
+        return result;
+    }
+
     size_t current_chunk_digits = digits_left % chunk_digits;
     if (current_chunk_digits == 0)
         current_chunk_digits = chunk_digits;
@@ -347,15 +412,7 @@ GINT_FORCE_INLINE integer<Bits, Signed> parse_power_of_two_range(const char * be
 
     while (digits_left != 0)
     {
-        limb_type chunk = 0;
-        for (size_t i = 0; i < current_chunk_digits; ++i)
-        {
-            const unsigned value = static_cast<unsigned>(static_cast<unsigned char>(*cursor++));
-            const unsigned digit = BitsPerDigit == 4u ? hexadecimal_digit_value(value) : value - static_cast<unsigned>('0');
-            if (digit >= base)
-                GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
-            chunk = (chunk << BitsPerDigit) | digit;
-        }
+        const limb_type chunk = parse_power_of_two_chunk<BitsPerDigit>(cursor, current_chunk_digits);
 
         digits_left -= current_chunk_digits;
         if (Int::limbs <= 4)
@@ -426,7 +483,6 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
         GINT_THROW(std::invalid_argument("gint::from_string prefix without digits"));
 
     using Int = integer<Bits, Signed>;
-    using limb_type = typename Int::limb_type;
 
     // Fixed-width parsing of power-of-two bases is pure bit packing. Work from
     // 64-bit digit chunks and place them directly into the destination limbs,
@@ -438,6 +494,52 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
     if (base == 16)
         return parse_signed_power_of_two_range<4, Bits, Signed>(pos, end, negative);
 
+    // Keep digit packing and chunked multiplication in separate code-generation units.
+    return Int::parse_multiply_add_range(pos, end, base, negative);
+}
+
+GINT_FORCE_INLINE uint64_t parse_decimal_chunk(const char *& cursor, size_t count)
+{
+    uint64_t chunk = 0;
+    for (size_t i = 0; i < count; ++i)
+    {
+        const unsigned digit = static_cast<unsigned>(static_cast<unsigned char>(*cursor++)) - static_cast<unsigned>('0');
+        if (digit >= 10u)
+            GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
+        chunk = chunk * 10u + digit;
+    }
+    return chunk;
+}
+} // namespace detail
+
+template <size_t Bits, typename Signed>
+GINT_FORCE_INLINE integer<Bits, Signed> integer<Bits, Signed>::parse_decimal_range(const char * cursor, const char * end, bool negative)
+{
+    constexpr limb_type decimal_chunk_base = UINT64_C(10000000000000000000);
+    constexpr size_t decimal_chunk_digits = 19u;
+
+    const size_t digits_left = static_cast<size_t>(end - cursor);
+    const size_t first_digits = 1u + (digits_left - 1u) % decimal_chunk_digits;
+    const limb_type first = detail::parse_decimal_chunk(cursor, first_digits);
+
+    integer result;
+    result.data_[0] = first;
+    size_t used = first != 0 ? 1u : 0u;
+    while (cursor != end)
+    {
+        const limb_type chunk = detail::parse_decimal_chunk(cursor, decimal_chunk_digits);
+        result.mul_add_limb_used(decimal_chunk_base, chunk, used);
+    }
+    return negative ? -result : result;
+}
+
+template <size_t Bits, typename Signed>
+GINT_NOINLINE integer<Bits, Signed>
+integer<Bits, Signed>::parse_multiply_add_range(const char * pos, const char * end, unsigned base, bool negative)
+{
+    if (base == 10)
+        return parse_decimal_range(pos, end, negative);
+
     const limb_type max_limb = std::numeric_limits<limb_type>::max();
     limb_type chunk_base = 1;
     size_t chunk_digits = 0;
@@ -447,7 +549,7 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
         ++chunk_digits;
     }
 
-    Int result;
+    integer result;
     bool first_chunk = true;
     size_t digits_left = static_cast<size_t>(end - pos);
     size_t current_chunk_digits = digits_left % chunk_digits;
@@ -459,7 +561,7 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
         limb_type chunk = 0;
         for (size_t i = 0; i < current_chunk_digits; ++i, ++pos)
         {
-            const unsigned digit = string_digit_value(*pos);
+            const unsigned digit = detail::string_digit_value(*pos);
             if (digit >= base)
                 GINT_THROW(std::invalid_argument("gint::from_string invalid digit"));
             chunk = chunk * base + digit;
@@ -479,7 +581,6 @@ inline integer<Bits, Signed> parse_string_range(const char * begin, const char *
 
     return negative ? -result : result;
 }
-} // namespace detail
 
 template <size_t Bits, typename Signed>
 inline integer<Bits, Signed> from_string(const std::string & text, unsigned base)

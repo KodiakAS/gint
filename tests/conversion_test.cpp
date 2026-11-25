@@ -466,6 +466,98 @@ TEST(WideIntegerConversion, FromStringChunkedMatchesDigitByDigitReference)
     EXPECT_EQ((gint::from_string<Int1024>(negative, 10)), -parse_string_digit_by_digit<Int1024>(negative.substr(1), 10));
 }
 
+template <typename Int>
+static void expect_decimal(const std::string & text, const Int & expected, unsigned base = 10)
+{
+    SCOPED_TRACE(
+        testing::Message() << "bits=" << Int::bits << ", signed=" << std::numeric_limits<Int>::is_signed << ", base=" << base
+                           << ", text=" << text);
+    EXPECT_EQ(gint::from_string<Int>(text, base), expected);
+    EXPECT_EQ(gint::from_string<Int>(text.c_str(), base), expected);
+}
+
+template <typename Int>
+static void expect_invalid_decimal(const std::string & text, unsigned base)
+{
+    SCOPED_TRACE(
+        testing::Message() << "bits=" << Int::bits << ", signed=" << std::numeric_limits<Int>::is_signed << ", base=" << base
+                           << ", text=" << text);
+    EXPECT_THROW(gint::from_string<Int>(text, base), std::invalid_argument);
+    EXPECT_THROW(gint::from_string<Int>(text.c_str(), base), std::invalid_argument);
+}
+
+template <typename Int>
+static void test_decimal_chunks()
+{
+    const std::string digits = "987654321098765432109876543210987654321098765432109876543210987654321098765432109876543210";
+    const size_t lengths[] = {18, 19, 20, 37, 38, 39, 56, 57, 58, 76, 77, 80};
+    for (size_t length : lengths)
+    {
+        const std::string text = digits.substr(0, length);
+        const Int expected = parse_string_digit_by_digit<Int>(text, 10);
+        expect_decimal(text, expected);
+        expect_decimal(text, expected, 0);
+        expect_decimal("-" + text, -expected);
+    }
+
+    expect_decimal("0", Int(0));
+    expect_decimal(std::string(25, '0'), Int(0));
+    expect_decimal("9999999999999999999", Int(UINT64_C(9999999999999999999)));
+    expect_decimal("18446744073709551616", Int(1) << 64);
+    expect_decimal(std::string(40, '0') + digits, parse_string_digit_by_digit<Int>(digits, 10));
+    expect_decimal("09", Int(9));
+    expect_invalid_decimal<Int>("09", 0);
+
+    const std::string with_null = digits + '\0' + "123";
+    EXPECT_THROW(gint::from_string<Int>(with_null, 10), std::invalid_argument);
+    EXPECT_EQ(gint::from_string<Int>(with_null.c_str(), 10), parse_string_digit_by_digit<Int>(digits, 10));
+}
+
+template <size_t Bits>
+static void test_decimal_wrap()
+{
+    using UInt = gint::integer<Bits, unsigned>;
+    using Int = gint::integer<Bits, signed>;
+    const UInt uint_max = std::numeric_limits<UInt>::max();
+    const Int int_max = std::numeric_limits<Int>::max();
+    const Int int_min = std::numeric_limits<Int>::min();
+    const UInt int_min_magnitude = UInt(int_max) + UInt(1);
+
+    // 2^Bits ends in a nonzero digit, so incrementing UINT_MAX's last digit needs no carry.
+    std::string above_max = gint::to_string(uint_max);
+    ++above_max.back();
+    expect_decimal(above_max, UInt(0));
+    expect_decimal(above_max, Int(0));
+    expect_decimal(gint::to_string(int_min_magnitude), int_min);
+    expect_decimal("-" + gint::to_string(int_min_magnitude + UInt(1)), int_max);
+    expect_decimal("-1", uint_max);
+
+    const std::string tail = std::string(19 * (UInt::limbs + 2), '9') + "0000000000000000007";
+    const std::string over_width = above_max + tail;
+    const UInt expected = parse_string_digit_by_digit<UInt>(tail, 10);
+    expect_decimal(over_width, expected);
+    expect_decimal(over_width, Int(expected));
+    expect_invalid_decimal<UInt>(over_width + "x", 10);
+    expect_invalid_decimal<Int>("-" + over_width + "x", 10);
+}
+
+template <size_t Bits>
+static void test_decimal_parser()
+{
+    test_decimal_chunks<gint::integer<Bits, unsigned>>();
+    test_decimal_chunks<gint::integer<Bits, signed>>();
+    test_decimal_wrap<Bits>();
+}
+
+TEST(WideIntegerConversion, FromStringDecimalChunkBoundsAndWrap)
+{
+    test_decimal_parser<64>();
+    test_decimal_parser<128>();
+    test_decimal_parser<256>();
+    test_decimal_parser<512>();
+    test_decimal_parser<1024>();
+}
+
 TEST(WideIntegerConversion, FromStringStringAndCStrPathsMatch)
 {
     using U1024 = gint::integer<1024, unsigned>;
@@ -527,6 +619,30 @@ TEST(WideIntegerConversion, FromStringPowerOfTwoWrapAndValidation)
     std::string invalid_high_digit = "z" + std::string(300, '0');
     EXPECT_THROW(gint::from_string<U128>(invalid_high_digit, 16), std::invalid_argument);
     EXPECT_THROW(gint::from_string<U128>(invalid_high_digit.c_str(), 16), std::invalid_argument);
+}
+
+TEST(WideIntegerConversion, FromStringBinaryAndOctalValidateEveryPackedByte)
+{
+    const unsigned bases[] = {2, 8};
+    for (unsigned base : bases)
+    {
+        const size_t chunk_digits = base == 2 ? 64 : 21;
+        const size_t invalid_positions[] = {0, 1, 2, 3, chunk_digits - 1};
+        const char invalid_digits[] = {'/', static_cast<char>('0' + base), static_cast<char>(0xff)};
+        for (size_t position : invalid_positions)
+        {
+            for (char digit : invalid_digits)
+            {
+                SCOPED_TRACE(
+                    testing::Message() << "base=" << base << ", position=" << position
+                                       << ", byte=" << static_cast<unsigned>(static_cast<unsigned char>(digit)));
+                std::string text(2 * chunk_digits, '1');
+                text[position] = digit;
+                EXPECT_THROW(gint::from_string<gint::UInt256>(text, base), std::invalid_argument);
+                EXPECT_THROW(gint::from_string<gint::UInt256>(text.c_str(), base), std::invalid_argument);
+            }
+        }
+    }
 }
 
 TEST(WideIntegerConversion, FromStringPowerOfTwoRejectsPunctuationBeforeA)

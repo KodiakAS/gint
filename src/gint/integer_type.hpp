@@ -1888,6 +1888,23 @@ private:
         }
     }
 
+    // Limbs at and above used are zero. After reaching full width, discard carry.
+    GINT_FORCE_INLINE void mul_add_limb_used(limb_type multiplier, limb_type addend, size_t & used) noexcept
+    {
+        unsigned __int128 carry = addend;
+        for (size_t i = 0; i < used; ++i)
+        {
+            const unsigned __int128 product = static_cast<unsigned __int128>(data_[i]) * multiplier + carry;
+            data_[i] = static_cast<limb_type>(product);
+            carry = product >> 64;
+        }
+        if (carry != 0 && used < limbs)
+            data_[used++] = static_cast<limb_type>(carry);
+    }
+
+    static inline integer parse_decimal_range(const char * begin, const char * end, bool negative);
+    static integer parse_multiply_add_range(const char * begin, const char * end, unsigned base, bool negative);
+
     static GINT_CONSTEXPR14 GINT_FORCE_INLINE integer add_copy(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
