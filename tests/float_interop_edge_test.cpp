@@ -1,10 +1,147 @@
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <gint/gint.h>
 #include <gtest/gtest.h>
 
 template <typename Int>
 using TestAccess = gint::detail::integer_test_access<Int::bits, typename Int::signed_tag>;
+
+namespace
+{
+template <typename Int, typename Float>
+void expect_float_order(const Int & lhs, Float rhs, int order)
+{
+    SCOPED_TRACE(::testing::Message() << "integer=" << gint::to_string(lhs) << ", float=" << rhs);
+    EXPECT_EQ(lhs == rhs, order == 0);
+    EXPECT_EQ(lhs != rhs, order != 0);
+    EXPECT_EQ(lhs < rhs, order < 0);
+    EXPECT_EQ(lhs <= rhs, order <= 0);
+    EXPECT_EQ(lhs > rhs, order > 0);
+    EXPECT_EQ(lhs >= rhs, order >= 0);
+    EXPECT_EQ(rhs == lhs, order == 0);
+    EXPECT_EQ(rhs != lhs, order != 0);
+    EXPECT_EQ(rhs < lhs, order > 0);
+    EXPECT_EQ(rhs <= lhs, order >= 0);
+    EXPECT_EQ(rhs > lhs, order < 0);
+    EXPECT_EQ(rhs >= lhs, order <= 0);
+}
+
+template <typename Int, typename Float>
+void expect_float_magnitude_order(const Int & magnitude, Float rhs, int order)
+{
+    expect_float_order(magnitude, rhs, order);
+    if (std::numeric_limits<Int>::is_signed)
+        expect_float_order(-magnitude, -rhs, -order);
+}
+
+template <typename Int, typename Float>
+void check_significand_boundaries()
+{
+    const int p = std::numeric_limits<Float>::digits;
+    const int max_shift = std::numeric_limits<Int>::digits - p;
+    const int shifts[] = {0, 1, 63, 64, 65, max_shift};
+    for (int shift : shifts)
+    {
+        if (shift < 0 || shift > max_shift || p + shift > std::numeric_limits<Float>::max_exponent)
+            continue;
+
+        SCOPED_TRACE(
+            ::testing::Message() << "bits=" << Int::bits << ", signed=" << std::numeric_limits<Int>::is_signed << ", p=" << p
+                                 << ", shift=" << shift);
+        // The leading and trailing significand bits are set. Changing the
+        // significand by one in either direction preserves its exponent.
+        const Int one = 1;
+        const Int leading = one << (p - 1);
+        const Float rhs = std::ldexp(std::ldexp(Float(1), p - 1) + Float(1), shift);
+        const Int exact = (leading + one) << shift;
+        expect_float_magnitude_order(exact, rhs, 0);
+        expect_float_magnitude_order(leading << shift, rhs, -1);
+        expect_float_magnitude_order((leading + Int(2)) << shift, rhs, 1);
+
+        const int remainder_bits[] = {0, shift - 1, 63, 64};
+        for (int bit : remainder_bits)
+        {
+            if (bit >= 0 && bit < shift)
+            {
+                SCOPED_TRACE(::testing::Message() << "remainder bit=" << bit);
+                expect_float_magnitude_order(exact | (one << bit), rhs, 1);
+            }
+        }
+    }
+}
+
+template <int Bits, typename Float>
+void check_float_comparison_width()
+{
+    using Int = gint::integer<Bits, signed>;
+    check_significand_boundaries<gint::integer<Bits, unsigned>, Float>();
+    check_significand_boundaries<Int, Float>();
+
+    if (Bits > std::numeric_limits<Float>::max_exponent)
+        return;
+    SCOPED_TRACE(::testing::Message() << "signed minimum, bits=" << Bits << ", p=" << std::numeric_limits<Float>::digits);
+    const Int min = std::numeric_limits<Int>::min();
+    const Float rhs = -std::ldexp(Float(1), Bits - 1);
+    expect_float_order(min, rhs, 0);
+    expect_float_order(min + Int(1), rhs, 1);
+    expect_float_order(min, std::nextafter(rhs, Float(0)), -1);
+    const Float below = std::nextafter(rhs, -std::numeric_limits<Float>::infinity());
+    if (std::isfinite(below))
+        expect_float_order(min, below, 1);
+}
+
+template <typename Float>
+void check_float_comparison_boundaries()
+{
+    check_float_comparison_width<64, Float>();
+    check_float_comparison_width<128, Float>();
+    check_float_comparison_width<256, Float>();
+    check_float_comparison_width<512, Float>();
+    check_float_comparison_width<1024, Float>();
+}
+
+template <int Bits>
+void check_x87_full_significand()
+{
+    using UInt = gint::integer<Bits, unsigned>;
+    const auto q = std::numeric_limits<std::uint64_t>::max();
+    const int shifts[] = {63, 64, 65, Bits - 64};
+    for (int shift : shifts)
+    {
+        SCOPED_TRACE(::testing::Message() << "bits=" << Bits << ", x87 shift=" << shift);
+        const UInt exact = UInt(q) << shift;
+        const long double rhs = std::ldexp(static_cast<long double>(q), shift);
+        expect_float_order(exact, rhs, 0);
+        expect_float_order(exact + UInt(1), rhs, 1);
+        expect_float_order(exact - UInt(1), rhs, -1);
+    }
+}
+}
+
+TEST(FloatInteropEdges, CompareFloatSignificandBoundaries)
+{
+    check_float_comparison_boundaries<float>();
+}
+
+TEST(FloatInteropEdges, CompareDoubleSignificandBoundaries)
+{
+    check_float_comparison_boundaries<double>();
+}
+
+TEST(FloatInteropEdges, CompareLongDoubleSignificandBoundaries)
+{
+    check_float_comparison_boundaries<long double>();
+}
+
+TEST(FloatInteropEdges, CompareX87FullSignificand)
+{
+    if (std::numeric_limits<long double>::digits != 64)
+        GTEST_SKIP() << "Requires a 64-bit long double significand";
+    check_x87_full_significand<256>();
+    check_x87_full_significand<512>();
+    check_x87_full_significand<1024>();
+}
 
 TEST(FloatInteropEdges, NaNComparisons)
 {
