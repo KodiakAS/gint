@@ -108,42 +108,29 @@ cycles、instructions 和汇编解释，不能只报告一次百分比。
 
 ### 单项回退与布局诊断
 
-用 [比较脚本](../scripts/compare_benchmarks.py) 读取两份原始 JSON 的逐次样本。
-每次对比固定一个 suite、位宽和环境。两端 sidecar 记录 `commit`、`suite`、
-`bits`、`host`、`cpu`、`virtualization`、`os`、`arch`、`compiler`、`flags`、
-`harness`、`filter` 和 `sampling`。除 `commit` 外各字段须一致。`bits` 为整数，
-`flags` 和 `sampling` 可记录为字符串、数组或对象。
+用[比较脚本](../scripts/compare_benchmarks.py)读取两份原始 JSON 的逐次样本（每次对比固定同一 suite、位宽和环境）。两端 sidecar 需记录 `commit`、`suite`、`bits`（整数）、`host`、`cpu`、`virtualization`、`os`、`arch`、`compiler`、`flags`、`harness`、`filter` 和 `sampling`（`flags` 和 `sampling` 可为字符串、数组或对象）；除 `commit` 外其余字段须一致。
 
 ```sh
-python3 scripts/compare_benchmarks.py \
+python3 -B scripts/compare_benchmarks.py \
   --baseline runs/perf/A.json --result runs/perf/B.json \
   --baseline-meta runs/perf/A.meta.json --result-meta runs/perf/B.meta.json \
   --markdown runs/perf/diff.md --json runs/perf/diff.json --fail-on-regression
 ```
 
-默认使用墙钟时间判定，同时报告 CPU 时间，可通过 `--metric cpu_time` 切换。
-阈值及默认值见脚本 `--help`，覆盖参数随报告保存。短采使用报告模式，允许省略
-sidecar 并标记环境未核实。固定主机可显式启用门禁，已判定的单项回退退出 1，
-输入、覆盖或环境校验失败以及仍需复测的候选退出 2，其余退出 0。
-登记全部超线项，即使几何均值改善。分别比较固定主机 A/B/B/A 中两对相邻样本，
-确认两对都超线且 CPU 时间同向。秩检验提示分布变化，全矩阵筛查可能产生误报，
-同一进程内的重复也可能受布局和时间相关性影响。复测未确认的项保留测得范围和不确定性。
-
-检查最终链接二进制中的热点、内联调用者和循环，记录入口和分支目标地址模 32、
-instructions/op 和 cycles/op。指令序列或 helper 变化时做单改动 A/B。序列一致而
-地址变化时，在两端施加相同的链接顺序或填充扰动，或分别试验工具链支持的
-`-falign-functions=32` 与 `-falign-loops=32`。函数对齐改变入口和代码体积，
-循环对齐还会引入填充和取指差异。保持默认 benchmark 和 INTERFACE flags，仅在
-双边诊断中使用这些选项并记录工具链支持和最终地址。耗时随布局漂移且动态工作量
-近似稳定时记录为布局敏感，并保留默认构建的实际代价。缺少计数器或复测矛盾时，
-记录为未归因。参见 [GCC 对齐选项](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html)。
+- **指标与退出码**：默认按墙钟时间判定并同时报告 CPU 时间，可用 `--metric cpu_time` 切换；阈值与默认值见脚本 `--help`，覆盖参数随报告保存。短采可用报告模式（允许省略 sidecar 并标记环境未核实）；固定主机可显式启用门禁：退出 `0` 表示通过，`1` 表示存在已判定的单项回退，`2` 表示输入/覆盖/环境校验失败或仍有需复测候选。
+- **ABBA 复测判定**：即使几何均值改善，也须登记全部超线项。在固定主机上分别比较 A/B/B/A 中两对相邻样本，确认两对均超线且 CPU 时间同向。秩检验仅提示分布变化，全矩阵筛查可能产生误报，同进程重复也可能受布局与时间相关性影响；复测未确认项保留测得范围和不确定性。
+- **指令退化 vs 布局漂移**：检查最终链接二进制中的热点、内联调用者和循环，记录入口及分支目标地址模 32、`instructions/op` 和 `cycles/op`。
+  - 指令序列或 helper 变化时，做单改动 A/B 验证。
+  - 指令序列一致但地址变化时，在两端施加相同链接顺序/填充扰动，或分别试验工具链支持的 `-falign-functions=32` 与 `-falign-loops=32`（函数对齐影响入口与体积，循环对齐还会引入填充与取指差异）。默认 benchmark 和 `INTERFACE` flags 保持不变，仅在双边诊断中使用上述对齐选项并记录工具链支持与最终地址。参见 [GCC 对齐选项](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html)。
+- **归因记录**：耗时随布局漂移且动态工作量近似稳定时记为“布局敏感”，同时保留默认构建的实际代价；缺少计数器或复测矛盾时记为“未归因”。
 
 ## Codegen contract
 
 本地运行：
 
 ```sh
-python3 -m unittest discover -s tests/perf -p 'test_*.py'
+mkdir -p runs/local/tmp
+TMPDIR="$PWD/runs/local/tmp" python3 -B -m unittest discover -s tests/perf -p 'test_*.py'
 bash scripts/check-codegen-contract.sh c++ runs/local/codegen-contract
 ```
 

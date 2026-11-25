@@ -4,19 +4,17 @@
 [![codecov](https://codecov.io/gh/KodiakAS/gint/branch/main/graph/badge.svg)](https://app.codecov.io/gh/KodiakAS/gint)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-`gint` is a performance-first, header-only C++11 library for exact-width wide
-integers. It provides signed and unsigned 64-, 128-, 256-, 512-, and 1024-bit
-types with two's-complement representation, wraparound at the declared width,
-and optimized arithmetic for GCC and Clang toolchains.
+`gint` is a C++11 header-only library for fast, exact-width signed and unsigned
+wide integers.
 
 Co-maintained by me and **OpenAI Codex** — with a little inspiration from a hippo 🦛.
 
 ## Highlights
 
-- **High performance**: optimized wide-integer arithmetic for GCC and Clang.
-- **C++11**: use the full public API without requiring a newer language standard.
-- **Header-only**: copy a single header, with no library to build or link.
-- **Exact width**: 64-, 128-, 256-, 512-, and 1024-bit integers with wraparound at the declared width.
+- **Exact width**: 64-, 128-, 256-, 512-, and 1024-bit signed and unsigned types with two's-complement wraparound.
+- **High performance**: architecture-tuned arithmetic for GCC and Clang, backed by codegen contracts and benchmarks.
+- **Single-header drop-in**: copy [`include/gint/gint.h`](include/gint/gint.h) with no build step or link-time dependency.
+- **C++11 public API**: full functionality on C++11, with optional `fmt` formatting and `-fno-exceptions` support.
 
 ## Quick start
 
@@ -35,8 +33,7 @@ int main()
 ```
 
 Copy [`include/gint/gint.h`](include/gint/gint.h) into your include path for
-the simplest integration. No generation step or link-time dependency is
-required.
+the simplest integration—no generation step or link-time dependency required.
 
 For an installed CMake package:
 
@@ -45,10 +42,10 @@ find_package(gint 0.9 CONFIG REQUIRED)
 target_link_libraries(my_target PRIVATE gint::gint)
 ```
 
-Use `gint::checked` to enable checked division by zero. The single public
-header always includes string and stream support. See the
-[integration guide](docs/INTEGRATION.md) for source
-tree consumption, optional `fmt` support, and exception-free builds.
+Link `gint::checked` instead to turn division or modulo by zero into an error
+path. The single public header includes string and stream support out of the
+box; see the [integration guide](docs/INTEGRATION.md) for source-tree
+consumption, optional `fmt` support, and `-fno-exceptions` builds.
 
 ## Support and documentation
 

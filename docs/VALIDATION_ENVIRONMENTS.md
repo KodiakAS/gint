@@ -16,27 +16,6 @@ runs/<scope>/...     # 当前任务的构建与结果
 scope 只用于隔离产物，不表示机器位置。同一 scope 切换编译器时仍必须使用独立
 build 目录，避免复用旧 CMake cache。
 
-## consumer 子构建的配置边界
-
-consumer/package 测试保留选定的 C++ 编译器、工具链和平台/sysroot 设置、通用及
-配置专用的编译/链接 flags，以及生成器和活动配置。多配置生成器需要使用
-`ctest -C <配置>`。子构建仍独立配置，保持 C++11 consumer 和隔离安装前缀。
-
-自定义工具链输入按 CMake 的 `CMAKE_TRY_COMPILE_PLATFORM_VARIABLES` 声明传递，
-包括空值、布尔值和列表；工具链文件须能在不同源码/构建目录中重复使用。
-package 与版本测试共用一个 CTest fixture。fixture 在私有构建目录生成安装规则，
-通过 `DESTDIR` 暂存安装树并校验清单。各 consumer 单独构建并读取同一份暂存安装。
-配置绝对安装目录时，测试校验导出路径，再从暂存目录编译 consumer。
-不复制整个父 cache、项目选项、查找结果、目标属性或任意环境变量。
-这不扩展 `SUPPORT.md` 的平台矩阵，也不承诺重放任意外部构建环境。
-
-## C++11 单元测试依赖
-
-Debug 和 Release 主测试检查实际编译模式。GoogleTest 或 fmt 的传递依赖若将目标
-提升到更高标准，编译会报错。常规 CI 使用 GoogleTest 1.12.1，legacy 镜像使用
-1.10.0。本地可用 `-DGTest_DIR=<prefix>/lib/cmake/GTest` 选择已安装的兼容版本。
-启用 `GINT_BUILD_TESTS_CXX17` 后，可用 `ctest -R '^cxx17\.'` 单独运行 C++17 用例。
-
 ## 初始化当前环境
 
 ```sh
@@ -73,6 +52,19 @@ cmake -S . \
 ```
 
 benchmark 目标和采样参数见[基准测试](BENCHMARKS.md)。
+
+## C++11 单元测试依赖
+
+- **严格标准校验**：Debug 和 Release 主测试会校验实际编译标准；若 GoogleTest 或 `fmt` 的传递依赖将目标提升到高于 C++11，编译会报错。
+- **GoogleTest 来源差异**：Ubuntu/Debian 上，bootstrap 默认安装发行版 `libgtest-dev`；常规 CI 的 C++11 测试则用所选编译器构建固定的 GoogleTest 1.12.1；legacy 镜像使用 1.10.0。
+- **本地指定版本**：可在上述 `cmake` 配置命令中添加 `-DGTest_DIR=<prefix>/lib/cmake/GTest`，指向已安装的兼容版本。
+- **可选 C++17 用例**：启用 `GINT_BUILD_TESTS_CXX17` 后，可用 `ctest -R '^cxx17\.'` 单独运行。
+
+## consumer 子构建的配置边界
+
+- **会传递的配置**：consumer/package 测试保留选定的 C++ 编译器、工具链、平台/sysroot 设置、通用及配置专用的编译/链接 flags，以及生成器与活动配置（多配置生成器需使用 `ctest -C <配置>`）。自定义工具链输入按 CMake 的 `CMAKE_TRY_COMPILE_PLATFORM_VARIABLES` 声明传递（含空值、布尔值和列表），工具链文件须能在不同源码/构建目录间复用。
+- **隔离与暂存方式**：子构建独立配置，保持 C++11 consumer 和隔离安装前缀。package 与版本测试共用一个 CTest fixture：fixture 在私有构建目录生成安装规则、通过 `DESTDIR` 暂存安装树并校验清单，各 consumer 在独立构建目录中读取同一份暂存安装；配置绝对安装目录时，先校验导出路径，再从暂存目录编译 consumer。
+- **不传递的内容**：仅传递上述配置，不复制整个父 cache、项目选项、查找结果、目标属性或任意环境变量；平台范围遵循[支持策略](SUPPORT.md)。
 
 ## Linux/GCC 开发镜像
 
