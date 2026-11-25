@@ -244,6 +244,30 @@
       },
       "max_calls": 1
     },
+    "gint_perf_div_const10e19_1024": {
+      "max_instructions": {
+        "aarch64": 145,
+        "x86_64": 160
+      },
+      "max_total_instructions": {
+        "aarch64": 150,
+        "x86_64": 200
+      },
+      "external_call_budget": {
+        "aarch64": {},
+        "x86_64": {}
+      },
+      "forbidden_mnemonics": {
+        "x86_64": [
+          "div",
+          "divq",
+          "divl",
+          "divw",
+          "divb"
+        ]
+      },
+      "max_calls": 1
+    },
     "gint_perf_divmod1024_u64": {
       "max_instructions": {
         "aarch64": 260,

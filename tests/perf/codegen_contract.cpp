@@ -157,6 +157,11 @@ gint_perf_divmod1024_u64(gint::divmod_result<UInt1024> * result, const UInt1024 
     }
 }
 
+GINT_PERF_NOINLINE std::uint64_t gint_perf_div_const10e19_1024(UInt1024 * quotient, const UInt1024 * value)
+{
+    return gint::detail::division_ops<1024, unsigned>::div_mod_small_constant<10000000000000000000ULL>(*value, *quotient);
+}
+
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((flatten))
 #endif

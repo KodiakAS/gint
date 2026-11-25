@@ -34,7 +34,9 @@ Comparison 的 bit-pattern 场景统一使用 unsigned 固定位宽类型，使�
 布局已归一化。
 
 这些用例通常使用热、小数据集，主要反映 in-cache 独立操作吞吐，不等同于冷
-数据、依赖链延迟或端到端业务性能。
+数据、依赖链延迟或端到端业务性能。单机、仿真或虚拟化结果应注明 CPU、虚拟化
+方式和适用范围，不得直接外推到其他微架构；跨架构选型与特化准入原则见
+[实现说明](INTERNALS.md#性能维护)。
 
 ## 发现与运行目标
 
@@ -104,6 +106,38 @@ make bench-full \
 怀疑频率、代码布局或虚拟化噪声时，应交错重复 baseline/result，并结合
 cycles、instructions 和汇编解释，不能只报告一次百分比。
 
+### 单项回退与布局诊断
+
+用 [比较脚本](../scripts/compare_benchmarks.py) 读取两份原始 JSON 的逐次样本。
+每次对比固定一个 suite、位宽和环境。两端 sidecar 记录 `commit`、`suite`、
+`bits`、`host`、`cpu`、`virtualization`、`os`、`arch`、`compiler`、`flags`、
+`harness`、`filter` 和 `sampling`。除 `commit` 外各字段须一致。`bits` 为整数，
+`flags` 和 `sampling` 可记录为字符串、数组或对象。
+
+```sh
+python3 scripts/compare_benchmarks.py \
+  --baseline runs/perf/A.json --result runs/perf/B.json \
+  --baseline-meta runs/perf/A.meta.json --result-meta runs/perf/B.meta.json \
+  --markdown runs/perf/diff.md --json runs/perf/diff.json --fail-on-regression
+```
+
+默认使用墙钟时间判定，同时报告 CPU 时间，可通过 `--metric cpu_time` 切换。
+阈值及默认值见脚本 `--help`，覆盖参数随报告保存。短采使用报告模式，允许省略
+sidecar 并标记环境未核实。固定主机可显式启用门禁，已判定的单项回退退出 1，
+输入、覆盖或环境校验失败以及仍需复测的候选退出 2，其余退出 0。
+登记全部超线项，即使几何均值改善。分别比较固定主机 A/B/B/A 中两对相邻样本，
+确认两对都超线且 CPU 时间同向。秩检验提示分布变化，全矩阵筛查可能产生误报，
+同一进程内的重复也可能受布局和时间相关性影响。复测未确认的项保留测得范围和不确定性。
+
+检查最终链接二进制中的热点、内联调用者和循环，记录入口和分支目标地址模 32、
+instructions/op 和 cycles/op。指令序列或 helper 变化时做单改动 A/B。序列一致而
+地址变化时，在两端施加相同的链接顺序或填充扰动，或分别试验工具链支持的
+`-falign-functions=32` 与 `-falign-loops=32`。函数对齐改变入口和代码体积，
+循环对齐还会引入填充和取指差异。保持默认 benchmark 和 INTERFACE flags，仅在
+双边诊断中使用这些选项并记录工具链支持和最终地址。耗时随布局漂移且动态工作量
+近似稳定时记录为布局敏感，并保留默认构建的实际代价。缺少计数器或复测矛盾时，
+记录为未归因。参见 [GCC 对齐选项](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html)。
+
 ## Codegen contract
 
 本地运行：
@@ -131,6 +165,16 @@ comparison、128-bit 除模、512-bit 热点、1024-bit parser 与定向热点�
 必须回到固定主机复测。GCC 4.8.5 lane 只验证 correctness/integration，不构建
 Google Benchmark，也不用于性能宣传。
 
+### 三级覆盖和锚点
+
+1. PR 运行确定性的 codegen contract。
+2. 固定主机先窄测目标，再用 `--gint_full` 对 128/256/512/1024 位各做一次短采，
+   以 `--benchmark_list_tests` 核对覆盖，超线项转入定向 ABBA。
+3. 定时任务持续观察趋势。发布前或一组 hot path 重构后，用固定 harness 重编最近
+   发布 tag 或上次确认的里程碑和当前头，比较相邻版本以及锚点到当前，记录共同用例、
+   缺项和环境。锚点跨 PR 保持固定，以发现累积退化。长期证据需保存可重建的 commit、
+   输入、参数与原始结果。
+
 ## 结果记录
 
 性能数字随报告或发布证据保存，至少记录：
@@ -142,3 +186,9 @@ Google Benchmark，也不用于性能宣传。
 
 不同工具链分别呈现。没有同环境前后证据时，只能描述代码形态或历史样本，不能
 声称性能提升或退化。
+
+### 取舍字段
+
+对每项退化记录受损的主机、位宽与编译器、绝对与相对成本、收益场景、ABBA 和
+汇编证据，以及接受现有实现或重新设计的理由。显著退化需由维护者明确接受，
+未归因项保留待查。

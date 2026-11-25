@@ -279,8 +279,9 @@ struct division_ops
             return static_cast<limb_type>(num - q * div);
         }
 #if GINT_ARCH_X86_64
-        // Native x86-64 measurements favor divq for 1024-bit decimal conversion.
-        if (FixedDivisor == 0 || limbs == 16)
+        // Unknown single-limb divisors use hardware divq. Fixed divisors such
+        // as 10^19 use a compile-time reciprocal, including at 1024 bits.
+        if (FixedDivisor == 0)
             return scan_divq<true>(self, n, div, &quotient);
 #else
         // Use a reciprocal estimate in base 2^32 for a 32-bit divisor.
