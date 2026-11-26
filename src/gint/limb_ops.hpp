@@ -662,16 +662,9 @@ GINT_CONSTEXPR14 GINT_FORCE_INLINE void sub_limbs4_by_limb_for_scalar(uint64_t *
 }
 
 template <size_t L>
-GINT_CONSTEXPR14 GINT_FORCE_INLINE void sub_limbs_copy_disjoint(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+constexpr bool use_limb_sub_for_small_rhs() noexcept
 {
-#if GINT_DETAIL_X86_64_GCC
-    if (L == 4 && (rhs[1] | rhs[2] | rhs[3]) == 0)
-    {
-        sub_limbs4_by_limb(dst, lhs, rhs[0]);
-        return;
-    }
-#endif
-    sub_limbs_copy<L>(dst, lhs, rhs);
+    return L == 4 && GINT_DETAIL_X86_64_GCC;
 }
 
 GINT_FORCE_INLINE

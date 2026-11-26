@@ -16,11 +16,18 @@ void expect_native_128_divmod(Native dividend, const Divisor & divisor)
     const Int rhs(divisor);
     const Native d = static_cast<Native>(divisor);
     SCOPED_TRACE(::testing::Message() << "lhs=" << gint::to_string(lhs) << ", rhs=" << gint::to_string(rhs));
-    const Int q = lhs / divisor;
-    const Int r = lhs % divisor;
-    EXPECT_EQ(q, Int(dividend / d));
-    EXPECT_EQ(r, Int(dividend % d));
-    EXPECT_EQ(q * rhs + r, lhs);
+    const Int expected_quotient(dividend / d);
+    const Int expected_remainder(dividend % d);
+    EXPECT_EQ(lhs / divisor, expected_quotient);
+    EXPECT_EQ(lhs % divisor, expected_remainder);
+    const auto result = gint::divmod(lhs, rhs);
+    EXPECT_EQ(result.quotient, expected_quotient);
+    EXPECT_EQ(result.remainder, expected_remainder);
+    EXPECT_EQ(result.quotient * rhs + result.remainder, lhs);
+    // Compare magnitudes in the unsigned domain, including a signed minimum divisor.
+    const u128 remainder_bits = static_cast<u128>(result.remainder);
+    const u128 divisor_bits = static_cast<u128>(rhs);
+    EXPECT_LT(result.remainder < Int(0) ? -remainder_bits : remainder_bits, rhs < Int(0) ? -divisor_bits : divisor_bits);
 }
 
 u128 mulhi_u128_reference(u128 a, u128 b)
@@ -433,6 +440,38 @@ TEST(WideIntegerDivision, TwoLimbDivisorBoundaries128)
         expect_native_128_divmod<UInt128>(d - 1, UInt128(d));
         expect_native_128_divmod<UInt128>(max, UInt128(d));
     }
+}
+
+TEST(WideIntegerDivision, UInt128EstimateAtHardwareDivisionLimit)
+{
+    using gint::UInt128;
+    const u128 divisor = (u128(1) << 64) + 1;
+    const u128 high_word = u128(UINT64_MAX) << 64;
+    // Both odd low words reach normalized D = 2^63 and high64(n >> 1) = D - 1.
+    // Both estimates are UINT64_MAX. Low word 1 leaves the trial quotient
+    // unchanged, while low word UINT64_MAX increments it.
+    expect_native_128_divmod<UInt128>(high_word | 1, UInt128(divisor));
+    expect_native_128_divmod<UInt128>(high_word | UINT64_MAX, UInt128(divisor));
+}
+
+TEST(WideIntegerDivision, Int128DivModSignsAndMinimum)
+{
+    using gint::Int128;
+    const __int128 d = (__int128(1) << 80) + 3;
+    const __int128 n = 7 * d + 5;
+    for (const __int128 dividend : {n, -n})
+        for (const __int128 divisor : {d, -d})
+            expect_native_128_divmod<Int128>(dividend, Int128(divisor));
+    expect_native_128_divmod<Int128>(-n, Int128(-n - 1));
+
+    const Int128 minimum = std::numeric_limits<Int128>::min();
+    const Int128 minus_one(-1);
+    const auto result = gint::divmod(minimum, minus_one);
+    EXPECT_EQ(result.quotient, minimum);
+    EXPECT_EQ(result.remainder, Int128(0));
+    EXPECT_EQ(minimum / minus_one, minimum);
+    EXPECT_EQ(minimum % minus_one, Int128(0));
+    EXPECT_EQ(result.quotient * minus_one + result.remainder, minimum);
 }
 
 TEST(WideIntegerDivision, Int128PowerOfTwoDivMod)

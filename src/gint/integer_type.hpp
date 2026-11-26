@@ -1017,7 +1017,13 @@ public:
     GINT_CONSTEXPR14 friend integer operator-(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
-        detail::sub_limbs_copy_disjoint<limbs>(result.data_, lhs.data_, rhs.data_);
+        if (detail::use_limb_sub_for_small_rhs<limbs>()
+            && (rhs.data_[limbs >= 4 ? 1 : 0] | rhs.data_[limbs >= 4 ? 2 : 0] | rhs.data_[limbs >= 4 ? 3 : 0]) == 0)
+        {
+            detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs.data_[0]);
+            return result;
+        }
+        detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
 

@@ -898,16 +898,9 @@ GINT_CONSTEXPR14 GINT_FORCE_INLINE void sub_limbs4_by_limb_for_scalar(uint64_t *
 }
 
 template <size_t L>
-GINT_CONSTEXPR14 GINT_FORCE_INLINE void sub_limbs_copy_disjoint(uint64_t * dst, const uint64_t * lhs, const uint64_t * rhs) noexcept
+constexpr bool use_limb_sub_for_small_rhs() noexcept
 {
-#if GINT_DETAIL_X86_64_GCC
-    if (L == 4 && (rhs[1] | rhs[2] | rhs[3]) == 0)
-    {
-        sub_limbs4_by_limb(dst, lhs, rhs[0]);
-        return;
-    }
-#endif
-    sub_limbs_copy<L>(dst, lhs, rhs);
+    return L == 4 && GINT_DETAIL_X86_64_GCC;
 }
 
 GINT_FORCE_INLINE
@@ -2288,7 +2281,13 @@ public:
     GINT_CONSTEXPR14 friend integer operator-(const integer & lhs, const integer & rhs) noexcept
     {
         integer result;
-        detail::sub_limbs_copy_disjoint<limbs>(result.data_, lhs.data_, rhs.data_);
+        if (detail::use_limb_sub_for_small_rhs<limbs>()
+            && (rhs.data_[limbs >= 4 ? 1 : 0] | rhs.data_[limbs >= 4 ? 2 : 0] | rhs.data_[limbs >= 4 ? 3 : 0]) == 0)
+        {
+            detail::sub_limbs4_by_limb(result.data_, lhs.data_, rhs.data_[0]);
+            return result;
+        }
+        detail::sub_limbs_copy<limbs>(result.data_, lhs.data_, rhs.data_);
         return result;
     }
 
@@ -4117,34 +4116,67 @@ struct division_ops
         return carry;
     }
 
-    template <bool WantRemainder>
-    static GINT_NOINLINE unsigned __int128
-    div_or_mod_128_by_two_limbs(unsigned __int128 dividend, unsigned __int128 divisor, limb_type high) noexcept
+    enum class div128_output
+    {
+        quotient,
+        remainder,
+        both
+    };
+
+    template <div128_output Output>
+    static GINT_FORCE_INLINE u128
+    div_or_mod_128_two_limbs_kernel(u128 dividend, u128 divisor, limb_type high, u128 & remainder_out) noexcept
     {
         if (dividend < divisor)
-            return WantRemainder ? dividend : 0;
+        {
+            if (Output == div128_output::both)
+                remainder_out = dividend;
+            return Output == div128_output::remainder ? dividend : 0;
+        }
         const int shift = __builtin_clzll(high);
         const limb_type normalized_high = static_cast<limb_type>((divisor << shift) >> 64);
         // Discarding the low word of the normalized divisor rounds it down.
         // The resulting quotient is exact or one too large. Start one below
         // that estimate so its product fits, then correct using the remainder.
+#if GINT_ARCH_X86_64
+        // The normalized divisor is at least 2^63, above the high word of dividend >> 1.
+        const u128 half = dividend >> 1;
+        limb_type hi = static_cast<limb_type>(half >> 64);
+        const limb_type estimate = detail::divrem_u128_u64(static_cast<limb_type>(half), normalized_high, hi) >> (63 - shift);
+#else
         const limb_type estimate = static_cast<limb_type>(((dividend >> 1) / normalized_high) >> (63 - shift));
+#endif
         const limb_type lower = estimate - 1;
         const u128 remainder = dividend - lower * divisor;
         const bool adjust = remainder >= divisor;
-        return WantRemainder ? (adjust ? remainder - divisor : remainder) : lower + adjust;
+        if (Output == div128_output::both)
+            remainder_out = adjust ? remainder - divisor : remainder;
+        return Output == div128_output::remainder ? (adjust ? remainder - divisor : remainder) : lower + adjust;
     }
 
-    template <bool WantRemainder>
-    static GINT_FORCE_INLINE Int div_or_mod_128(const Int & lhs, const Int & rhs)
+    template <div128_output Output>
+    static GINT_NOINLINE u128 div_or_mod_128_by_two_limbs(u128 dividend, u128 divisor, limb_type high) noexcept
     {
+        u128 unused = 0;
+        return div_or_mod_128_two_limbs_kernel<Output>(dividend, divisor, high, unused);
+    }
+
+    template <div128_output Output>
+    static GINT_FORCE_INLINE u128 div_or_mod_128_dispatch(const Int & lhs, const Int & rhs, u128 & remainder)
+    {
+        constexpr bool WantRemainder = Output == div128_output::remainder;
+        constexpr bool WantBoth = Output == div128_output::both;
         const u128 lhs_bits = detail::load_u128(lhs.data_);
         const u128 rhs_bits = detail::load_u128(rhs.data_);
         const bool lhs_neg = std::is_same<Signed, signed>::value && (lhs_bits >> 127);
         const bool rhs_neg = std::is_same<Signed, signed>::value && (rhs_bits >> 127);
         // Raw bits order two negative values by decreasing magnitude.
         if (!WantRemainder && lhs_neg && rhs_neg && lhs_bits > rhs_bits)
-            return Int();
+        {
+            if (WantBoth)
+                remainder = lhs_bits;
+            return 0;
+        }
         // Unsigned negation also gives the magnitude of the signed minimum without overflow.
         const u128 dividend = lhs_neg ? -lhs_bits : lhs_bits;
         const u128 divisor = rhs_neg ? -rhs_bits : rhs_bits;
@@ -4152,7 +4184,11 @@ struct division_ops
         const limb_type high = static_cast<limb_type>(divisor >> 64);
         u128 result;
         if (GINT_LIKELY(high == 0 && (low & (low - 1)) != 0))
+        {
             result = WantRemainder ? dividend % low : dividend / low;
+            if (WantBoth)
+                remainder = dividend - result * low;
+        }
         else if (high == 0 || (low == 0 && (high & (high - 1)) == 0))
         {
             if (GINT_UNLIKELY(divisor == 0))
@@ -4160,10 +4196,12 @@ struct division_ops
                 if (WantRemainder)
                 {
                     GINT_MODZERO_CHECK(true);
-                    return lhs;
+                    return lhs_bits;
                 }
                 GINT_DIVZERO_CHECK(true);
-                return Int();
+                if (WantBoth)
+                    remainder = lhs_bits;
+                return 0;
             }
             if (WantRemainder)
                 result = dividend & (divisor - 1);
@@ -4171,20 +4209,50 @@ struct division_ops
             {
                 const int shift = low ? __builtin_ctzll(low) : 64 + __builtin_ctzll(high);
                 result = dividend >> shift;
+                if (WantBoth)
+                    remainder = dividend & (divisor - 1);
             }
         }
         else if (divisor >> 127)
         {
             const bool quotient = dividend >= divisor;
             result = WantRemainder ? (quotient ? dividend - divisor : dividend) : quotient;
+            if (WantBoth)
+                remainder = quotient ? dividend - divisor : dividend;
         }
         else if ((divisor >> 126) == 0)
-            result = div_or_mod_128_by_two_limbs<WantRemainder>(dividend, divisor, high);
+        {
+            if (WantBoth)
+                result = div_or_mod_128_two_limbs_kernel<Output>(dividend, divisor, high, remainder);
+            else
+                result = div_or_mod_128_by_two_limbs<Output>(dividend, divisor, high);
+        }
         else
+        {
             result = WantRemainder ? dividend % divisor : div_128_nonzero(dividend, divisor);
+            if (WantBoth)
+                remainder = dividend - result * divisor;
+        }
 
+        if (WantBoth && lhs_neg)
+            remainder = -remainder;
         const bool negative = WantRemainder ? lhs_neg : lhs_neg != rhs_neg;
-        return Int(negative ? -result : result);
+        return negative ? -result : result;
+    }
+
+    template <bool WantRemainder>
+    static GINT_FORCE_INLINE Int div_or_mod_128(const Int & lhs, const Int & rhs)
+    {
+        u128 unused = 0;
+        constexpr div128_output Output = WantRemainder ? div128_output::remainder : div128_output::quotient;
+        return Int(div_or_mod_128_dispatch<Output>(lhs, rhs, unused));
+    }
+
+    static GINT_FORCE_INLINE divmod_result<Int> divmod_128(const Int & lhs, const Int & rhs)
+    {
+        u128 remainder = 0;
+        const u128 quotient = div_or_mod_128_dispatch<div128_output::both>(lhs, rhs, remainder);
+        return {Int(quotient), Int(remainder)};
     }
 
     static GINT_FORCE_INLINE unsigned __int128 div_128_nonzero(unsigned __int128 dividend, unsigned __int128 divisor) noexcept
@@ -4974,14 +5042,15 @@ struct divmod_result
 
 /// Compute quotient and remainder while sharing the expensive quotient work.
 ///
-/// At widths of 256 bits and above, keep the remainder from the unsigned
-/// division kernel and restore signs as needed. Narrower widths rebuild the
-/// remainder from the quotient.
+/// At widths of 128 bits and above, retain the remainder from the division
+/// kernel when available. For 64 bits, rebuild it from the quotient.
 template <size_t Bits, typename Signed>
 inline divmod_result<integer<Bits, Signed>> divmod(const integer<Bits, Signed> & dividend, const integer<Bits, Signed> & divisor)
 {
     using Int = integer<Bits, Signed>;
     using Division = detail::division_ops<Bits, Signed>;
+    if (Bits == 128)
+        return Division::divmod_128(dividend, divisor);
     if (Bits < 256)
     {
         if (GINT_UNLIKELY(divisor.is_zero()))

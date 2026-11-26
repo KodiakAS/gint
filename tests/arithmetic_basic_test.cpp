@@ -3,10 +3,13 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <limits>
 #include <random>
 #include <type_traits>
 
 #if __cplusplus >= 201402L
+using UInt64 = gint::integer<64, unsigned>;
+
 constexpr bool constexpr_add_sub_works()
 {
     using U = gint::integer<128, unsigned>;
@@ -20,10 +23,12 @@ constexpr bool constexpr_add_sub_works()
 }
 
 static_assert(constexpr_add_sub_works(), "Add/Sub APIs should remain constexpr in C++14+");
+static_assert(UInt64(0) - UInt64(1) == UInt64(-1), "UInt64 wide borrow must wrap in constant expressions");
 static_assert(gint::UInt128(-1) + gint::UInt128(1) == gint::UInt128(0), "UInt128 wide carry must wrap in constant expressions");
 static_assert(gint::UInt128(0) - gint::UInt128(1) == gint::UInt128(-1), "UInt128 wide borrow must wrap in constant expressions");
 static_assert(gint::Int128(-1) + gint::Int128(1) == gint::Int128(0), "Int128 wide carry must wrap in constant expressions");
 static_assert(gint::Int128(0) - gint::Int128(1) == gint::Int128(-1), "Int128 wide borrow must wrap in constant expressions");
+static_assert(gint::UInt256(0) - gint::UInt256(1) == gint::UInt256(-1), "UInt256 wide borrow must wrap in constant expressions");
 #endif
 
 TEST(WideIntegerArithmetic, Int128WideCarryBorrowWrap)
@@ -34,6 +39,23 @@ TEST(WideIntegerArithmetic, Int128WideCarryBorrowWrap)
     EXPECT_EQ(UInt128(0) - UInt128(1), UInt128(-1));
     EXPECT_EQ(Int128(-1) + Int128(1), Int128(0));
     EXPECT_EQ(Int128(0) - Int128(1), Int128(-1));
+}
+
+TEST(WideIntegerArithmetic, Int256SameTypeSubtractionBoundaries)
+{
+    using gint::Int256;
+    using gint::UInt256;
+    UInt256 value = (UInt256(1) << 192) + (UInt256(1) << 64) + UInt256(7);
+    EXPECT_EQ(value - value, UInt256(0));
+    const UInt256 & same_value = value;
+    value -= same_value;
+    EXPECT_EQ(value, UInt256(0));
+    EXPECT_EQ(UInt256(0) - UInt256(1), UInt256(-1));
+    EXPECT_EQ(
+        (UInt256(1) << 192) - ((UInt256(1) << 64) + UInt256(1)),
+        (UInt256(UINT64_MAX) << 128) + (UInt256(UINT64_MAX - 1) << 64) + UInt256(UINT64_MAX));
+    EXPECT_EQ(std::numeric_limits<Int256>::min() - Int256(1), std::numeric_limits<Int256>::max());
+    EXPECT_EQ(std::numeric_limits<Int256>::max() - Int256(-1), std::numeric_limits<Int256>::min());
 }
 
 enum class ArithOp

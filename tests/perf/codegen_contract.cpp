@@ -103,6 +103,25 @@ GINT_PERF_NOINLINE unsigned gint_perf_hex_digit(unsigned char value)
     return gint::detail::hexadecimal_digit_value(value);
 }
 
+// Keep the divisor dynamic and in the two-limb estimate range [2^64, 2^126).
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((flatten))
+#endif
+GINT_PERF_NOINLINE void
+gint_perf_divmod128_two_limbs(
+    gint::divmod_result<gint::UInt128> * result, const gint::UInt128 * dividend, std::uint64_t high, std::uint64_t low)
+{
+    using u128 = unsigned __int128;
+    high = (high & ((UINT64_C(1) << 62) - 1)) | 1;
+    const gint::UInt128 divisor((u128(high) << 64) | (low | 1));
+#if defined(__clang__)
+    [[clang::always_inline]]
+#endif
+    {
+        *result = gint::divmod(*dividend, divisor);
+    }
+}
+
 // Inline the public dispatcher here so its proven single-limb divisor prunes the other kernels.
 #if defined(__GNUC__) && !defined(__clang__)
 __attribute__((flatten))

@@ -59,6 +59,11 @@ TEST(WideIntegerDivModUnchecked, UnsignedIntegerZeroDivisor)
     const auto u128_divmod = gint::divmod(u128, z128);
     EXPECT_EQ(u128_divmod.quotient, U128(0));
     EXPECT_EQ(u128_divmod.remainder, u128);
+    const auto zero_divmod = gint::divmod(z128, z128);
+    EXPECT_EQ(zero_divmod.quotient, z128);
+    EXPECT_EQ(zero_divmod.remainder, z128);
+    EXPECT_EQ(z128 / z128, z128);
+    EXPECT_EQ(z128 % z128, z128);
 
     const U512 u512 = (U512(1) << 300) + U512(123);
     const U512 z512 = 0;
@@ -78,6 +83,9 @@ TEST(WideIntegerDivModUnchecked, SignedIntegerZeroDivisor)
     const S128 z128 = 0;
     EXPECT_EQ(min128 / z128, S128(0));
     EXPECT_EQ(min128 % z128, min128);
+    const auto min_divmod = gint::divmod(min128, z128);
+    EXPECT_EQ(min_divmod.quotient, z128);
+    EXPECT_EQ(min_divmod.remainder, min128);
 
     const S128 negative = -((S128(1) << 100) + 7);
     EXPECT_EQ(negative / z128, S128(0));

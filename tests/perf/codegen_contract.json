@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "language_standard": "c++11",
-  "description": "Structural budgets for UInt256 and UInt512 hot paths compiled with GCC or Clang at -O3. Single-limb division budgets include outlined bodies.",
+  "description": "Structural budgets for wide integer hot paths compiled with GCC or Clang at -O3. Division budgets include outlined bodies where applicable.",
   "functions": {
     "gint_perf_add256": {
       "max_instructions": {
@@ -176,6 +176,32 @@
         },
         "x86_64": {}
       },
+      "max_calls": 1
+    },
+    "gint_perf_divmod128_two_limbs": {
+      "max_instructions": {
+        "aarch64": 100,
+        "x86_64": 84
+      },
+      "max_total_instructions": {
+        "aarch64": 100,
+        "x86_64": 84
+      },
+      "external_call_budget": {
+        "aarch64": {
+          "__udivti3": 1
+        },
+        "x86_64": {}
+      },
+      "forbidden_caller_mnemonics": {
+        "x86_64": [
+          "mul",
+          "mulq",
+          "imul",
+          "imulq"
+        ]
+      },
+      "max_back_edges": 0,
       "max_calls": 1
     },
     "gint_perf_divmod256_u64": {

@@ -71,6 +71,20 @@ TEST(WideIntegerDivMod, NegativeInt128ZeroDivisor)
     EXPECT_THROW(dividend % int64_t(0), std::domain_error);
 }
 
+TEST(WideIntegerDivMod, UInt128ZeroDivisor)
+{
+    using gint::UInt128;
+    const UInt128 zero;
+    const UInt128 dividends[] = {zero, (UInt128(1) << 100) + UInt128(7)};
+    for (const UInt128 & dividend : dividends)
+    {
+        SCOPED_TRACE(gint::to_string(dividend));
+        EXPECT_THROW(dividend / zero, std::domain_error);
+        EXPECT_THROW(dividend % zero, std::domain_error);
+        EXPECT_THROW(gint::divmod(dividend, zero), std::domain_error);
+    }
+}
+
 TEST(WideIntegerDivMod, NonzeroSignedInt128DivisorWithZeroLowWord)
 {
     using S64 = gint::integer<64, signed>;
